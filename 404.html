@@ -23,13 +23,8 @@
     <p class="code">404</p>
     <h1>This Road Leads Nowhere</h1>
     <p>“You've wandered off the map, Scout. Even the Kolkar don't ride out this far. Turn back before the hyenas find you.”</p>
-    <a class="btn" id="home" href="/">Back to the Hall</a>
+    <a class="btn" href="/">Back to the Hall</a>
   </div>
 </main>
-<script>
-  // Works both on grimscar.github.io/KorkronGuard/ and on the guild's own domain.
-  var parts = location.pathname.split("/").filter(Boolean);
-  document.getElementById("home").href = (location.hostname.endsWith("github.io") && parts.length ? "/" + parts[0] + "/" : "/") + "index.html";
-</script>
 </body>
 </html>

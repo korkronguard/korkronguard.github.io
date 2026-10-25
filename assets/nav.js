@@ -5,13 +5,6 @@
   var root = me.getAttribute("data-root") || "";
   var page = me.getAttribute("data-page") || "";
 
-  // The 404 page can be served from any depth, so it works out the root itself.
-  if (root === "auto") {
-    var parts = location.pathname.split("/").filter(Boolean);
-    root = location.hostname.endsWith("github.io") && parts.length ? "/" + parts[0] + "/" : "/";
-  }
-  window.KG_ROOT = root;
-
   var links = [
     ["home", "index.html", "Home"],
     ["lore", "lore.html", "The Lore"],
