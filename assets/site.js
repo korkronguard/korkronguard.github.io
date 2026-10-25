@@ -123,28 +123,85 @@ var KG = (function () {
   }
 
   // ---------- roster ----------
-  function memberCard(m, root) {
-    var p = pillar(m.pillar);
-    var color = CLASS_COLORS[m.class] || "#e9dcc6";
-    var portrait = m.portrait
-      ? '<img src="' + root + "players/images/" + esc(m.portrait) + '" alt="' + esc(m.name) + '" loading="lazy">'
-      : '<div class="placeholder"><img src="' + root + 'assets/crest.svg" alt=""><span>Portrait to come</span></div>';
-    var tag = '<span class="tag" style="--accent:' + p.color + '">' + p.label.split(" · ")[0] + (m.alt ? " · Alt" : "") + "</span>";
-    var inner =
-      '<div class="portrait">' + portrait + tag + "</div>" +
-      '<div class="member-body"><h3>' + esc(m.name) + "</h3>" +
-      '<p class="class" style="color:' + color + '">' + esc(m.race) + " " + esc(m.class) + "</p>" +
-      '<p class="title">' + esc(m.title) + "</p>" +
-      '<p class="blurb">' + esc(m.blurb) + "</p>" +
-      (m.page ? '<span class="read">Read the record &rarr;</span>' : "") + "</div>";
-    return m.page
-      ? '<a class="member panel" data-pillar="' + esc(m.pillar) + '" href="' + root + "players/" + esc(m.page) + '">' + inner + "</a>"
-      : '<div class="member panel" data-pillar="' + esc(m.pillar) + '">' + inner + "</div>";
+  function rankOf(m) {
+    return (window.KG_RANKS || []).filter(function (r) { return r.name === m.rank; })[0] || { name: m.rank || "", pillar: "hearth" };
   }
+  // A member "has a record" once they've sent a story (or have a hand-made page).
+  function hasRecord(m) { return !!(m.page || (m.story && m.story.length)); }
+  function recordHref(m, root) {
+    return root + "players/" + (m.page ? esc(m.page) : "record.html?id=" + encodeURIComponent(m.id));
+  }
+  function raceClass(m) { return [m.race, m.class].filter(Boolean).join(" "); }
+  // "Played by X" only when the character's name doesn't already start with the player's handle.
+  function playedBy(m) { return !!(m.name && m.player && m.name.toLowerCase().indexOf(m.player.toLowerCase()) !== 0); }
+  function classColor(m) { return CLASS_COLORS[m.class] || "#e9dcc6"; }
+  // The opening sentence of the player's own story, for the card.
+  function firstSentence(m) {
+    if (m.blurb) return m.blurb;
+    var t = (m.story && m.story[0]) || "";
+    var match = t.match(/^.*?[.!?](\s|$)/);
+    return (match ? match[0] : t).trim();
+  }
+  function portraitHtml(m, root, cls) {
+    if (m.portrait) return '<img class="' + (cls || "") + '" src="' + root + "players/images/" + esc(m.portrait) + '" alt="' + esc(m.name || m.player) + '" loading="lazy">';
+    if (m.video) return '<video class="' + (cls || "") + '" src="' + esc(m.video) + '" autoplay loop muted playsinline aria-label="' + esc(m.player) + '"' +
+      " onerror=\"this.outerHTML=''\"></video>";
+    return "";
+  }
+
+  function memberCard(m, root) {
+    var p = pillar(rankOf(m).pillar);
+    var pic = portraitHtml(m, root) || '<div class="placeholder"><img src="' + root + 'assets/crest.svg" alt=""><span>Portrait to come</span></div>';
+    var tag = '<span class="tag" style="--accent:' + p.color + '">' + esc(m.rank) + (m.alt ? " · Alt" : "") + "</span>";
+    var rc = raceClass(m);
+    return '<a class="member panel" href="' + recordHref(m, root) + '">' +
+      '<div class="portrait">' + pic + tag + "</div>" +
+      '<div class="member-body"><h3>' + esc(m.name || m.player) + "</h3>" +
+      (rc ? '<p class="class" style="color:' + classColor(m) + '">' + esc(rc) + "</p>" : "") +
+      (playedBy(m) ? '<p class="title">Played by ' + esc(m.player) + "</p>" : "") +
+      '<p class="blurb">' + esc(firstSentence(m)) + "</p>" +
+      '<span class="read">Read the record &rarr;</span></div></a>';
+  }
+  function nameplate(m, root) {
+    var p = pillar(rankOf(m).pillar), rc = raceClass(m);
+    var pic = portraitHtml(m, root, "plate-pic") || '<img class="plate-crest" src="' + root + 'assets/crest.svg" alt="">';
+    return '<a class="nameplate" style="--accent:' + p.color + '" href="' + recordHref(m, root) + '">' + pic +
+      '<span><b>' + esc(m.name || m.player) + "</b>" +
+      (rc ? '<em style="color:' + classColor(m) + '">' + esc(rc) + "</em>" : "<em>Record awaiting</em>") + "</span></a>";
+  }
+
+  // Home page: a few members who have sent their story.
   function renderMembers(el, root, limit) {
     if (!el) return;
-    var list = (window.KG_PLAYERS || []).slice(0, limit || 999);
+    var list = (window.KG_PLAYERS || []).filter(hasRecord).slice(0, limit || 999);
     el.innerHTML = list.map(function (m) { return memberCard(m, root); }).join("");
+  }
+
+  // The Guard page: every rank, highest first, with its members.
+  function renderRoster(el, root) {
+    if (!el) return;
+    var players = window.KG_PLAYERS || [];
+    var html = "";
+    (window.KG_RANKS || []).forEach(function (r, i) {
+      var members = players.filter(function (m) { return m.rank === r.name; });
+      var p = pillar(r.pillar);
+      if (i === 0 || r.group !== window.KG_RANKS[i - 1].group) {
+        html += '<h2 class="rank-group">' + (r.group === "command" ? "Ranks of Command" : "Ranks of the Line") + "</h2>";
+      }
+      html += '<section class="rank-section' + (members.length ? "" : " empty") + '" style="--accent:' + p.color + '">' +
+        '<div class="rank-head"><h3>' + esc(r.name) + '</h3><span class="rank-role">' + esc(r.role) + "</span>" +
+        (members.length ? '<span class="rank-count">' + members.length + "</span>" : "") + "</div>";
+      if (!members.length) {
+        html += '<p class="rank-lore">' + esc(r.lore) + ' <span class="rank-open">' + (r.group === "command" ? "Seat open." : "None yet.") + "</span></p></section>";
+        return;
+      }
+      html += '<p class="rank-lore">' + esc(r.lore) + "</p>";
+      var full = members.filter(hasRecord), plates = members.filter(function (m) { return !hasRecord(m); });
+      if (full.length) html += '<div class="member-grid">' + full.map(function (m) { return memberCard(m, root); }).join("") + "</div>";
+      if (plates.length) html += '<div class="plates">' + plates.map(function (m) { return nameplate(m, root); }).join("") + "</div>";
+      html += "</section>";
+    });
+    el.innerHTML = html;
   }
 
   // ---------- atmosphere ----------
@@ -209,7 +266,8 @@ var KG = (function () {
 
   return {
     PILLARS: PILLARS, esc: esc, pillar: pillar, occurrences: occurrences, timeText: timeText, eventCard: eventCard,
-    renderUpcoming: renderUpcoming, renderMembers: renderMembers, embers: embers, skyline: skyline, reveal: reveal,
+    renderUpcoming: renderUpcoming, renderMembers: renderMembers, renderRoster: renderRoster, embers: embers, skyline: skyline, reveal: reveal,
+    rankOf: rankOf, hasRecord: hasRecord, raceClass: raceClass, classColor: classColor, portraitHtml: portraitHtml, playedBy: playedBy,
     viewerZone: viewerZone, zoneLabel: zoneLabel, GUILD_ZONE: GUILD_ZONE, GUILD_ZONE_NAME: GUILD_ZONE_NAME
   };
 })();

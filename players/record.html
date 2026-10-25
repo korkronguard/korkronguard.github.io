@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Record of Service · Kor'kron Guard</title>
+<meta name="description" content="A record of service in the Kor'kron Guard, in the member's own words.">
+<link rel="icon" href="../assets/crest.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/scroll.css">
+<link rel="stylesheet" href="../assets/nav.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="wax-edge"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="4"/><feDisplacementMap in="SourceGraphic" scale="9"/></filter>
+    <radialGradient id="wax" cx="38%" cy="32%" r="75%">
+      <stop offset="0" stop-color="#c2382a"/><stop offset=".55" stop-color="#8a1b12"/><stop offset="1" stop-color="#4a0905"/>
+    </radialGradient>
+    <g id="axe">
+      <line x1="50" y1="86" x2="50" y2="16" stroke-width="5" stroke-linecap="round"/>
+      <path d="M50 19 C 33 12, 23 27, 28 46 C 35 38, 43 36, 50 38 Z"/>
+      <path d="M50 22 C 60 20, 65 27, 63 34 C 59 31, 54 31, 50 32 Z"/>
+    </g>
+    <symbol id="seal" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="52" fill="url(#wax)" filter="url(#wax-edge)"/>
+      <circle cx="60" cy="60" r="40" fill="none" stroke="#5a0c07" stroke-width="2.5" opacity=".8"/>
+      <circle cx="60" cy="60" r="36" fill="none" stroke="#e6a08a" stroke-width="1" opacity=".35"/>
+      <g transform="translate(10 10)">
+        <g fill="#e9a48c" stroke="#e9a48c" opacity=".35" transform="translate(-.8 -.8)">
+          <use href="#axe" transform="rotate(-34 50 50)"/>
+          <use href="#axe" transform="translate(100 0) scale(-1 1) rotate(-34 50 50)"/>
+        </g>
+        <g fill="#56100a" stroke="#56100a">
+          <use href="#axe" transform="rotate(-34 50 50)"/>
+          <use href="#axe" transform="translate(100 0) scale(-1 1) rotate(-34 50 50)"/>
+        </g>
+      </g>
+    </symbol>
+    <symbol id="flourish" viewBox="0 0 54 22">
+      <path d="M27 2 L33 11 L27 20 L21 11 Z" fill="currentColor"/>
+      <path d="M2 11 H17 M37 11 H52" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="12" cy="11" r="2" fill="currentColor"/><circle cx="42" cy="11" r="2" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<main class="scroll">
+  <div class="rod rod-top" aria-hidden="true"></div>
+  <article class="parchment" id="parchment"></article>
+  <div class="rod rod-bottom" aria-hidden="true"></div>
+</main>
+
+<script src="../data/players.js"></script>
+<script src="../assets/site.js"></script>
+<script src="../assets/nav.js" data-root="../" data-page="guard"></script>
+<script>
+  // Fills the scroll from data/players.js. The player's own words are shown exactly as given.
+  (function () {
+    var id = new URLSearchParams(location.search).get("id") || "";
+    var m = (window.KG_PLAYERS || []).filter(function (p) { return p.id === id; })[0];
+    var el = document.getElementById("parchment");
+    var esc = KG.esc;
+    var divider = '<div class="divider"><svg aria-hidden="true"><use href="#flourish"/></svg></div>';
+    var seal = '<div class="seal-wrap"><svg class="seal" aria-hidden="true"><use href="#seal"/></svg></div>';
+    var back = '<footer class="reveal">' + divider + seal +
+      '<p class="ooc"><a href="index.html">&larr; All of the Guard</a><br>Kor\'kron Guard &middot; WoW: Forever</p></footer>';
+
+    if (!m) {
+      el.innerHTML = '<header class="reveal"><p class="kicker">Kor\'kron Guard &middot; Record of Service</p>' +
+        '<h1>No Such Record</h1><p class="subtitle">This name isn\'t on the Guard\'s rolls.</p></header>' + back;
+      return;
+    }
+    if (m.page) { location.replace(m.page); return; }
+
+    var who = m.name || m.player;
+    document.title = who + " · Kor'kron Guard";
+    var rc = KG.raceClass(m);
+    var sub = [rc, m.rank].filter(Boolean).join(" · ");
+    var pic = KG.portraitHtml(m, "../");
+
+    var html = '<header class="reveal"><p class="kicker">Kor\'kron Guard &middot; Record of Service</p>' +
+      "<h1>" + esc(who) + "</h1>" +
+      '<p class="subtitle">' + esc(sub) + "</p>" +
+      (KG.playedBy(m) ? '<p class="played">Played by ' + esc(m.player) + "</p>" : "") +
+      (pic ? '<figure class="portrait-frame">' + pic + "</figure>" : seal) +
+      "</header>";
+
+    var paras = function (list) { return list.map(function (p) { return "<p>" + esc(p) + "</p>"; }).join(""); };
+    if (m.story && m.story.length) {
+      html += divider + '<section class="reveal"><h2>The Tale</h2><div class="tale">' + paras(m.story) + "</div></section>";
+    }
+    if (m.appearance && m.appearance.length) {
+      html += divider + '<section class="reveal"><h2>What You See</h2>' + paras(m.appearance) + "</section>";
+    }
+    if (!(m.story && m.story.length) && !(m.appearance && m.appearance.length)) {
+      html += divider + '<section class="reveal awaiting"><h2>A Record Yet Unwritten</h2>' +
+        "<p>Every Kor'kron tells their own story. When " + esc(m.player) + " sets theirs down, it will be kept here, in their own words.</p></section>";
+    }
+    el.innerHTML = html + back;
+  })();
+</script>
+<script src="../assets/scroll.js" data-seed="41"></script>
+</body>
+</html>
