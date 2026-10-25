@@ -90,8 +90,9 @@
     return '<span style="--accent:' + p.color + '">' + p.label + "</span>";
   }).join("");
 
-  var zone = KG.viewerZone === "America/New_York" ? "US Eastern" : (KG.viewerZone || "your local time").replace(/_/g, " ");
-  document.getElementById("tz").textContent = "Times are shown in your time zone (" + zone + "). The Guard schedules in US Eastern.";
+  document.getElementById("tz").textContent = KG.viewerZone === KG.GUILD_ZONE
+    ? "Times are shown in US Central, the Guard's home time."
+    : "Times are shown in your time zone (" + KG.zoneLabel() + "). The Guard schedules in US Central.";
 
   draw();
   KG.renderUpcoming(document.getElementById("upcoming"), 10);

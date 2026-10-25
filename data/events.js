@@ -1,4 +1,4 @@
-// The guild calendar. Every time here is US Eastern; the site converts it for each visitor.
+// The guild calendar. Every time here is US Central (the guild's home time); the site converts it for each visitor.
 //
 // One-off event:   { title, date: "2026-11-06", time: "20:00", hours: 3, pillar, where, notes }
 // All-day event:   { title, date: "2026-11-04", pillar, notes }            (no time)

@@ -2,7 +2,8 @@
 document.documentElement.classList.add("js");
 
 var KG = (function () {
-  var EASTERN = "America/New_York";
+  // The guild schedules everything in US Central; visitors see times converted to their own zone.
+  var GUILD_ZONE = "America/Chicago", GUILD_ZONE_NAME = "Central";
   var PILLARS = {
     command:   { label: "Command",          color: "var(--gold)" },
     vanguard:  { label: "Vanguard · Raid",  color: "var(--vanguard)" },
@@ -25,22 +26,22 @@ var KG = (function () {
   function pillar(key) { return PILLARS[key] || PILLARS.server; }
 
   // ---------- time ----------
-  // Minutes Eastern time is ahead of UTC at a given moment (-300 in winter, -240 in summer).
-  var easternParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: EASTERN, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric"
+  // Minutes guild time is ahead of UTC at a given moment (Central: -360 in winter, -300 in summer).
+  var guildParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: GUILD_ZONE, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric"
   });
-  function easternOffset(date) {
+  function guildOffset(date) {
     var p = {};
-    easternParts.formatToParts(date).forEach(function (x) { p[x.type] = +x.value; });
+    guildParts.formatToParts(date).forEach(function (x) { p[x.type] = +x.value; });
     var asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute);
     return Math.round((asUtc - date.getTime()) / 60000);
   }
-  // An Eastern wall-clock time as a real moment.
-  function eastern(y, m, d, hh, mm) {
-    var guess = new Date(Date.UTC(y, m - 1, d, hh, mm) + 300 * 60000);
-    var off = easternOffset(guess);
+  // A guild-time (Central) wall-clock time as a real moment.
+  function guildTime(y, m, d, hh, mm) {
+    var guess = new Date(Date.UTC(y, m - 1, d, hh, mm) + 360 * 60000);
+    var off = guildOffset(guess);
     var t = new Date(Date.UTC(y, m - 1, d, hh, mm) - off * 60000);
-    var off2 = easternOffset(t);
+    var off2 = guildOffset(t);
     return off2 === off ? t : new Date(Date.UTC(y, m - 1, d, hh, mm) - off2 * 60000);
   }
   function ymd(s) { var p = s.split("-"); return [+p[0], +p[1], +p[2]]; }
@@ -62,12 +63,12 @@ var KG = (function () {
           var day = new Date(cur);
           if (day.getUTCDay() !== dow) continue;
           var t = hm(ev.time);
-          var start = eastern(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), t[0], t[1]);
+          var start = guildTime(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), t[0], t[1]);
           if (start >= from && start <= to) out.push({ ev: ev, start: start, allDay: false });
         }
       } else if (ev.date) {
         var d = ymd(ev.date), s;
-        if (ev.time) { var tt = hm(ev.time); s = eastern(d[0], d[1], d[2], tt[0], tt[1]); }
+        if (ev.time) { var tt = hm(ev.time); s = guildTime(d[0], d[1], d[2], tt[0], tt[1]); }
         else s = new Date(d[0], d[1] - 1, d[2]);
         var endOfDay = new Date(s.getTime() + (ev.time ? (ev.hours || 2) * 3600000 : 86400000 - 1));
         if (endOfDay >= from && s <= to) out.push({ ev: ev, start: s, allDay: !ev.time });
@@ -77,12 +78,21 @@ var KG = (function () {
   }
 
   var viewerZone = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
+  // A friendly name for the visitor's zone, like "Central Time" or "Pacific Time".
+  function zoneLabel() {
+    try {
+      var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "longGeneric" }).formatToParts(new Date())
+        .filter(function (x) { return x.type === "timeZoneName"; })[0];
+      if (part && !/^GMT/.test(part.value)) return part.value;
+    } catch (e) {}
+    return viewerZone ? viewerZone.split("/").pop().replace(/_/g, " ") + " time" : "your local time";
+  }
   function timeText(o) {
     if (o.allDay) return "All day";
     var local = o.start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
-    if (viewerZone === EASTERN) return local;
-    var east = o.start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: EASTERN });
-    return local + " (" + east + " Eastern)";
+    if (viewerZone === GUILD_ZONE) return local;
+    var guild = o.start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: GUILD_ZONE });
+    return local + " (" + guild + " " + GUILD_ZONE_NAME + ")";
   }
 
   function eventCard(o) {
@@ -200,6 +210,6 @@ var KG = (function () {
   return {
     PILLARS: PILLARS, esc: esc, pillar: pillar, occurrences: occurrences, timeText: timeText, eventCard: eventCard,
     renderUpcoming: renderUpcoming, renderMembers: renderMembers, embers: embers, skyline: skyline, reveal: reveal,
-    viewerZone: viewerZone
+    viewerZone: viewerZone, zoneLabel: zoneLabel, GUILD_ZONE: GUILD_ZONE, GUILD_ZONE_NAME: GUILD_ZONE_NAME
   };
 })();
