@@ -232,3 +232,9 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
 .nameplate span { display: flex; flex-direction: column; min-width: 0; }
 .nameplate b { font-family: "Cinzel", Georgia, serif; font-size: 16px; color: #f3e4c6; letter-spacing: .03em; }
 .nameplate em { font-size: 13px; color: var(--faint); }
+
+/* ---------- event links ---------- */
+.event-link { display: inline-block; margin-top: 6px; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); text-decoration: none; }
+.event-link:hover { color: #fff1d6; }
+a.chip { text-decoration: none; cursor: pointer; }
+a.chip:hover { filter: brightness(1.25); }

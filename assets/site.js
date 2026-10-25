@@ -103,6 +103,7 @@ var KG = (function () {
       "<div><h3>" + esc(ev.title) + "</h3>" +
       '<div class="meta"><b>' + p.label + "</b>" + timeText(o) + (ev.where ? " · " + esc(ev.where) : "") + "</div>" +
       (ev.notes ? '<div class="notes">' + esc(ev.notes) + "</div>" : "") +
+      (ev.link ? '<a class="event-link" href="' + esc(ev.link) + '" target="_blank" rel="noopener">Read more &rarr;</a>' : "") +
       "</div></div>";
   }
 

@@ -75,7 +75,10 @@
         var p = KG.pillar(o.ev.pillar);
         var tip = o.ev.title + " · " + KG.timeText(o) + (o.ev.notes ? " · " + o.ev.notes : "");
         var t = o.allDay ? "" : o.start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + " ";
-        return '<span class="chip" style="--accent:' + p.color + '" title="' + KG.esc(tip) + '">' + KG.esc(t + o.ev.title) + "</span>";
+        var attrs = ' class="chip" style="--accent:' + p.color + '" title="' + KG.esc(tip) + '"';
+        return o.ev.link
+          ? '<a' + attrs + ' href="' + KG.esc(o.ev.link) + '" target="_blank" rel="noopener">' + KG.esc(t + o.ev.title) + "</a>"
+          : "<span" + attrs + ">" + KG.esc(t + o.ev.title) + "</span>";
       }).join("");
       html += '<div class="' + cls + '"><span class="num">' + d.getDate() + "</span>" + chips + "</div>";
     }

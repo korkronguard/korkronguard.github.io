@@ -5,17 +5,20 @@
 // Weekly event:    { title, weekly: "Tue", time: "20:00", hours: 3, from: "2026-11-10", until: "", pillar, where, notes }
 //
 // pillar: "vanguard" (raid), "outriders" (PvP), "hearth" (social), or "server" (game-wide news)
+// link:   optional web page for the event (shows "Read more" and makes it clickable on the calendar)
 window.KG_EVENTS = [
   {
     title: "WoW: Forever name reservation opens",
     date: "2026-10-27",
     pillar: "server",
     notes: "Claim your character names before launch.",
+    link: "https://news.blizzard.com/en-us/article/24303866/claim-your-world-of-warcraft-forever-character-names",
   },
   {
     title: "WoW: Forever servers go live",
     date: "2026-11-04",
     pillar: "server",
     notes: "The Guard musters in Durotar.",
+    link: "https://worldofwarcraft.blizzard.com/en-us/forever",
   },
 ];

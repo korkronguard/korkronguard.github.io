@@ -159,6 +159,11 @@ window.KG_PLAYERS = [
     "rank": "Blood Guard"
   },
   {
+    "id": "nerrfed",
+    "player": "Nerrfed",
+    "rank": "Blood Guard"
+  },
+  {
     "id": "beeroism",
     "player": "Beeroism",
     "rank": "Kor'kron Vanguard"
