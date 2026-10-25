@@ -1,0 +1,205 @@
+/* Dark "war hall" pages: home, the Guard roster, calendar. */
+:root {
+  --bg: #0d0907;
+  --bg-raised: #171009;
+  --panel: #1d140d;
+  --panel-edge: #4a2c1a;
+  --text: #ecdfc8;
+  --muted: #b09d82;
+  --faint: #7d6d58;
+  --blood: #c0302a;
+  --blood-deep: #6e120c;
+  --gold: #d1aa55;
+  --gold-soft: #a8843c;
+  --vanguard: #c0302a;
+  --outriders: #c77a2a;
+  --hearth: #d8a33c;
+  --server: #8a8f99;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text);
+  font-family: "IM Fell English", Georgia, "Times New Roman", serif; font-size: 18px; line-height: 1.6;
+}
+main { flex: 1 0 auto; }
+a { color: var(--gold); }
+img { max-width: 100%; }
+h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin: 0; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+.section { padding: 80px 0; position: relative; }
+.section.alt { background: linear-gradient(to bottom, #120c08, #0f0a07); border-top: 1px solid #2a1a10; border-bottom: 1px solid #2a1a10; }
+
+.eyebrow { font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .32em; text-transform: uppercase; color: var(--gold-soft); margin: 0 0 10px; text-align: center; }
+.section-title { text-align: center; font-size: clamp(28px, 4vw, 40px); color: #f3e4c6; letter-spacing: .04em; }
+.section-sub { text-align: center; color: var(--muted); max-width: 640px; margin: 12px auto 40px; font-style: italic; }
+.rule { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 14px auto 0; color: var(--blood); }
+.rule::before, .rule::after { content: ""; width: 80px; height: 1px; background: linear-gradient(to right, transparent, var(--gold-soft)); }
+.rule::after { transform: scaleX(-1); }
+
+.btn {
+  display: inline-block; padding: 13px 26px; text-decoration: none; cursor: pointer;
+  font-family: "Cinzel", Georgia, serif; font-weight: 700; font-size: 14px; letter-spacing: .18em; text-transform: uppercase;
+  color: #fff3dc; background: linear-gradient(to bottom, #b3261e, #74140d);
+  border: 1px solid #e0a35a; box-shadow: 0 0 0 1px #2a0805, 0 6px 18px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 220, 180, .3);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px #2a0805, 0 0 22px rgba(200, 60, 30, .45), inset 0 1px 0 rgba(255, 220, 180, .3); }
+.btn.ghost { background: rgba(10, 6, 4, .5); border-color: var(--gold-soft); color: #f0e2c8; }
+
+.panel {
+  background: linear-gradient(to bottom, #1f150e, #160f0a); border: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 170, .06), 0 10px 26px rgba(0, 0, 0, .45);
+}
+
+/* ---------- hero ---------- */
+.hero {
+  position: relative; min-height: calc(100vh - 62px); display: flex; align-items: center; justify-content: center;
+  overflow: hidden; text-align: center; padding: 60px 16px 140px;
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 62%, rgba(255, 120, 50, .35), transparent 70%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, rgba(150, 30, 15, .55), transparent 70%),
+    linear-gradient(to bottom, #090605 0%, #1a0b07 38%, #4a140b 72%, #7a2410 100%);
+}
+.hero-sun {
+  position: absolute; left: 50%; top: 58%; width: 340px; height: 340px; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 190, 120, .55), rgba(230, 90, 40, .25) 45%, transparent 70%);
+}
+.hero-land { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 46%; min-height: 220px; }
+.embers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.embers i {
+  position: absolute; bottom: -10px; width: 3px; height: 3px; border-radius: 50%;
+  background: #ffb15a; box-shadow: 0 0 6px 2px rgba(255, 120, 40, .7); opacity: 0;
+  animation: rise linear infinite;
+}
+@keyframes rise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: .9; }
+  100% { transform: translate(var(--drift, 30px), -95vh); opacity: 0; }
+}
+.hero-content { position: relative; z-index: 2; max-width: 820px; }
+.hero-crest { width: 120px; height: 140px; filter: drop-shadow(0 0 24px rgba(220, 70, 30, .55)) drop-shadow(0 8px 12px rgba(0, 0, 0, .7)); }
+.hero h1 {
+  font-family: "Cinzel Decorative", "Cinzel", Georgia, serif; font-weight: 900; margin: 18px 0 6px;
+  font-size: clamp(40px, 8vw, 88px); line-height: 1; letter-spacing: .02em; color: #f6e6c6;
+  text-shadow: 0 2px 0 #3a0a05, 0 0 30px rgba(220, 70, 30, .45), 0 6px 24px rgba(0, 0, 0, .8);
+}
+.hero .tagline { font-family: "Cinzel", Georgia, serif; font-size: clamp(15px, 2.2vw, 20px); letter-spacing: .22em; text-transform: uppercase; color: #e8b77c; margin: 0; }
+.hero .motto { font-style: italic; font-size: clamp(18px, 2.4vw, 23px); color: #e9d6b6; margin: 22px auto 34px; max-width: 640px; text-shadow: 0 2px 8px rgba(0, 0, 0, .8); }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+.hero-scroll { position: absolute; z-index: 2; bottom: 22px; left: 50%; transform: translateX(-50%); color: #e8b77c; font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .3em; text-transform: uppercase; text-decoration: none; text-align: center; }
+.hero-scroll::after { content: ""; display: block; width: 10px; height: 10px; margin: 8px auto 0; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); animation: nudge 2s ease-in-out infinite; }
+@keyframes nudge { 50% { transform: translateY(5px) rotate(45deg); } }
+
+/* ---------- charter excerpt ---------- */
+.charter { max-width: 760px; margin: 0 auto; text-align: center; font-size: 20px; }
+.charter p { margin: 0 0 16px; color: #dccdb3; }
+.charter .force { font-family: "Cinzel", Georgia, serif; font-weight: 700; font-size: 26px; letter-spacing: .14em; text-transform: uppercase; color: var(--blood); margin: 26px 0; }
+
+/* ---------- pillars ---------- */
+.pillar-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.pillar-card { padding: 30px 26px 26px; text-align: center; border-top: 3px solid var(--accent, var(--blood)); }
+.pillar-card svg { width: 54px; height: 54px; color: var(--accent, var(--blood)); }
+.pillar-card h3 { font-size: 24px; margin: 12px 0 2px; color: #f3e4c6; }
+.pillar-card .what { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .26em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+.pillar-card .quote { font-style: italic; color: var(--accent, var(--gold)); margin: 0 0 14px; }
+.pillar-card p { color: #cdbea5; font-size: 16px; margin: 0; }
+.pillar-card .led { margin-top: 16px; font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); }
+
+/* ---------- event list ---------- */
+.event-list { display: grid; gap: 12px; max-width: 820px; margin: 0 auto; }
+.event { display: grid; grid-template-columns: 74px 1fr; gap: 18px; align-items: center; padding: 14px 18px; border-left: 4px solid var(--accent, var(--server)); }
+.event-date { text-align: center; font-family: "Cinzel", Georgia, serif; line-height: 1.1; }
+.event-date .mon { display: block; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--accent, var(--muted)); }
+.event-date .day { display: block; font-size: 30px; font-weight: 700; color: #f3e4c6; }
+.event-date .dow { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.event h3 { font-size: 18px; color: #f3e4c6; }
+.event .meta { font-size: 15px; color: var(--muted); }
+.event .meta b { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent, var(--muted)); margin-right: 8px; }
+.event .notes { font-size: 15px; color: #cdbea5; margin-top: 4px; }
+.empty { text-align: center; color: var(--muted); font-style: italic; padding: 26px; }
+
+/* ---------- member cards ---------- */
+.member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px; }
+.member { display: flex; flex-direction: column; text-decoration: none; color: inherit; overflow: hidden; transition: transform .2s ease, box-shadow .2s ease; }
+.member:hover { transform: translateY(-3px); box-shadow: 0 0 0 1px var(--gold-soft), 0 16px 30px rgba(0, 0, 0, .55); }
+.portrait { position: relative; aspect-ratio: 4 / 3; background: radial-gradient(circle at 50% 40%, #3a160d, #120a06 70%); overflow: hidden; border-bottom: 1px solid var(--panel-edge); }
+.portrait img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.portrait .placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.portrait .placeholder img { width: 74px; height: 86px; opacity: .55; object-fit: contain; }
+.portrait .placeholder span { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--faint); }
+.portrait .tag { position: absolute; top: 10px; left: 10px; padding: 3px 9px; font-family: "Cinzel", Georgia, serif; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #fff1d6; background: rgba(10, 6, 4, .75); border: 1px solid var(--accent, var(--gold-soft)); }
+.member-body { padding: 16px 18px 20px; display: flex; flex-direction: column; flex: 1; }
+.member h3 { font-size: 20px; color: #f3e4c6; }
+.member .class { font-family: "Cinzel", Georgia, serif; font-size: 13px; letter-spacing: .08em; margin: 2px 0 0; }
+.member .title { font-size: 15px; color: var(--muted); font-style: italic; margin: 2px 0 10px; }
+.member .blurb { font-size: 15px; color: #cdbea5; margin: 0 0 14px; }
+.member .read { margin-top: auto; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold); }
+
+.filters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0 0 30px; }
+.filters button {
+  font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--muted); background: transparent; border: 1px solid var(--panel-edge); padding: 8px 14px; cursor: pointer;
+}
+.filters button[aria-pressed="true"] { color: #fff1d6; border-color: var(--blood); background: rgba(192, 48, 42, .15); }
+
+/* ---------- tools ---------- */
+.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.tool { padding: 24px; display: flex; flex-direction: column; }
+.tool h3 { font-size: 20px; color: #f3e4c6; }
+.tool code { font-family: Consolas, monospace; font-size: 13px; color: var(--gold); }
+.tool p { font-size: 15px; color: #cdbea5; margin: 8px 0 16px; }
+.tool a { margin-top: auto; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; text-decoration: none; }
+.howto { max-width: 760px; margin: 30px auto 0; padding: 18px 22px; font-size: 16px; color: #cdbea5; }
+.howto b { color: #f3e4c6; }
+
+/* ---------- join ---------- */
+.join { max-width: 760px; margin: 0 auto; padding: 36px 34px; text-align: center; }
+.join p { color: #dccdb3; }
+.join .closing { font-family: "Cinzel", Georgia, serif; font-weight: 700; color: var(--gold); font-size: 20px; letter-spacing: .06em; margin: 22px 0 26px; }
+.facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 26px; margin: 0 0 24px; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.facts b { color: #f3e4c6; font-weight: 700; }
+
+/* ---------- calendar ---------- */
+.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.cal-head h2 { font-size: 26px; color: #f3e4c6; letter-spacing: .06em; }
+.cal-head button { font-family: "Cinzel", Georgia, serif; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--text); background: var(--panel); border: 1px solid var(--panel-edge); padding: 8px 14px; cursor: pointer; }
+.cal-head button:hover { border-color: var(--gold-soft); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-left: 1px solid #2c1d12; border-top: 1px solid #2c1d12; }
+.cal-dow { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); padding: 8px; text-align: center; background: #150e09; border-right: 1px solid #2c1d12; border-bottom: 1px solid #2c1d12; }
+.cal-day { min-height: 108px; padding: 6px; background: #120c08; border-right: 1px solid #2c1d12; border-bottom: 1px solid #2c1d12; }
+.cal-day.other { background: #0d0806; }
+.cal-day.other .num { color: #4d4033; }
+.cal-day.today { box-shadow: inset 0 0 0 2px var(--blood); }
+.cal-day .num { font-family: "Cinzel", Georgia, serif; font-size: 13px; color: var(--muted); }
+.chip { display: block; margin-top: 4px; padding: 3px 6px; font-size: 13px; line-height: 1.25; color: #f6ead4; background: color-mix(in srgb, var(--accent, var(--server)) 28%, #120c08); border-left: 3px solid var(--accent, var(--server)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: center; margin: 18px 0 0; font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 7px; background: var(--accent); vertical-align: -1px; }
+.tz-note { text-align: center; color: var(--faint); font-size: 14px; font-style: italic; margin: 12px 0 0; }
+
+.page-head { padding: 64px 0 10px; text-align: center; }
+.page-head h1 { font-family: "Cinzel Decorative", "Cinzel", Georgia, serif; font-weight: 900; font-size: clamp(34px, 6vw, 56px); color: #f3e4c6; text-shadow: 0 0 24px rgba(200, 60, 30, .35); }
+
+.js .reveal { opacity: 0; transform: translateY(16px); transition: opacity .8s ease, transform .8s ease; }
+.js .reveal.seen { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .embers, .hero-scroll::after { display: none; }
+  .js .reveal { opacity: 1; transform: none; transition: none; }
+}
+@media (max-width: 900px) {
+  .pillar-grid, .tool-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .section { padding: 60px 0; }
+  .event { grid-template-columns: 58px 1fr; gap: 12px; padding: 12px; }
+  .cal-day { min-height: 64px; padding: 4px; }
+  .chip { font-size: 0; padding: 0; height: 6px; margin-top: 3px; border-left: none; background: var(--accent, var(--server)); }
+  .cal-dow { font-size: 9px; letter-spacing: .08em; padding: 6px 2px; }
+  .join { padding: 26px 18px; }
+  .hide-sm { display: none; }
+}

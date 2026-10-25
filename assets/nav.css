@@ -1,0 +1,43 @@
+/* Site header and footer, shared by every page (the scroll pages included). */
+.kg-header {
+  position: relative; z-index: 20;
+  background: linear-gradient(to bottom, #1c120c, #120c08);
+  border-bottom: 1px solid #4a2c1a;
+  box-shadow: 0 2px 0 #0a0604, 0 6px 18px rgba(0, 0, 0, .5);
+  font-family: "Cinzel", Georgia, serif;
+}
+.kg-header-inner {
+  max-width: 1180px; margin: 0 auto; padding: 10px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.kg-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #f0e2c8; }
+.kg-brand img { width: 34px; height: 40px; }
+.kg-brand span { font-family: "Cinzel Decorative", "Cinzel", Georgia, serif; font-weight: 700; font-size: 19px; letter-spacing: .04em; }
+.kg-links { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.kg-links a {
+  display: block; padding: 8px 12px; text-decoration: none; color: #cdb998;
+  font-size: 13px; letter-spacing: .16em; text-transform: uppercase; border-bottom: 2px solid transparent;
+}
+.kg-links a:hover { color: #fff1d6; }
+.kg-links a[aria-current="page"] { color: #fff1d6; border-bottom-color: #b3261e; }
+.kg-menu {
+  display: none; background: none; border: 1px solid #4a2c1a; color: #e9dcc6; border-radius: 4px;
+  font: inherit; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; padding: 8px 12px; cursor: pointer;
+}
+@media (max-width: 760px) {
+  .kg-menu { display: block; }
+  .kg-links { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; background: #140d09; border-bottom: 1px solid #4a2c1a; padding: 6px 0; }
+  .kg-links.open { display: flex; }
+  .kg-links a { padding: 12px 20px; border-bottom: none; }
+  .kg-links a[aria-current="page"] { border-left: 3px solid #b3261e; }
+}
+
+.kg-footer {
+  background: #0b0705; border-top: 1px solid #3a2416; color: #9c8a72;
+  font-family: "IM Fell English", Georgia, serif; text-align: center; padding: 34px 16px 40px; font-size: 15px;
+}
+.kg-footer .cry { font-family: "Cinzel Decorative", Georgia, serif; font-weight: 700; color: #c8392d; font-size: 22px; margin: 0 0 10px; letter-spacing: .04em; }
+.kg-footer nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin: 0 0 16px; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+.kg-footer a { color: #cdb998; text-decoration: none; }
+.kg-footer a:hover { color: #fff1d6; }
+.kg-footer .fine { font-size: 13px; max-width: 640px; margin: 0 auto; line-height: 1.5; color: #7d6d58; }

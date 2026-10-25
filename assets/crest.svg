@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140">
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a3241a"/>
+      <stop offset=".6" stop-color="#6b120c"/>
+      <stop offset="1" stop-color="#3a0805"/>
+    </linearGradient>
+    <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="20" y1="10" x2="100" y2="130">
+      <stop offset="0" stop-color="#f6dc96"/>
+      <stop offset=".5" stop-color="#d1aa55"/>
+      <stop offset="1" stop-color="#8a6620"/>
+    </linearGradient>
+    <!-- one axe, upright: haft down the middle, crescent blade to the left (outward once tilted), short spike to the right -->
+    <g id="axe">
+      <rect x="57.5" y="24" width="5" height="96" rx="2.5" fill="#d1aa55"/>
+      <rect x="56" y="112" width="8" height="8" rx="2" fill="#8a6620"/>
+      <path d="M58 28 C 46 24, 34 32, 32 46 C 31 56, 35 64, 40 70 C 42 62, 48 56, 58 56 Z" fill="url(#gold)"/>
+      <path d="M62 32 L 74 36 L 70 42 L 62 44 Z" fill="url(#gold)"/>
+      <path d="M57.5 20 L60 12 L62.5 20 Z" fill="#f6dc96"/>
+    </g>
+  </defs>
+  <path d="M60 4 L113 30 L113 90 Q113 112 60 136 Q7 112 7 90 L7 30 Z" fill="url(#field)" stroke="url(#gold)" stroke-width="5"/>
+  <path d="M60 15 L103 36 L103 88 Q103 104 60 124 Q17 104 17 88 L17 36 Z" fill="none" stroke="#f3d58a" stroke-opacity=".35" stroke-width="1.5"/>
+  <g transform="translate(0 4)">
+    <use href="#axe" transform="rotate(-30 60 70) translate(4 0)"/>
+    <use href="#axe" transform="translate(120 0) scale(-1 1) rotate(-30 60 70) translate(4 0)"/>
+  </g>
+</svg>

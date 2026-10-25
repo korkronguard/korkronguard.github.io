@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Guard · Kor'kron Guard</title>
+<meta name="description" content="Records of the Kor'kron Guard: the characters and stories of those who wear the tabard.">
+<link rel="icon" href="../assets/crest.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/nav.css">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+
+<main>
+  <header class="page-head wrap">
+    <p class="eyebrow">Those Who Wear the Tabard</p>
+    <h1>Records of the Guard</h1>
+    <div class="rule">&#9670;</div>
+    <p class="section-sub">Every Kor'kron has a story. Choose a record to read it.</p>
+  </header>
+
+  <section class="section" style="padding-top:20px">
+    <div class="wrap">
+      <div class="filters" id="filters" role="group" aria-label="Show members by pillar"></div>
+      <div class="member-grid" id="members"></div>
+
+      <div class="howto panel" style="margin-top:50px">
+        <b>Want your character on the wall?</b> Send an officer:
+        <ol style="margin:10px 0 0;padding-left:22px">
+          <li>a screenshot of your character (in game, <b>Print Screen</b> saves one to your WoW <code>Screenshots</code> folder),</li>
+          <li>your character's name, race, class and title,</li>
+          <li>their story: where they come from, why they wear the tabard. A paragraph is plenty; a saga is welcome.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="../data/players.js"></script>
+<script src="../assets/site.js"></script>
+<script src="../assets/nav.js" data-root="../" data-page="guard"></script>
+<script>
+  KG.renderMembers(document.getElementById("members"), "../");
+
+  var keys = ["all", "command", "vanguard", "outriders", "hearth"];
+  var filters = document.getElementById("filters");
+  filters.innerHTML = keys.map(function (k) {
+    var label = k === "all" ? "All" : KG.pillar(k).label.split(" · ")[0];
+    return '<button type="button" data-k="' + k + '" aria-pressed="' + (k === "all") + '">' + label + "</button>";
+  }).join("");
+  filters.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    filters.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+    document.querySelectorAll("#members .member").forEach(function (m) {
+      m.style.display = b.dataset.k === "all" || m.dataset.pillar === b.dataset.k ? "" : "none";
+    });
+  });
+</script>
+</body>
+</html>

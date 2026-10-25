@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendar · Kor'kron Guard</title>
+<meta name="description" content="The Kor'kron Guard's calendar: raid nights, battleground pushes, Hearth nights and server news.">
+<link rel="icon" href="assets/crest.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/nav.css">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<main>
+  <header class="page-head wrap">
+    <p class="eyebrow">Musters of the Guard</p>
+    <h1>Guild Calendar</h1>
+    <div class="rule">&#9670;</div>
+  </header>
+
+  <section class="section" style="padding-top:40px">
+    <div class="wrap">
+      <div class="panel" style="padding:20px">
+        <div class="cal-head">
+          <button type="button" id="prev" aria-label="Previous month">&larr; <span class="hide-sm">Prev</span></button>
+          <h2 id="month"></h2>
+          <button type="button" id="next" aria-label="Next month"><span class="hide-sm">Next</span> &rarr;</button>
+        </div>
+        <div class="cal-grid" id="grid"></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <p class="tz-note" id="tz"></p>
+
+      <h2 class="section-title" style="margin-top:60px">Coming Up</h2>
+      <div class="rule">&#9670;</div>
+      <div class="event-list" id="upcoming" style="margin-top:30px"></div>
+    </div>
+  </section>
+</main>
+
+<script src="data/events.js"></script>
+<script src="assets/site.js"></script>
+<script src="assets/nav.js" data-root="" data-page="calendar"></script>
+<script>
+  var shown = new Date(); shown.setDate(1);
+  var grid = document.getElementById("grid");
+
+  function draw() {
+    var y = shown.getFullYear(), m = shown.getMonth();
+    document.getElementById("month").textContent = shown.toLocaleDateString([], { month: "long", year: "numeric" });
+
+    var first = new Date(y, m, 1);
+    var start = new Date(y, m, 1 - first.getDay());
+    var cells = 42;
+    var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + cells);
+    var occ = KG.occurrences(window.KG_EVENTS, start, end);
+
+    var byDay = {};
+    occ.forEach(function (o) {
+      var k = o.start.getFullYear() + "-" + o.start.getMonth() + "-" + o.start.getDate();
+      (byDay[k] = byDay[k] || []).push(o);
+    });
+
+    var today = new Date();
+    var html = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(function (d) { return '<div class="cal-dow">' + d + "</div>"; }).join("");
+    for (var i = 0; i < cells; i++) {
+      var d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      var k = d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+      var cls = "cal-day" + (d.getMonth() !== m ? " other" : "") +
+        (d.toDateString() === today.toDateString() ? " today" : "");
+      var chips = (byDay[k] || []).map(function (o) {
+        var p = KG.pillar(o.ev.pillar);
+        var tip = o.ev.title + " · " + KG.timeText(o) + (o.ev.notes ? " · " + o.ev.notes : "");
+        var t = o.allDay ? "" : o.start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + " ";
+        return '<span class="chip" style="--accent:' + p.color + '" title="' + KG.esc(tip) + '">' + KG.esc(t + o.ev.title) + "</span>";
+      }).join("");
+      html += '<div class="' + cls + '"><span class="num">' + d.getDate() + "</span>" + chips + "</div>";
+    }
+    grid.innerHTML = html;
+  }
+
+  document.getElementById("prev").onclick = function () { shown.setMonth(shown.getMonth() - 1); draw(); };
+  document.getElementById("next").onclick = function () { shown.setMonth(shown.getMonth() + 1); draw(); };
+
+  document.getElementById("legend").innerHTML = ["vanguard", "outriders", "hearth", "server"].map(function (k) {
+    var p = KG.pillar(k);
+    return '<span style="--accent:' + p.color + '">' + p.label + "</span>";
+  }).join("");
+
+  var zone = KG.viewerZone === "America/New_York" ? "US Eastern" : (KG.viewerZone || "your local time").replace(/_/g, " ");
+  document.getElementById("tz").textContent = "Times are shown in your time zone (" + zone + "). The Guard schedules in US Eastern.";
+
+  draw();
+  KG.renderUpcoming(document.getElementById("upcoming"), 10);
+</script>
+</body>
+</html>
