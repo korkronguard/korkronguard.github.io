@@ -66,6 +66,13 @@ var KG = (function () {
           var start = guildTime(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), t[0], t[1]);
           if (start >= from && start <= to) out.push({ ev: ev, start: start, allDay: false });
         }
+      } else if (ev.date && ev.endDate && !ev.time) {
+        // Multi-day, all-day event (e.g. the Darkmoon Faire): one occurrence per day, so it shows on each calendar day.
+        var a = ymd(ev.date), b = ymd(ev.endDate);
+        var last = new Date(b[0], b[1] - 1, b[2]);
+        for (var day = new Date(a[0], a[1] - 1, a[2]); day <= last; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
+          if (new Date(day.getTime() + 86400000 - 1) >= from && day <= to) out.push({ ev: ev, start: day, allDay: true, span: true });
+        }
       } else if (ev.date) {
         var d = ymd(ev.date), s;
         if (ev.time) { var tt = hm(ev.time); s = guildTime(d[0], d[1], d[2], tt[0], tt[1]); }
@@ -87,7 +94,9 @@ var KG = (function () {
     } catch (e) {}
     return viewerZone ? viewerZone.split("/").pop().replace(/_/g, " ") + " time" : "your local time";
   }
+  function shortDate(s) { var d = ymd(s); return new Date(d[0], d[1] - 1, d[2]).toLocaleDateString([], { month: "short", day: "numeric" }); }
   function timeText(o) {
+    if (o.span) return shortDate(o.ev.date) + " – " + shortDate(o.ev.endDate);
     if (o.allDay) return "All day";
     var local = o.start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
     if (viewerZone === GUILD_ZONE) return local;
@@ -101,7 +110,8 @@ var KG = (function () {
       '<div class="event-date"><span class="mon">' + d.toLocaleDateString([], { month: "short" }) + "</span>" +
       '<span class="day">' + d.getDate() + '</span><span class="dow">' + d.toLocaleDateString([], { weekday: "short" }) + "</span></div>" +
       "<div><h3>" + esc(ev.title) + "</h3>" +
-      '<div class="meta"><b>' + p.label + "</b>" + timeText(o) + (ev.where ? " · " + esc(ev.where) : "") + "</div>" +
+      '<div class="meta"><b>' + p.label + "</b>" + timeText(o) + (ev.where ? " · " + esc(ev.where) : "") +
+      (ev.source === "game" ? ' <span class="from-game">· In-game calendar</span>' : "") + "</div>" +
       (ev.notes ? '<div class="notes">' + esc(ev.notes) + "</div>" : "") +
       (ev.link ? '<a class="event-link" href="' + esc(ev.link) + '" target="_blank" rel="noopener">Read more &rarr;</a>' : "") +
       "</div></div>";
@@ -110,9 +120,12 @@ var KG = (function () {
   function upcoming(n) {
     var now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     var to = new Date(start.getTime() + 120 * 86400000);
+    var seen = [];
     return occurrences(window.KG_EVENTS, start, to).filter(function (o) {
       var end = o.allDay ? new Date(o.start.getTime() + 86400000) : new Date(o.start.getTime() + (o.ev.hours || 2) * 3600000);
-      return end > now;
+      if (end <= now) return false;
+      if (o.span) { if (seen.indexOf(o.ev) >= 0) return false; seen.push(o.ev); }   // a multi-day event appears once in the list
+      return true;
     }).slice(0, n);
   }
 
