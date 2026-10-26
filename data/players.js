@@ -156,7 +156,7 @@ window.KG_PLAYERS = [
     "name": "Alanna Hallowfall",
     "race": "Undead",
     "class": "Paladin",
-    "portrait": "mindtrip-alanna-hallowfall.png",
+    "portrait": "mindtrip-alanna-hallowfall.jpg",
     "story": [
       "From the fields of Lordaeron to the frozen grip of the Scourge, Alanna Hallowfall lived her life striving for an ideal. She spent her youth in wide-eyed reverence of the Knights of the Silver Hand, pushing her body to its absolute limits to earn a place among them. She volunteered for every backbreaking chore, pulling plows and hauling hay until her muscles were like corded steel. She memorized every line of the chivalric code and studied the tenets of the Holy Light until they were written on her soul. In her twenty-six season, she finally achieved her dream, earning her place on the front lines as a Shieldbearer.",
       "But dreams rarely survive the reality of war. Dispatched to purge the plagued remnants of Lordaeron, Alanna encountered undead who possessed free will—sentient beings who refused to succumb to the mindless hunger of the Scourge. When she refused to execute them, her xenophobic commanders labeled it treason. Disillusioned by the hypocrisy of the order she had worshiped, Alanna threw down her tabard and walked away. She never made it out of the plaguelands. Ambushed by the Scourge, she was cut down in the fog.",
