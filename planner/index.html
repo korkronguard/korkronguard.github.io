@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kor'kron Planner</title>
+<meta name="description" content="Talent planner for WoW: Forever, built from the game's own data. Made for the Kor'kron Guard.">
+<link rel="icon" href="../assets/crest.svg" type="image/svg+xml">
+<!-- On the guild website these load the shared menu and footer; opened on its own they're simply skipped. -->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@500;700&family=IM+Fell+English&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/nav.css">
+<link rel="stylesheet" href="css/planner.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Kor'kron Planner</h1>
+    <span class="sub">Talents for WoW: Forever</span>
+  </div>
+  <div class="actions">
+    <button type="button" id="copyLink" class="btn primary">Copy link</button>
+    <button type="button" id="resetAll" class="btn">Reset</button>
+  </div>
+</header>
+
+<main>
+  <section class="controls" aria-label="Character">
+    <div class="classes" id="classPicker" role="radiogroup" aria-label="Class"></div>
+    <div class="row">
+      <label class="field">
+        <span>Race</span>
+        <select id="race"></select>
+      </label>
+      <label class="field level">
+        <span>Level</span>
+        <input type="range" id="levelRange" min="1" max="60" value="60">
+        <input type="number" id="levelNum" min="1" max="60" value="60" inputmode="numeric">
+      </label>
+      <div class="points" id="points" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <p class="hint" id="hint">Click a talent to add a point. Right-click (or Shift-click) to take one back.</p>
+
+  <section class="trees" id="trees" aria-label="Talent trees"></section>
+
+  <section class="path" aria-labelledby="pathTitle">
+    <div class="path-head">
+      <h2 id="pathTitle">Leveling path</h2>
+      <span class="muted">The order you clicked is the order you'd learn them.</span>
+    </div>
+    <ol id="path"></ol>
+  </section>
+</main>
+
+<div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<footer class="data-foot">
+  <p id="dataNote"></p>
+  <p>Numbers marked <em>estimated</em> are our best guess from the game files and will be checked in game after launch.
+    Not made by or affiliated with Blizzard Entertainment.</p>
+</footer>
+
+<script src="data/meta.js"></script>
+<script src="data/classes.js"></script>
+<script src="data/talents.js"></script>
+<script src="js/talents.js"></script>
+<script src="../assets/nav.js" data-root="../" data-page="planner"></script>
+</body>
+</html>

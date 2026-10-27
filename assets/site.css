@@ -146,7 +146,7 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
 .filters button[aria-pressed="true"] { color: #fff1d6; border-color: var(--blood); background: rgba(192, 48, 42, .15); }
 
 /* ---------- tools ---------- */
-.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.tool-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
 .tool { padding: 24px; display: flex; flex-direction: column; }
 .tool h3 { font-size: 20px; color: #f3e4c6; }
 .tool code { font-family: Consolas, monospace; font-size: 13px; color: var(--gold); }
