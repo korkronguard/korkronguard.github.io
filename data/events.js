@@ -17,6 +17,7 @@ window.KG_EVENTS = [
   {
     title: "WoW: Forever servers go live",
     date: "2026-11-04",
+    time: "17:00",   // 3pm Pacific
     pillar: "server",
     notes: "The Guard musters in Durotar.",
     link: "https://worldofwarcraft.blizzard.com/en-us/forever",

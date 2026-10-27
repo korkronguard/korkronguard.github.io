@@ -278,7 +278,36 @@ var KG = (function () {
     items.forEach(function (i) { io.observe(i); });
   }
 
+  // ---------- launch countdown ----------
+  // launch: "YYYY-MM-DD HH:MM" in guild time. Ticks every second; after launch it says the servers are live.
+  function countdown(el, launch) {
+    if (!el || !launch) return;
+    var p = launch.split(" "), d = ymd(p[0]), t = hm(p[1]);
+    var at = guildTime(d[0], d[1], d[2], t[0], t[1]);
+    var units = {};
+    [].forEach.call(el.querySelectorAll("[data-u]"), function (b) { units[b.getAttribute("data-u")] = b; });
+    var when = el.querySelector(".countdown-when");
+    if (when) when.textContent = at.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) + ", " + timeText({ start: at });
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    function tick() {
+      var left = Math.floor((at - Date.now()) / 1000);
+      if (left <= 0) {
+        el.classList.add("live");
+        el.innerHTML = '<p class="countdown-label">The servers are live</p><p class="countdown-live">Lok&rsquo;tar ogar! The Guard musters in Durotar.</p>';
+        return;
+      }
+      units.d.textContent = Math.floor(left / 86400);
+      units.h.textContent = pad(Math.floor(left / 3600) % 24);
+      units.m.textContent = pad(Math.floor(left / 60) % 60);
+      units.s.textContent = pad(left % 60);
+      setTimeout(tick, 1000 - Date.now() % 1000);
+    }
+    el.hidden = false;
+    tick();
+  }
+
   return {
+    countdown: countdown,
     PILLARS: PILLARS, esc: esc, pillar: pillar, occurrences: occurrences, timeText: timeText, eventCard: eventCard,
     renderUpcoming: renderUpcoming, renderMembers: renderMembers, renderRoster: renderRoster, embers: embers, skyline: skyline, reveal: reveal,
     rankOf: rankOf, hasRecord: hasRecord, raceClass: raceClass, classColor: classColor, portraitHtml: portraitHtml, playedBy: playedBy,
