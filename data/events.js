@@ -22,4 +22,13 @@ window.KG_EVENTS = [
     notes: "The Guard musters in Durotar.",
     link: "https://worldofwarcraft.blizzard.com/en-us/forever",
   },
+  {
+    title: "Raid Night",
+    weekly: "Fri",
+    time: "22:00",
+    hours: 3,
+    from: "2026-11-06",
+    until: "",
+    pillar: "vanguard",
+  },
 ];
