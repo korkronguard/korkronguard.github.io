@@ -419,6 +419,9 @@ ul.plain li { padding: 2px 0; }
   font-size: 13px;
 }
 .pfield input { width: 76px; }
+.pbuffs { display: flex; flex-wrap: wrap; gap: 4px 14px; width: 100%; }
+.pcheck { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; }
+.pcheck input { accent-color: var(--gold, #e0b04a); margin: 0; }
 .pbase { width: 100%; font-size: 13px; }
 .pbase summary { cursor: pointer; color: var(--gold); }
 .pbase p { margin: 6px 0; }
@@ -474,8 +477,31 @@ ul.plain li { padding: 2px 0; }
 .picker-sort select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--text); }
 
 /* ---------- smaller screens ---------- */
+/* Priority tab */
+.prio-layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
+.prio { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.prio-head h2 { margin: 0 0 4px; font-size: 20px; color: var(--gold); }
+.prio-head p { margin: 2px 0; }
+.prio-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 2px; padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.prio-switch span { color: var(--text, #e8e2d4); font-weight: 600; }
+.prio-sec { margin-top: 16px; }
+.prio-sec h3 { margin: 0 0 2px; font-size: 15px; color: var(--gold); letter-spacing: .3px; }
+.prio-sec > p { margin: 0 0 6px; }
+.prio-list { list-style: none; margin: 6px 0 0; padding: 0; counter-reset: prio; }
+.prio-item { display: grid; grid-template-columns: 22px 32px minmax(0, 1fr); gap: 4px 10px; align-items: start;
+  padding: 8px 0; border-top: 1px solid var(--line); counter-increment: prio; }
+.prio-item::before { content: counter(prio); color: var(--muted); font-weight: 700; text-align: right; padding-top: 6px; }
+.prio-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.prio-tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); background: var(--panel-2); }
+.prio-tag.theory { border-color: #6b5a2c; color: var(--gold); }
+.prio-text { font-size: 14px; margin-top: 2px; }
+.prio-fact { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.prio-foot { margin-top: 16px; }
+
 @media (max-width: 1250px) {
   .talents-layout { grid-template-columns: 1fr; }
+  .prio-layout { grid-template-columns: 1fr; }
   .side { position: static; max-height: none; }
   .side.wide .panel-in { display: block; }
 }

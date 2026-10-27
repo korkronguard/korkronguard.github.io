@@ -251,7 +251,8 @@
     const worn = (slot) => ctx.worn.find((w) => w.slot === slot);
     const S = {
       gear, tal, attr, baseAp,
-      ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi),
+      ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
+        buffValue(ctx, "Battle Shout"),
       rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi),
       hit: g("hit") / per("meleeHit") + tal.hit,
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit,
@@ -294,8 +295,19 @@
     return sum(S.tal.dmgPct.filter((d) => d.school & schoolMask).map((d) => d.value));
   }
 
+  // a group buff or target debuff the player switched on: the highest rank a same-level Warrior would have
+  function buffValue(ctx, name) {
+    if (!(ctx.buffs || {})[name]) return 0;
+    const ranks = (KP.abilities.BUFFS || {})[name] || [];
+    let v = 0;
+    for (const r of ranks) if (r.level <= ctx.level) v = r.value;
+    return v;
+  }
+  const SUNDER_STACKS = 5;
+
   function mitigation(ctx, S) {
-    const armor = Math.max(0, (ctx.target.armor || 0) * (1 - S.tal.armorIgnore / 100));
+    const sundered = Math.max(0, (ctx.target.armor || 0) - buffValue(ctx, "Sunder Armor") * SUNDER_STACKS);
+    const armor = sundered * (1 - S.tal.armorIgnore / 100);
     const dr = armor / (armor + 400 + 85 * ctx.level);
     return Math.min(0.75, dr);
   }
@@ -358,6 +370,12 @@
   // Classic rage: rage = 7.5 x damage / c, where c depends on level
   const rageConversion = (L) => 0.0091107836 * L * L + 3.225598133 * L + 4.2652911;
 
+  const EXECUTE_PHASE = 0.2; // share of a boss fight spent below 20% health
+  const buffNote = (ctx) => {
+    const on = Object.keys(ctx.buffs || {}).filter((k) => ctx.buffs[k]);
+    return on.length ? ` With ${on.join(" and ")}.` : " No group buffs or debuffs (switch them on above).";
+  };
+
   function rotation(ctx, S, white, abilities) {
     const byName = Object.fromEntries(abilities.filter((a) => !a.locked).map((a) => [a.name, a]));
     const whiteDps = white.reduce((x, w) => x + w.dps, 0);
@@ -376,6 +394,7 @@
       }
       if (rankOf(ctx, "Anger Management")) rage += 1 / 3;
       let dps = whiteDps + extra;
+      const rageIncome = rage, firstAbilityPart = parts.length;
       const spend = (a) => {
         if (!a || !a.cdMs || rage <= 0) return;
         const perSec = a.cost / (a.cdMs / 1000);
@@ -396,7 +415,23 @@
         dps += d;
         parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
       }
-      return result(dps, "Rage from white hits (Classic formula), then Mortal Strike/Bloodthirst, Whirlwind, Heroic Strike with what's left. No Execute phase, buffs or debuffs.");
+      // Execute phase: the last 20% of the boss's health, all rage goes into Execute (one per 1.5 sec at most)
+      const ex = byName["Execute"];
+      if (ex && ex.cost >= 0 && ex.expected) {
+        const rate = ex.cost ? Math.min(1 / 1.5, rageIncome / ex.cost) : 1 / 1.5;
+        const leftover = Math.max(0, rageIncome - rate * ex.cost);
+        const exDps = rate * ex.expected + leftover * ex.perRage;
+        let normal = 0;
+        for (const p of parts.slice(firstAbilityPart)) {
+          normal += p.dps;
+          p.dps *= 1 - EXECUTE_PHASE;
+          p.name += " (first 80%)";
+        }
+        dps += -normal * EXECUTE_PHASE + exDps * EXECUTE_PHASE;
+        parts.push({ name: "Execute (last 20%)", dps: exDps * EXECUTE_PHASE });
+      }
+      return result(dps, "Rage from white hits (Classic formula), then Mortal Strike/Bloodthirst, Whirlwind, Heroic Strike with what's left; " +
+        "below 20% health, every rage point goes into Execute." + buffNote(ctx));
     }
 
     if (token === "ROGUE" && white.length) {
@@ -417,7 +452,7 @@
         parts.push({ name: `${best.b.name} (builder)`, dps: (best.n * best.b.expected) / (best.energy / regen) });
         parts.push({ name: "Eviscerate (5 points)", dps: evis.expected / (best.energy / regen) });
         return result(whiteDps + extra + best.dps, `${best.b.name} to 5 combo points, then Eviscerate, 10 energy per second. ` +
-          (dagger ? "Backstab/Mutilate assume you're behind the target. " : "") + "No Slice and Dice, buffs or debuffs.");
+          (dagger ? "Backstab/Mutilate assume you're behind the target. " : "") + "No Slice and Dice yet." + buffNote(ctx));
       }
     }
 
@@ -655,7 +690,11 @@
     const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100));
     const cost = rank.powerType === 1 ? costRaw / 10 : costRaw; // rage is stored x10
     const heal = r.heal * dmgMult;
+    // Execute: each leftover rage point adds amp x 10 damage, with the same talents, armor, hit and crit
+    const amp = (rank.effects.find((e) => e.amp) || {}).amp;
+    const perRage = amp && avg ? amp * 10 * dmgMult * mit * (expected / avg) : 0;
     return {
+      perRage,
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
       heal, healCrit: heal * 1.5, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
       castMs, channelMs, cdMs, cost, costPct: rank.cost ? 0 : rank.costPct, powerType: rank.powerType,

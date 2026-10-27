@@ -43,6 +43,7 @@
   <nav class="tabs" role="tablist" aria-label="Planner pages">
     <button type="button" role="tab" id="tabTalents" data-view="talents" aria-selected="true">Talents</button>
     <button type="button" role="tab" id="tabGear" data-view="gear" aria-selected="false">Gear &amp; Stats</button>
+    <button type="button" role="tab" id="tabPriority" data-view="priority" aria-selected="false">Priority</button>
   </nav>
 
   <div id="talentsView" role="tabpanel" aria-labelledby="tabTalents">
@@ -71,6 +72,15 @@
       <section class="sheet" id="sheet" aria-label="Character sheet"></section>
     </div>
     <section class="side wide" id="gearAttacks" aria-label="Attacks and abilities"></section>
+  </div>
+
+  <div id="priorityView" role="tabpanel" aria-labelledby="tabPriority" hidden>
+    <p class="hint">What to press, in order of importance, for this character: its talents, level and gear.
+      Built from the game's numbers; it changes as you change talents or gear.</p>
+    <div class="prio-layout">
+      <section class="prio" id="prio" aria-label="Priority"></section>
+      <aside class="side" id="prioSide" aria-label="Stats and abilities"></aside>
+    </div>
   </div>
 </main>
 
@@ -107,10 +117,12 @@
 <script src="data/classes.js"></script>
 <script src="data/talents.js"></script>
 <script src="data/abilities.js"></script>
+<script src="data/spellbook.js"></script>
 <script src="js/talents.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/gear.js"></script>
 <script src="js/panel.js"></script>
+<script src="js/priority.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="planner"></script>
 </body>
 </html>

@@ -115,6 +115,7 @@
       items = new Map(KP.items.items.map((i) => [i.id, i]));
       then && then();
       if (app.renderPanel) app.renderPanel(); // the stats panel can now count the gear
+      if (app.renderPriority) app.renderPriority();
     };
     s.onerror = () => app.toast("Couldn't load the item list.");
     document.head.append(s);
@@ -171,7 +172,7 @@
   app.encoders.push(() => {
     const ids = SLOTS.map((s) => (gear[s.key] ? gear[s.key].toString(36) : ""));
     while (ids.length && !ids[ids.length - 1]) ids.pop();
-    return (ids.length ? "&g=" + ids.join(".") : "") + (view === "gear" ? "&v=gear" : "");
+    return (ids.length ? "&g=" + ids.join(".") : "") + (view !== "talents" ? "&v=" + view : "");
   });
 
   function readHash() {
@@ -181,7 +182,7 @@
       const id = parseInt(v, 36);
       if (SLOTS[i] && id > 0) gear[SLOTS[i].key] = id;
     });
-    return { view: p.get("v") === "gear" ? "gear" : "talents", hasGear: !!p.get("g") };
+    return { view: ["gear", "priority"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
   }
 
   // ------------------------------------------------------------ icons and tooltips
@@ -525,10 +526,13 @@
     view = v;
     $("talentsView").hidden = v !== "talents";
     $("gearView").hidden = v !== "gear";
+    $("priorityView").hidden = v !== "priority";
     $("tabTalents").setAttribute("aria-selected", v === "talents");
     $("tabGear").setAttribute("aria-selected", v === "gear");
+    $("tabPriority").setAttribute("aria-selected", v === "priority");
     $("tooltip").hidden = true;
-    if (v === "gear") loadItems(render);
+    if (v !== "talents") loadItems(render); // the priority tab needs to know your weapons too
+    if (app.renderPriority) app.renderPriority();
     if (push) app.changed();
   }
 
@@ -540,6 +544,8 @@
 
   $("tabTalents").addEventListener("click", () => setView("talents", true));
   $("tabGear").addEventListener("click", () => setView("gear", true));
+  $("tabPriority").addEventListener("click", () => setView("priority", true));
+  app.view = () => view;
   $("pickerClose").addEventListener("click", () => $("picker").close());
   $("pickerSearch").addEventListener("input", renderPicker);
   $("pickerSortBy").addEventListener("change", renderPicker);

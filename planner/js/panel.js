@@ -27,6 +27,9 @@
 
   state.base = state.base || {};
   state.target = state.target || { mode: "boss", armor: null };
+  // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
+  const BUFF_KEYS = { b: "Battle Shout", s: "Sunder Armor" };
+  state.buffs = state.buffs || {};
 
   function defaultArmor(level, mode) {
     // a raid boss at 60 is usually given 3731 armor; scaled down for lower levels (estimate)
@@ -44,6 +47,8 @@
     if (b.replace(/_/g, "")) s += "&b=" + b.replace(/_+$/, "");
     if (state.target.mode !== "boss") s += "&tg=" + state.target.mode;
     if (state.target.armor != null) s += "&ar=" + state.target.armor;
+    const bf = Object.keys(BUFF_KEYS).filter((k) => state.buffs[BUFF_KEYS[k]]).join("");
+    if (bf) s += "&bf=" + bf;
     return s;
   });
   function readHash() {
@@ -51,6 +56,8 @@
     state.base = {};
     (p.get("b") || "").split("_").forEach((v, i) => { const n = parseFloat(v); if (BASE[i] && n > 0) state.base[BASE[i]] = n; });
     state.target = { mode: p.get("tg") === "same" ? "same" : "boss", armor: p.get("ar") ? parseInt(p.get("ar"), 10) : null };
+    state.buffs = {};
+    for (const ch of p.get("bf") || "") if (BUFF_KEYS[ch]) state.buffs[BUFF_KEYS[ch]] = true;
   }
 
   // ------------------------------------------------------------ the character as the math sees it
@@ -59,7 +66,7 @@
     return {
       cls: state.cls, level: state.level, flat: app.flat(), ranks: ranks || app.liveRanks(),
       race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
-      worn: app.worn ? app.worn() : [], base: state.base, target: target(),
+      worn: app.worn ? app.worn() : [], base: state.base, target: target(), buffs: state.buffs,
     };
   }
   app.ctx = ctx;
@@ -155,6 +162,22 @@
     const l2 = el("label", "pfield");
     l2.append(el("span", null, "Armor"), armor);
     box.append(l1, l2);
+
+    const buffs = el("div", "pbuffs");
+    for (const [name, label, tip] of [
+      ["Battle Shout", "Battle Shout", "A Warrior's shout: more melee attack power for the group (rank for your level)."],
+      ["Sunder Armor", "Sunder Armor ×5", "Five stacks on the target: less armor, so more physical damage (rank for your level)."],
+    ]) {
+      const l = el("label", "pcheck");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = !!state.buffs[name];
+      cb.addEventListener("change", () => { state.buffs[name] = cb.checked; app.changed(); });
+      l.title = tip;
+      l.append(cb, el("span", null, label));
+      buffs.append(l);
+    }
+    box.append(buffs);
 
     const det = el("details", "pbase");
     det.open = Object.keys(state.base).length > 0;
@@ -373,6 +396,8 @@
     if (side) { side.textContent = ""; side.append(panel(R, { controls: true })); }
     const gearBox = $("gearAttacks");
     if (gearBox) { gearBox.textContent = ""; gearBox.append(panel(R, { controls: true })); }
+    const prioBox = $("prioSide");
+    if (prioBox) { prioBox.textContent = ""; prioBox.append(panel(R, { controls: true })); }
   }
 
   app.hooks.push(render);
