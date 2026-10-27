@@ -83,6 +83,13 @@
     <input type="search" id="pickerSearch" placeholder="Search by name or stat (e.g. strength, crit)" autocomplete="off">
     <button type="button" class="btn" id="pickerRemove">Empty this slot</button>
   </div>
+  <div class="picker-sort">
+    <label for="pickerSortBy">Sort by</label>
+    <select id="pickerSortBy">
+      <option value="gain">Damage gain</option>
+      <option value="ilvl">Item level</option>
+    </select>
+  </div>
   <p class="muted" id="pickerCount"></p>
   <ul class="picker-list" id="pickerList"></ul>
 </dialog>

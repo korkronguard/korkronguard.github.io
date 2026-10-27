@@ -381,7 +381,8 @@ ul.plain li { padding: 2px 0; }
   padding: 8px 10px;
 }
 .picker > .muted { margin: 8px 14px 6px; }
-.picker-list { list-style: none; margin: 0; padding: 0 14px 14px; overflow-y: auto; display: grid; gap: 5px; }
+.picker-list { list-style: none; margin: 0; padding: 0 14px 14px; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
+.pick .stext { flex: 1; }
 
 /* ---------- item tooltip ---------- */
 .itip { min-width: 230px; color: #fff; font-size: 13px; }
@@ -460,6 +461,17 @@ ul.plain li { padding: 2px 0; }
 .tooltip ul.preview li.up { color: #7dff8a; }
 .tooltip ul.preview li.down { color: #ff8a73; }
 .tooltip ul.preview li span { color: #ccc; }
+
+.prot { background: #1c1a14; border: 1px solid #4a3f22; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.prot-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.prot-dps { font-size: 24px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.prot ul { margin: 4px 0; }
+.prot ul li { display: flex; justify-content: space-between; gap: 8px; }
+.prot p { margin: 4px 0 0; }
+.pick .gain { margin-left: auto; padding-left: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pick .gain.up { color: #7dff8a; } .pick .gain.down { color: #ff8a73; } .pick .gain.same { color: var(--muted); }
+.picker-sort { display: flex; gap: 6px; align-items: center; padding: 6px 14px 0; font-size: 13px; color: var(--muted); }
+.picker-sort select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--text); }
 
 /* ---------- smaller screens ---------- */
 @media (max-width: 1250px) {

@@ -349,9 +349,16 @@
       list.push(it);
     }
     list.sort((a, b) => b.ilvl - a.ilvl || b.quality - a.quality || a.name.localeCompare(b.name));
+    // damage change if this item replaced what's in the slot now (estimated DPS from the panel's math)
+    const byGain = $("pickerSortBy").value === "gain" && app.scoreWith;
+    const base = app.scoreWith ? app.scoreWith(pickSlot, items.get(gear[pickSlot]) || null) : 0;
+    const gainOf = new Map();
+    const pool = byGain ? list.slice(0, 600) : list.slice(0, 200);
+    if (app.scoreWith) for (const it of pool) gainOf.set(it.id, app.scoreWith(pickSlot, it) - base);
+    if (byGain) pool.sort((a, b) => gainOf.get(b.id) - gainOf.get(a.id));
     const ul = $("pickerList");
     ul.textContent = "";
-    const shown = list.slice(0, 200);
+    const shown = pool.slice(0, 200);
     for (const it of shown) {
       const li = el("li");
       const b = el("button", "pick");
@@ -363,6 +370,15 @@
         el("span", "ssub", `${typeLine(it) ? typeLine(it) + " · " : ""}ilvl ${it.ilvl}${it.req > 1 ? " · Req " + it.req : ""}${it.forever ? " · Forever" : ""}`),
         el("span", "ssub", statSummary(it)));
       b.append(ic, text);
+      if (gainOf.has(it.id)) {
+        const g = gainOf.get(it.id);
+        const cls = Math.abs(g) < 0.05 ? "same" : g > 0 ? "up" : "down";
+        const gain = el("span", "gain " + cls, (cls === "same" ? "±0" : `${g > 0 ? "+" : ""}${g.toFixed(1)} dps`) +
+          (it.damageUnverified ? " ?" : ""));
+        gain.title = "Change in estimated damage per second if you wear this instead" +
+          (it.damageUnverified ? ". This weapon's damage isn't confirmed yet, so treat this one with care." : "");
+        b.append(gain);
+      }
       if (gear[pickSlot] === it.id) b.classList.add("current");
       b.addEventListener("click", () => equip(it.id));
       hookTip(b, it, pickSlot);
@@ -370,7 +386,7 @@
       ul.append(li);
     }
     $("pickerCount").textContent = list.length > shown.length
-      ? `Showing the top ${shown.length} of ${list.length} items by item level. Type to narrow it down.`
+      ? `Showing the top ${shown.length} of ${list.length} items${byGain ? " by damage gain (among the 600 highest item levels)" : " by item level"}. Type to narrow it down.`
       : `${list.length} item${list.length === 1 ? "" : "s"} you can use at level ${state.level}.`;
   }
 
@@ -401,11 +417,11 @@
     const worn = equipped();
 
     const note = el("div", "sheet-note");
-    note.append(el("strong", null, "What this sheet shows: "),
-      Object.keys(state.base || {}).length
-        ? "your base stats as entered below, plus everything your gear and talents add."
-        : "everything your gear and talents add. Your character's base stats (from race and level) are kept on the game's " +
-          "servers, not in the game files. You can type yours in under \"Your base stats\" below.");
+    note.append(el("strong", null, "Base stats: "),
+      S.estimated.length
+        ? "the game files don't include a character's own stats, so the planner uses estimates from Classic for your race, " +
+          "class and level (shown in grey in the base stats box below). Type your real ones there once you can log in."
+        : "as you entered them below, plus everything your gear and talents add.");
     box.append(note);
 
     const section = (title, rows) => {
@@ -526,6 +542,7 @@
   $("tabGear").addEventListener("click", () => setView("gear", true));
   $("pickerClose").addEventListener("click", () => $("picker").close());
   $("pickerSearch").addEventListener("input", renderPicker);
+  $("pickerSortBy").addEventListener("change", renderPicker);
   $("pickerRemove").addEventListener("click", () => {
     delete gear[pickSlot];
     $("picker").close();

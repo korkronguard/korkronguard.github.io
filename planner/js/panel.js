@@ -58,6 +58,7 @@
   function ctx(ranks) {
     return {
       cls: state.cls, level: state.level, flat: app.flat(), ranks: ranks || app.liveRanks(),
+      race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
       worn: app.worn ? app.worn() : [], base: state.base, target: target(),
     };
   }
@@ -75,6 +76,7 @@
     const add = (label, x, y, d = 0, unit = "") => {
       if (fmt(x, d) !== fmt(y, d)) lines.push({ label, text: `${fmt(x, d)}${unit} → ${fmt(y, d)}${unit}`, up: y > x });
     };
+    add("Damage per sec", a.rotation.dps, b.rotation.dps, 1);
     add("Attack power", a.S.ap, b.S.ap);
     add("Crit", a.S.crit, b.S.crit, 1, "%");
     add("Hit", a.S.hit, b.S.hit, 1, "%");
@@ -98,6 +100,15 @@
   };
   const sum = (a) => a.reduce((x, y) => x + y, 0);
 
+  // Estimated DPS with a different item (or none) in one slot, for the gear picker.
+  app.scoreWith = (slotKey, item) => {
+    const c = ctx();
+    const others = c.worn.filter((w) => w.slot !== slotKey && !(item && item.inv === 17 && w.slot === "offHand"));
+    const worn = item ? [...others, { slot: slotKey, item }] : others;
+    return KP.calc.compute({ ...c, worn }).rotation.dps;
+  };
+  app.score = () => KP.calc.compute(ctx()).rotation.dps;
+
   // ------------------------------------------------------------ drawing
 
   let prev = null;       // last numbers, to show what changed
@@ -117,7 +128,7 @@
     node.append(el("span", "delta " + (b.up ? "up" : "down"), b.text));
   }
 
-  function controls() {
+  function controls(R) {
     const box = el("div", "pctl");
     const tsel = el("select");
     tsel.setAttribute("aria-label", "Target");
@@ -147,8 +158,9 @@
 
     const det = el("details", "pbase");
     det.open = Object.keys(state.base).length > 0;
-    det.append(el("summary", null, "Your base stats (optional)"));
-    det.append(el("p", "muted small", "Type the stats your character has with no gear on (from the character screen). " +
+    det.append(el("summary", null, Object.keys(state.base).length ? "Your base stats" : "Base stats: Classic estimates (type your own)"));
+    det.append(el("p", "muted small", "Grey numbers are estimates from Classic for your race, class and level. " +
+      "Type the stats your character has with no gear on (from the character screen) to replace them. " +
       "Crit % is the crit chance shown with no gear on (it includes crit from Agility). " +
       "The game files don't include any of these, so without them the numbers count only gear, talents and level."));
     const row = el("div", "pbase-row");
@@ -158,7 +170,8 @@
       inp.type = "number";
       inp.min = "0";
       inp.value = state.base[k] || "";
-      inp.placeholder = "0";
+      const e = R.S.estimate[k];
+      inp.placeholder = e ? (k === "crit" || k === "spellCrit" ? e.toFixed(1) : String(e)) : "0";
       inp.addEventListener("change", () => {
         const v = parseFloat(inp.value);
         if (v > 0) state.base[k] = v; else delete state.base[k];
@@ -185,23 +198,44 @@
       c.append(v);
       grid.append(c);
     };
-    for (const k of STATS) cell(STAT_SHORT[k], fmt(S.attr[k]), "attr." + k);
+    const estNote = (k) => (S.estimated.includes(k) ? "Includes an estimated base value (Classic). Type yours in the base stats box." : null);
+    for (const k of STATS) cell(STAT_SHORT[k], fmt(S.attr[k]), "attr." + k, estNote(k));
     const melee = !!(S.mh || ["WARRIOR", "ROGUE", "PALADIN", "SHAMAN", "DRUID", "HUNTER"].includes(state.cls.token));
     if (melee) {
       cell("Attack power", fmt(S.ap), "ap", `Includes ${S.baseAp} from your level (Classic rule)`);
       cell("Hit", fmt(S.hit, 1) + "%", "hit");
-      cell("Crit", fmt(S.crit, 1) + "%", "crit", "From gear and talents, plus your base crit if you entered it.");
+      cell("Crit", fmt(S.crit, 1) + "%", "crit", S.estimated.includes("crit")
+        ? "Base crit and crit from Agility are Classic estimates; plus gear ratings and talents." : "Your base crit + gear + talents.");
     }
     if (state.cls.power === 0) {
       cell("Spell damage", fmt(S.sp), "sp");
       cell("Spell hit", fmt(S.spellHit, 1) + "%", "spellHit");
-      cell("Spell crit", fmt(S.spellCrit, 1) + "%", "spellCrit", "From gear and talents, plus your base spell crit if you entered it.");
+      cell("Spell crit", fmt(S.spellCrit, 1) + "%", "spellCrit", S.estimated.includes("spellCrit")
+        ? "Base spell crit and crit from Intellect are Classic estimates; plus gear ratings and talents." : "Your base spell crit + gear + talents.");
       if (S.healing) cell("Healing", fmt(S.healing), "healing");
     }
     cell("Armor", fmt(S.armor), "armor");
     cell("Health", fmt(S.health), "health", "Base health for your level + 10 per Stamina");
     if (S.mana) cell("Mana", fmt(S.mana), "mana", "Base mana for your level + 15 per Intellect");
     return grid;
+  }
+
+  function rotationBox(R) {
+    const box = el("div", "prot");
+    const top = el("div", "prot-top");
+    top.append(el("span", "muted small", "Estimated damage per second"));
+    const v = el("strong", "prot-dps", fmt(R.rotation.dps, 1));
+    badge("rotation", v);
+    top.append(v);
+    box.append(top);
+    const ul = el("ul", "plain small");
+    for (const p of R.rotation.parts) {
+      const li = el("li");
+      li.append(el("span", null, p.name), el("span", "muted", ` ${fmt(p.dps, 1)}`));
+      ul.append(li);
+    }
+    box.append(ul, el("p", "muted small", "Rough: " + R.rotation.note));
+    return box;
   }
 
   function whiteTable(R) {
@@ -221,7 +255,8 @@
       badge("white." + w.label, d);
       nums.append(d);
       row.append(name, nums);
-      row.title = `Speed ${w.speed.toFixed(2)}. Against your target: ${fmt(w.miss, 1)}% miss, ${fmt(w.dodge, 1)}% dodge, ` +
+      row.title = (w.procs && w.procs.length && w.label === "Main hand" ? w.procs.join(". ") + ".\n" : "") +
+        `Speed ${w.speed.toFixed(2)}. Against your target: ${fmt(w.miss, 1)}% miss, ${fmt(w.dodge, 1)}% dodge, ` +
         `${fmt(w.glance)}% glancing, ${fmt(w.crit, 1)}% crit. Armor is taken off.`;
       box.append(row);
     }
@@ -256,6 +291,7 @@
       if (a.cost) bits.push(`${fmt(a.cost)} ${POWER[a.powerType] || ""}`.trim());
       else if (a.costPct) bits.push(`${fmt(a.costPct)}% of base mana`);
       if (a.combo) bits.push("at 5 combo points");
+      if (a.aoe) bits.push("area");
       if (a.cdMs >= 1500) bits.push(`${fmt(a.cdMs / 1000, a.cdMs % 1000 ? 1 : 0)}s cooldown`);
       if (a.mods.length) bits.push("talents: " + a.mods.join(", "));
       sub.textContent = bits.join(" · ");
@@ -302,15 +338,15 @@
 
   function panel(R, opts) {
     const box = el("div", "panel-in");
-    if (opts.controls) box.append(controls());
-    box.append(statGrid(R), whiteTable(R), abilityList(R));
+    if (opts.controls) box.append(controls(R));
+    box.append(rotationBox(R), statGrid(R), whiteTable(R), abilityList(R));
     box.append(el("p", "muted small pnote", "Estimates. Forever's own numbers for abilities, gear and talents; " +
       "the attack table, armor and level attack power follow Classic's rules. Hover a line for details."));
     return box;
   }
 
   function snapshot(R) {
-    const m = { ap: R.S.ap, hit: R.S.hit, crit: R.S.crit, sp: R.S.sp, spellHit: R.S.spellHit, spellCrit: R.S.spellCrit,
+    const m = { rotation: R.rotation.dps, ap: R.S.ap, hit: R.S.hit, crit: R.S.crit, sp: R.S.sp, spellHit: R.S.spellHit, spellCrit: R.S.spellCrit,
       healing: R.S.healing, armor: R.S.armor, health: R.S.health, mana: R.S.mana, "white.total": sum(R.white.map((w) => w.dps)) };
     for (const k of STATS) m["attr." + k] = R.S.attr[k];
     for (const w of R.white) m["white." + w.label] = w.dps;

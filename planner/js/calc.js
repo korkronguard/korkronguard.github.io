@@ -25,10 +25,42 @@
   const SPELL_MISS = [4, 5, 6, 17];
   const GLANCE_CHANCE = [10, 20, 30, 40];
   const GLANCE_DAMAGE = [0.95, 0.85, 0.75, 0.7];
+  // ---- Estimates until real characters can be checked (from Classic; players can type their own) ----
+  // Race starting stats [Str, Agi, Sta, Int, Spi]. The two Skyborne races are new in Forever: elf-like guesses.
+  const RACE_BASE = {
+    Human: [20, 20, 20, 20, 20], Orc: [23, 17, 22, 17, 23], Dwarf: [22, 16, 23, 19, 19],
+    "Night Elf": [17, 25, 19, 20, 20], Undead: [19, 18, 21, 18, 25], Tauren: [25, 15, 22, 15, 22],
+    Gnome: [15, 23, 19, 24, 20], Troll: [21, 22, 21, 16, 21],
+    "High Order Skyborne": [17, 22, 18, 24, 19], "Windshaper Skyborne": [18, 22, 19, 21, 20],
+  };
+  // What each class gains from level 1 to 60 [Str, Agi, Sta, Int, Spi] (spread evenly over the levels)
+  const CLASS_GAIN = {
+    WARRIOR: [100, 60, 90, 10, 27], PALADIN: [85, 50, 80, 45, 50], HUNTER: [37, 105, 67, 40, 45],
+    ROGUE: [60, 110, 55, 15, 30], PRIEST: [15, 20, 30, 100, 105], SHAMAN: [75, 40, 85, 65, 75],
+    MAGE: [10, 15, 25, 105, 100], WARLOCK: [25, 30, 55, 90, 95], DRUID: [50, 35, 50, 75, 85],
+  };
+  // Agility per 1% crit and Intellect per 1% spell crit at level 60, and the class's own base crit
+  const AGI_PER_CRIT = { WARRIOR: 20, PALADIN: 20, HUNTER: 53, ROGUE: 29, SHAMAN: 20, DRUID: 20, PRIEST: 20, MAGE: 20, WARLOCK: 20 };
+  const BASE_CRIT = { WARRIOR: 0, PALADIN: 0.7, HUNTER: 0, ROGUE: 0, SHAMAN: 1.7, DRUID: 0.9, PRIEST: 3, MAGE: 3.2, WARLOCK: 2 };
+  const INT_PER_SPELL_CRIT = { MAGE: 59.5, PRIEST: 59.2, WARLOCK: 60.6, DRUID: 60, SHAMAN: 59.2, PALADIN: 54 };
+  const BASE_SPELL_CRIT = { MAGE: 0.2, PRIEST: 0.8, WARLOCK: 1.7, DRUID: 1.8, SHAMAN: 2.3, PALADIN: 0 };
+  // lower levels need less Agility/Intellect per 1% (Classic); scaled by level, from level 10 up
+  const perLevel = (at60, level) => at60 * Math.max(10, level) / 60;
+
+  function estimateBase(cls, race, level) {
+    const r = RACE_BASE[race] || RACE_BASE.Human;
+    const g = CLASS_GAIN[cls] || [0, 0, 0, 0, 0];
+    const out = {};
+    STATS.forEach((k, i) => { out[k] = Math.round(r[i] + (g[i] * (level - 1)) / 59); });
+    return out;
+  }
+
   // Abilities whose damage includes a share of attack power kept in a "dummy" effect: [effect index]
   const AP_DUMMY = { Bloodthirst: 1, "Victory Rush": 2 };
   // Finishing moves are shown at 5 combo points. Rupture also lasts 2 sec longer per point (Classic).
   const COMBO_POINTS = 5;
+  // effect target types that hit just your target (others hit an area, or you)
+  const SINGLE_TARGET = [6, 25, 77];
   const LONGER_PER_POINT = { Rupture: 2000 };
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
@@ -37,6 +69,25 @@
   // ------------------------------------------------------------ talents
 
   // What the learned talents do that the math can use.
+  // Item "Equip:" effects and set bonuses that are plain bonuses (not procs).
+  function gearAuras(ctx) {
+    const list = [];
+    const sets = {};
+    for (const w of ctx.worn) {
+      for (const e of w.item.effects || []) for (const a of e.auras || []) list.push({ ...a, name: w.item.name });
+      if (w.item.set) sets[w.item.set] = (sets[w.item.set] || 0) + 1;
+    }
+    const allSets = (KP.items && KP.items.sets) || {};
+    for (const [id, count] of Object.entries(sets)) {
+      const set = allSets[id];
+      if (!set) continue;
+      for (const b of set.bonuses) {
+        if (count >= b.pieces) for (const a of b.auras || []) list.push({ ...a, name: `${set.name} (${b.pieces})` });
+      }
+    }
+    return list;
+  }
+
   function talentEffects(ctx) {
     const out = {
       crit: 0, hit: 0, spellHit: 0, spellCrit: 0, dodge: 0, parry: 0, block: 0, defense: 0, armorPct: 0,
@@ -92,6 +143,27 @@
       }
       if (parts.length) out.lines.push({ name: t.name, text: [...new Set(parts)].join(", ") });
     });
+    // gear bonuses that work like talents (stat %, crit, hit, ability modifiers from set bonuses)
+    for (const a of gearAuras(ctx)) {
+      const v = a.value;
+      switch (a.aura) {
+        case 52: out.crit += v; break;
+        case 290: out.crit += v; out.spellCrit += v; break;
+        case 57: out.spellCrit += v; break;
+        case 54: out.hit += v; break;
+        case 55: out.spellHit += v; break;
+        case 47: out.parry += v; break;
+        case 49: out.dodge += v; break;
+        case 51: out.block += v; break;
+        case 142: if (a.misc & 1) out.armorPct += v; break;
+        case 137:
+          for (const [stat, bit] of STAT_BITS) if (a.misc === -1 || a.misc2 & bit) out.statPct[stat] += v;
+          break;
+        case 107: case 108:
+          if (a.mask && a.mask.some((m) => m)) out.mods.push({ op: a.misc, pct: a.aura === 108, value: v, mask: a.mask, name: a.name });
+          break;
+      }
+    }
     return out;
   }
 
@@ -105,11 +177,46 @@
       for (const [k, v] of Object.entries(w.item.stats || {})) gear[k] = (gear[k] || 0) + v;
       itemArmor += w.item.armor || 0;
     }
+    const SCHOOL_KEYS = { 2: "holyDamage", 4: "fireDamage", 8: "natureDamage", 16: "frostDamage", 32: "shadowDamage", 64: "arcaneDamage" };
+    for (const a of gearAuras(ctx)) {
+      const add = (k, v) => { gear[k] = (gear[k] || 0) + v; };
+      if (a.aura === 29) { if (a.misc === -1) STATS.forEach((k) => add(k, a.value)); else if (STATS[a.misc]) add(STATS[a.misc], a.value); }
+      else if (a.aura === 99) add("attackPower", a.value);
+      else if (a.aura === 124) add("rangedAttackPower", a.value);
+      else if (a.aura === 135) add("healing", a.value);
+      else if (a.aura === 85 && a.misc === 0) add("manaRegen", a.value);
+      else if (a.aura === 13) {
+        if ((a.misc & 126) === 126) add("spellDamage", a.value);
+        else for (const [bit, key] of Object.entries(SCHOOL_KEYS)) if (a.misc & bit) add(key, a.value);
+      }
+    }
     const tal = talentEffects(ctx);
     const g = (k) => gear[k] || 0;
-    const base = ctx.base || {};
-    const attr = {};
-    for (const k of STATS) attr[k] = Math.round(((base[k] || 0) + g(k)) * (1 + tal.statPct[k] / 100));
+    // base stats: what the player typed in, otherwise Classic estimates
+    const est = estimateBase(cls.token, ctx.race, lvl);
+    const base = {};
+    const estimated = [];
+    for (const k of STATS) {
+      if (ctx.base && ctx.base[k]) base[k] = ctx.base[k];
+      else { base[k] = est[k]; estimated.push(k); }
+    }
+    const attr = {}, attrBase = {};
+    for (const k of STATS) {
+      attr[k] = Math.round((base[k] + g(k)) * (1 + tal.statPct[k] / 100));
+      attrBase[k] = Math.round(base[k] * (1 + tal.statPct[k] / 100));
+    }
+    // crit from Agility (and spell crit from Intellect). A typed-in crit % already includes the base part,
+    // so only gear's share is added on top; otherwise it's the class's base crit + all Agility.
+    const agiRatio = perLevel(AGI_PER_CRIT[cls.token] || 20, lvl);
+    const intRatio = INT_PER_SPELL_CRIT[cls.token] ? perLevel(INT_PER_SPELL_CRIT[cls.token], lvl) : 0;
+    const userCrit = ctx.base && ctx.base.crit, userSpell = ctx.base && ctx.base.spellCrit;
+    const critFromStats = userCrit ? userCrit + (attr.agility - attrBase.agility) / agiRatio
+      : (BASE_CRIT[cls.token] || 0) + attr.agility / agiRatio;
+    const spellFromStats = !intRatio ? (userSpell || 0)
+      : userSpell ? userSpell + (attr.intellect - attrBase.intellect) / intRatio
+        : (BASE_SPELL_CRIT[cls.token] || 0) + attr.intellect / intRatio;
+    if (!userCrit) estimated.push("crit");
+    if (!userSpell && intRatio) estimated.push("spellCrit");
     const per = (key) => rules.ratings[key][Math.max(0, lvl - 1)] || 1;
     const [apL, apC] = BASE_AP[cls.token] || [0, 0];
     const [rapL, rapC] = BASE_RAP[cls.token] || [0, 0];
@@ -123,9 +230,11 @@
       ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi),
       rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi),
       hit: g("hit") / per("meleeHit") + tal.hit,
-      crit: (base.crit || 0) + g("crit") / per("meleeCrit") + tal.crit,
+      crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit,
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
-      spellCrit: (base.spellCrit || 0) + g("crit") / per("spellCrit") + tal.spellCrit,
+      spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit,
+      estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
+        spellCrit: intRatio ? (BASE_SPELL_CRIT[cls.token] || 0) + attrBase.intellect / intRatio : 0 },
       sp, school, healing: g("healing") + g("spellPower"),
       armor: Math.round(itemArmor * (1 + tal.armorPct / 100)) + g("bonusArmor") + attr.agility * 2,
       defense: g("defense") / per("defense") + tal.defense,
@@ -190,8 +299,147 @@
 
   // ------------------------------------------------------------ white hits
 
+
+  // ------------------------------------------------------------ procs (Classic values; Forever's files leave them out)
+
+  const rankOf = (ctx, name, pred) => {
+    const i = ctx.flat.findIndex((t) => t.name === name && (!pred || pred(t)));
+    return i >= 0 ? ctx.ranks[i] || 0 : 0;
+  };
+  // Flurry: attack speed for 3 swings after a crit. Forever's buff holds Classic's top value (30%).
+  const FLURRY = [0, 10, 15, 20, 25, 30];
+  // Deep Wounds: % of average weapon damage over 12 sec after a crit (Classic 20/40/60)
+  const DEEP_WOUNDS = [0, 20, 40, 60];
+
+  function procs(ctx, S) {
+    const out = { haste: 0, extraAttack: 0, deepWounds: 0, lines: [] };
+    const flurry = rankOf(ctx, "Flurry");
+    if (flurry) {
+      const c = Math.max(0, S.crit - critSuppression(ctx)) / 100;
+      const uptime = 1 - Math.pow(1 - c, 4); // ~4 hits (white + abilities) per 3 Flurry swings
+      out.haste = FLURRY[flurry] * uptime;
+      out.lines.push(`Flurry: +${FLURRY[flurry]}% attack speed, up ${Math.round(uptime * 100)}% of the time`);
+    }
+    // Weaponmaster (Warrior, swords): 1% per rank chance of an extra swing
+    const swordRank = rankOf(ctx, "Weaponmaster", (t) => t.needs && t.needs.subclassMask === 384);
+    if (swordRank && S.mh && (S.mh.subclass === 7 || S.mh.subclass === 8)) {
+      out.extraAttack = swordRank / 100;
+      out.lines.push(`Weaponmaster (swords): ${swordRank}% chance of an extra swing`);
+    }
+    const dw = rankOf(ctx, "Deep Wounds");
+    if (dw && S.mh) out.deepWounds = DEEP_WOUNDS[Math.min(3, dw)] / 100;
+    return out;
+  }
+
+  // ------------------------------------------------------------ rough rotation DPS
+
+  // Classic rage: rage = 7.5 x damage / c, where c depends on level
+  const rageConversion = (L) => 0.0091107836 * L * L + 3.225598133 * L + 4.2652911;
+  const UNBRIDLED = [0, 8, 16, 24, 32, 40]; // % chance per hit of 1 extra rage (Classic)
+
+  function rotation(ctx, S, white, abilities) {
+    const byName = Object.fromEntries(abilities.filter((a) => !a.locked).map((a) => [a.name, a]));
+    const whiteDps = white.reduce((x, w) => x + w.dps, 0);
+    const parts = white.map((w) => ({ name: `${w.label} (white)`, dps: w.dps }));
+    const extra = white.filter((w) => w.deepWounds).reduce((x, w) => x + w.deepWounds, 0);
+    if (extra) parts.push({ name: "Deep Wounds", dps: extra });
+    const token = ctx.cls.token;
+    const result = (dps, note) => ({ dps, parts: parts.filter((p) => p.dps > 0.05), note });
+
+    if (token === "WARRIOR" && white.length) {
+      const c = rageConversion(ctx.level);
+      const unbridled = UNBRIDLED[Math.min(5, rankOf(ctx, "Unbridled Wrath"))] / 100;
+      let rage = 0;
+      for (const w of white.filter((x) => x.label !== "Ranged" && x.label !== "Wand")) {
+        rage += (w.perSwing * 7.5 / c + unbridled) / w.effSpeed;
+      }
+      if (rankOf(ctx, "Anger Management")) rage += 1 / 3;
+      let dps = whiteDps + extra;
+      const spend = (a) => {
+        if (!a || !a.cdMs || rage <= 0) return;
+        const perSec = a.cost / (a.cdMs / 1000);
+        const f = perSec ? Math.min(1, rage / perSec) : 1;
+        rage -= perSec * f;
+        const d = (f * a.expected) / (a.cdMs / 1000);
+        dps += d;
+        parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
+      };
+      spend(byName["Mortal Strike"] || byName["Bloodthirst"]);
+      spend(byName["Whirlwind"]);
+      // leftover rage: Heroic Strike replaces a main-hand swing
+      const hs = byName["Heroic Strike"], mh = white.find((w) => w.label === "Main hand");
+      if (hs && mh && rage > 0) {
+        const swingRage = mh.perSwing * 7.5 / c;
+        const perSec = Math.min(rage / (hs.cost + swingRage), 1 / mh.effSpeed);
+        const d = perSec * Math.max(0, hs.expected - mh.perSwing);
+        dps += d;
+        parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
+      }
+      return result(dps, "Rage from white hits (Classic formula), then Mortal Strike/Bloodthirst, Whirlwind, Heroic Strike with what's left. No Execute phase, buffs or debuffs.");
+    }
+
+    if (token === "ROGUE" && white.length) {
+      const regen = 10; // energy per second
+      const dagger = S.mh && S.mh.subclass === 15;
+      const builders = ["Sinister Strike", "Hemorrhage", ...(dagger ? ["Backstab"] : []),
+        ...(dagger && S.oh && S.oh.subclass === 15 ? ["Mutilate"] : [])]
+        .map((n) => byName[n]).filter((a) => a && a.cost && a.expected);
+      const evis = byName["Eviscerate"];
+      if (builders.length && evis) {
+        const sealFate = rankOf(ctx, "Seal Fate") * 20 / 100;
+        const best = builders.map((b) => {
+          const cp = (b.name === "Mutilate" ? 2 : 1) + (b.critChance / 100) * sealFate;
+          const n = 5 / cp;
+          const energy = n * b.cost + evis.cost;
+          return { b, n, energy, dps: (n * b.expected + evis.expected) / (energy / regen) };
+        }).sort((x, y) => y.dps - x.dps)[0];
+        parts.push({ name: `${best.b.name} (builder)`, dps: (best.n * best.b.expected) / (best.energy / regen) });
+        parts.push({ name: "Eviscerate (5 points)", dps: evis.expected / (best.energy / regen) });
+        return result(whiteDps + extra + best.dps, `${best.b.name} to 5 combo points, then Eviscerate, 10 energy per second. ` +
+          (dagger ? "Backstab/Mutilate assume you're behind the target. " : "") + "No Slice and Dice, buffs or debuffs.");
+      }
+    }
+
+    if (ctx.cls.power === 0) {
+      const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
+      const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
+      // filler: spells you can cast back to back (no cooldown); a channeled spell's damage over time counts
+      const fillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
+        .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a) }))
+        .sort((x, y) => y.dps - x.dps);
+      const filler = fillers[0];
+      if (filler) {
+        let dps = 0, busy = 0;
+        const rot = [];
+        // damage over time spells worth keeping up: refreshed when they run out
+        const dots = usable.filter((a) => !a.channeled && a.dotExpected > 0 && a.durMs > 0 && !a.cdMs)
+          .map((a) => {
+            const every = Math.max(a.durMs / 1000, castTime(a));
+            return { a, every, dps: a.expected / every, time: castTime(a) / every };
+          })
+          .filter((d) => d.dps / d.time > filler.dps) // better than casting the filler in that time
+          .sort((x, y) => y.dps / y.time - x.dps / x.time);
+        for (const d of dots) {
+          if (busy + d.time > 0.9) continue;
+          busy += d.time;
+          dps += d.dps;
+          rot.push({ name: `${d.a.name} (kept up)`, dps: d.dps });
+        }
+        const fd = filler.dps * (1 - busy);
+        dps += fd;
+        rot.push({ name: `${filler.a.name} (filler)`, dps: fd });
+        if (!white.length || dps > whiteDps) {
+          return { dps, parts: rot, note: "Keeps damage-over-time spells up and casts the best single-target spell in between. " +
+            "Mana, cooldowns and procs aren't counted." };
+        }
+      }
+    }
+    return result(whiteDps + extra, white.length ? "White hits only; this class's rotation isn't worked out yet." : "Equip a weapon to see damage.");
+  }
+
   function whiteHits(ctx, S) {
     const out = [];
+    const pr = procs(ctx, S);
     const d = Math.max(0, Math.min(3, ctx.target.diff));
     const dual = !!(S.mh && S.oh);
     const physPct = damagePct(S, 1);
@@ -213,9 +461,18 @@
       const hit = Math.max(0, 100 - miss - t.dodge - glance - crit);
       const critMult = isWand ? 1.5 : 2;
       const perSwing = avg * (hit + crit * critMult + glance * GLANCE_DAMAGE[d]) / 100;
+      // melee procs: Flurry's attack speed, extra swings; Deep Wounds bleeds on crits (ignores armor)
+      const effSpeed = ranged ? w.speed : w.speed / (1 + pr.haste / 100);
+      const swings = ranged || label !== "Main hand" ? 1 : 1 + pr.extraAttack;
+      let deepWounds = 0;
+      if (pr.deepWounds && label === "Main hand") {
+        const critsPerSec = (crit / 100) / effSpeed + 0.25 * Math.max(0, S.crit - critSuppression(ctx)) / 100;
+        const uptime = Math.min(1, critsPerSec * 12);
+        deepWounds = uptime * pr.deepWounds * ((w.min + w.max) / 2 + (S.ap / 14) * w.speed) / 12;
+      }
       out.push({
-        label, item: item.name, min, max, avg, critAvg: avg * critMult, speed: w.speed,
-        dps: perSwing / w.speed, miss, dodge: t.dodge, glance, crit, hit,
+        label, item: item.name, min, max, avg, critAvg: avg * critMult, speed: w.speed, effSpeed, perSwing,
+        dps: (perSwing * swings) / effSpeed, miss, dodge: t.dodge, glance, crit, hit, deepWounds, procs: pr.lines,
       });
     };
     if (S.mh) swing(S.mh, "Main hand", 1, false);
@@ -255,8 +512,12 @@
     let hasDirect = false;
     const coefMult = 1 + mods.pct(24) / 100;
     const spellPower = physical ? 0 : spellPowerFor(S, src.school);
-    let combo = false;
+    let combo = false, single = false, area = false;
     for (const e of effects) {
+      const hitsTarget = e.target !== 1;
+      const isDamage = [2, 17, 31, 58, 121].includes(e.effect) || (e.effect === 6 && (e.aura === 3 || e.aura === 53));
+      if (isDamage && !hitsTarget) continue; // damage to yourself
+      if (isDamage) { if (SINGLE_TARGET.includes(e.target)) single = true; else area = true; }
       const v = value(e, src, ctx.level);
       const spread = (e.variance || 0) / 2;
       const perCombo = (e.perResource || 0) * COMBO_POINTS; // spread applies to the base part only
@@ -310,7 +571,7 @@
       dmin += (weapon.min + flat) * wpct;
       dmax += (weapon.max + flat) * wpct;
     }
-    return { kind, physical, dmin, dmax, dot, heal, ticks, needsWeapon, hasDirect, combo };
+    return { kind, physical, dmin, dmax, dot, heal, ticks, needsWeapon, hasDirect, combo, single, area };
   }
 
   function abilityResult(ab, S, ctx) {
@@ -329,7 +590,10 @@
     let r = effectDamage(rank.effects, src, S, ctx, "mainHand", mods);
     // spells it sets off: add their damage (a periodic trigger fires once per tick)
     const periodicTrigger = rank.effects.find((e) => e.effect === 6 && e.aura === 23 && e.trigger);
-    const tlist = Object.entries(rank.triggers || {});
+    // only spells the ability itself sets off (not "when you're struck" procs like Lightning Shield)
+    const fired = new Set(rank.effects.filter((e) => e.trigger && (e.effect === 64 || (e.effect === 6 && e.aura === 23)))
+      .map((e) => String(e.trigger)));
+    const tlist = Object.entries(rank.triggers || {}).filter(([id]) => fired.has(id));
     tlist.forEach(([id, t], n) => {
       const sub = effectDamage(t.effects, { ...rank, ...t, familyName: ab.name, school: t.school || rank.school,
         defense: t.defense || rank.defense, durMs: t.durMs }, S, ctx, n === 1 && S.oh ? "offHand" : "mainHand", mods);
@@ -340,7 +604,7 @@
       r = { ...r, dmin: r.dmin + sub.dmin * times, dmax: r.dmax + sub.dmax * times, dot: r.dot + sub.dot,
         heal: r.heal + sub.heal, needsWeapon: r.needsWeapon || sub.needsWeapon,
         hasDirect: r.hasDirect || sub.hasDirect, physical: r.physical && sub.physical, kind: sub.kind || r.kind,
-        combo: r.combo || sub.combo };
+        combo: r.combo || sub.combo, single: r.single || sub.single, area: r.area || sub.area };
     });
     if (r.needsWeapon && !r.hasDirect) return { ...base, rank, locked: "Needs a weapon" };
     if (!r.hasDirect && !r.dot && !r.heal) return null; // nothing we can put a number on
@@ -361,7 +625,9 @@
     const miss = Math.max(0, t.miss - mods.flat(16));
     const land = Math.max(0, 100 - miss - t.dodge) / 100;
     const avg = (dmin + dmax) / 2;
-    const expected = land * (avg * (1 + Math.min(100, critChance) / 100 * (critMult - 1)) + dot);
+    const directExpected = land * avg * (1 + Math.min(100, critChance) / 100 * (critMult - 1));
+    const dotExpected = land * dot;
+    const expected = directExpected + dotExpected;
     const channelMs = rank.channeled ? rank.durMs : 0;
     const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100));
     const cdMs = Math.max(0, rank.cdMs + mods.flat(11));
@@ -372,7 +638,10 @@
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
       heal, healCrit: heal * 1.5, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
       castMs, channelMs, cdMs, cost, costPct: rank.cost ? 0 : rank.costPct, powerType: rank.powerType,
-      combo: r.combo, mods: [...new Set(mods.list.map((m) => m.name))],
+      combo: r.combo, aoe: r.area && !r.single,
+      // crowd control (root, stun, fear, sleep): not part of a damage rotation
+      cc: rank.effects.some((e) => e.effect === 6 && [5, 7, 12, 26].includes(e.aura)), directExpected, dotExpected, channeled: !!rank.channeled,
+      durMs: rank.durMs, mods: [...new Set(mods.list.map((m) => m.name))],
       perSecond: isSpell && ctx.cls.power === 0 && (expected || heal)
         ? (expected || heal * (1 + critChance / 100 * 0.5)) / Math.max(1.5, (channelMs || castMs) / 1000) : null,
     };
@@ -382,8 +651,8 @@
     const S = stats(ctx);
     const white = whiteHits(ctx, S);
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
-    return { S, white, abilities: list };
+    return { S, white, abilities: list, rotation: rotation(ctx, S, white, list) };
   }
 
-  KP.calc = { compute, stats, talentEffects };
+  KP.calc = { compute, stats, talentEffects, estimateBase };
 })();
