@@ -114,6 +114,7 @@
     s.onload = () => {
       items = new Map(KP.items.items.map((i) => [i.id, i]));
       then && then();
+      if (app.renderPanel) app.renderPanel(); // the stats panel can now count the gear
     };
     s.onerror = () => app.toast("Couldn't load the item list.");
     document.head.append(s);
@@ -387,77 +388,24 @@
 
   // ------------------------------------------------------------ character sheet
 
-  // Talents that change the sheet, read from their effects at the learned rank.
-  // Aura numbers are the game's own effect types.
-  function talentBonuses(worn) {
-    const out = { crit: 0, hit: 0, spellHit: 0, spellCrit: 0, dodge: 0, parry: 0, block: 0, defense: 0,
-      armorPct: 0, statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 }, lines: [] };
-    const ranks = app.liveRanks();
-    const flat = app.flat();
-    const weaponMask = worn.filter((w) => w.item.class === 2).reduce((m, w) => m | (1 << w.item.subclass), 0);
-    const armorMask = worn.filter((w) => w.item.class === 4).reduce((m, w) => m | (1 << w.item.subclass), 0);
-    const STAT_BITS = [["strength", 1], ["agility", 2], ["stamina", 4], ["intellect", 8], ["spirit", 16]];
-    flat.forEach((t, i) => {
-      const r = ranks[i];
-      if (!r) return;
-      // abilities you cast (one rank, not passive) aren't always-on bonuses
-      if (!t.passive && t.ranks.length === 1) return;
-      if (t.needs) {
-        const have = t.needs.class === 2 ? weaponMask : armorMask;
-        if (!(have & t.needs.subclassMask)) {
-          out.lines.push({ name: t.name, text: "needs a matching weapon or shield", off: true });
-          return;
-        }
-      }
-      const parts = [];
-      for (const e of t.effects[r - 1] || []) {
-        if (e.effect !== 6) continue;
-        const v = e.value;
-        switch (e.aura) {
-          case 52: out.crit += v; parts.push(`+${v}% crit`); break;
-          case 290: out.crit += v; out.spellCrit += v; parts.push(`+${v}% crit`); break;
-          case 57: out.spellCrit += v; parts.push(`+${v}% spell crit`); break;
-          case 54: out.hit += v; parts.push(`+${v}% hit`); break;
-          case 55: out.spellHit += v; parts.push(`+${v}% spell hit`); break;
-          case 47: out.parry += v; parts.push(`+${v}% parry`); break;
-          case 49: out.dodge += v; parts.push(`+${v}% dodge`); break;
-          case 51: out.block += v; parts.push(`+${v}% block`); break;
-          case 30: if (e.misc === 95) { out.defense += v; parts.push(`+${v} defense`); } break;
-          case 142: if (e.misc & 1) { out.armorPct += v; parts.push(`+${v}% armor from items`); } break;
-          case 137:
-            for (const [stat, bit] of STAT_BITS) {
-              if (e.misc === -1 || e.misc2 & bit) { out.statPct[stat] += v; parts.push(`+${v}% ${STAT_TEXT[stat]}`); }
-            }
-            break;
-        }
-      }
-      if (parts.length) out.lines.push({ name: t.name, text: [...new Set(parts)].join(", ") });
-    });
-    return out;
-  }
+  app.worn = equipped;
 
   function renderSheet() {
     const box = $("sheet");
     box.textContent = "";
     if (!items) { box.append(el("p", "muted", "Loading items…")); return; }
+    if (!KP.calc || !app.ctx) return;
     const cls = state.cls;
-    const lvl = state.level;
+    const R = KP.calc.compute(app.ctx());
+    const S = R.S, tal = S.tal, g = (k) => S.gear[k] || 0;
     const worn = equipped();
-    const total = {};
-    let armor = 0;
-    for (const w of worn) {
-      for (const [k, v] of Object.entries(w.item.stats || {})) total[k] = (total[k] || 0) + v;
-      armor += w.item.armor || 0;
-    }
-    const tal = talentBonuses(worn);
-    const g = (k) => total[k] || 0;
-    const statWithTal = (k) => Math.round(g(k) * (1 + tal.statPct[k] / 100));
-    const rating = (stat, key) => g(stat) / rules.ratings[key][lvl - 1];
 
     const note = el("div", "sheet-note");
     note.append(el("strong", null, "What this sheet shows: "),
-      "everything your gear and talents add. Your character's base stats (from race and level) are kept on the game's servers, " +
-      "not in the game files, so they're not included yet. We'll add them after checking real characters in game (from Nov 4).");
+      Object.keys(state.base || {}).length
+        ? "your base stats as entered below, plus everything your gear and talents add."
+        : "everything your gear and talents add. Your character's base stats (from race and level) are kept on the game's " +
+          "servers, not in the game files. You can type yours in under \"Your base stats\" below.");
     box.append(note);
 
     const section = (title, rows) => {
@@ -474,65 +422,46 @@
       s.append(dl);
       box.append(s);
     };
-    const plus = (v, unit = "") => (v ? `+${Math.round(v * 100) / 100}${unit}` : `0${unit}`);
+    const n = (v, d = 0) => (Math.round(v * 10 ** d) / 10 ** d).toString();
+    const wline = (it) => it ? `${it.weapon.min}-${it.weapon.max} (${it.weapon.speed.toFixed(2)})` : null;
 
-    // attributes
-    section("Attributes from gear", ["strength", "agility", "stamina", "intellect", "spirit"].map((k) => [
-      STAT_TEXT[k], plus(statWithTal(k)) + (tal.statPct[k] ? ` (talents +${tal.statPct[k]}%)` : ""),
+    section("Attributes", ["strength", "agility", "stamina", "intellect", "spirit"].map((k) => [
+      STAT_TEXT[k], S.attr[k] + (tal.statPct[k] ? ` (talents +${tal.statPct[k]}%)` : ""),
     ]));
-
-    const str = statWithTal("strength"), agi = statWithTal("agility"), sta = statWithTal("stamina"), int = statWithTal("intellect");
-    const mh = worn.find((w) => w.slot === "mainHand");
-    const oh = worn.find((w) => w.slot === "offHand" && w.item.weapon);
-    const rg = worn.find((w) => w.slot === "ranged" && w.item.weapon);
-    const wline = (w) => w ? `${w.item.weapon.min}-${w.item.weapon.max} (${w.item.weapon.speed.toFixed(2)})` : null;
-
     section("Melee", [
-      ["Attack power", plus(g("attackPower") + str * cls.apPerStr + agi * cls.apPerAgi),
-        `${cls.apPerStr} per Strength` + (cls.apPerAgi ? `, ${cls.apPerAgi} per Agility` : "")],
-      ["Hit chance", plus(rating("hit", "meleeHit") + tal.hit, "%")],
-      ["Crit chance", plus(rating("crit", "meleeCrit") + tal.crit, "%"), "From ratings and talents. Crit from Agility isn't included yet."],
-      ["Main hand", wline(mh)],
-      ["Off hand", wline(oh)],
+      ["Attack power", S.ap, `${S.baseAp} from your level (Classic rule), ${cls.apPerStr} per Strength` +
+        (cls.apPerAgi ? `, ${cls.apPerAgi} per Agility` : "") + ", plus gear"],
+      ["Hit chance", n(S.hit, 2) + "%"],
+      ["Crit chance", n(S.crit, 2) + "%", "From ratings and talents. Crit from Agility isn't included yet."],
+      ["Main hand", wline(S.mh)],
+      ["Off hand", wline(S.oh)],
     ]);
-    if (rg) {
-      section("Ranged", [
-        ["Ranged attack power", plus(g("attackPower") + g("rangedAttackPower") + agi * cls.rapPerAgi)],
-        ["Weapon", wline(rg)],
-      ]);
-    }
-    const sp = g("spellPower") + g("spellDamage");
-    if (cls.power === 0 || sp || g("healing")) {
-      const schools = ["fire", "frost", "nature", "shadow", "arcane", "holy"].filter((s) => g(s + "Damage"))
-        .map((s) => [`${s[0].toUpperCase() + s.slice(1)} damage`, plus(sp + g(s + "Damage"))]);
+    if (S.rg) section("Ranged", [["Ranged attack power", S.rap], ["Weapon", wline(S.rg)]]);
+    if (cls.power === 0 || S.sp || S.healing) {
+      const schools = Object.entries(S.school).filter(([, v]) => v)
+        .map(([k, v]) => [`${k[0].toUpperCase() + k.slice(1)} damage`, S.sp + v]);
       section("Spells", [
-        ["Spell damage", plus(sp)],
-        ["Healing", plus(g("healing") + g("spellPower"))],
-        ...schools,
-        ["Spell hit", plus(rating("hit", "spellHit") + tal.spellHit, "%")],
-        ["Spell crit", plus(rating("crit", "spellCrit") + tal.spellCrit, "%"), "From ratings and talents. Crit from Intellect isn't included yet."],
-        ["Mana per 5 sec", g("manaRegen") ? plus(g("manaRegen")) : null],
+        ["Spell damage", S.sp], ["Healing", S.healing], ...schools,
+        ["Spell hit", n(S.spellHit, 2) + "%"],
+        ["Spell crit", n(S.spellCrit, 2) + "%", "From ratings and talents. Crit from Intellect isn't included yet."],
+        ["Mana per 5 sec", S.mp5 || null],
       ]);
     }
-    const armorTotal = Math.round(armor * (1 + tal.armorPct / 100)) + g("bonusArmor") + agi * 2;
     section("Defense", [
-      ["Armor", armorTotal, "Item armor (with talents) + bonus armor + 2 per Agility"],
-      ["Defense", plus(g("defense") / rules.ratings.defense[lvl - 1] + tal.defense)],
-      ["Dodge", plus(rating("dodge", "dodge") + tal.dodge, "%")],
-      ["Parry", cls.token !== "MAGE" && cls.token !== "PRIEST" && cls.token !== "WARLOCK" ? plus(rating("parry", "parry") + tal.parry, "%") : null],
-      ["Block", worn.some((w) => w.item.subclass === 6 && w.item.class === 4) ? plus(rating("block", "block") + tal.block, "%") : null],
-      ["Block value", g("blockValue") ? plus(g("blockValue")) : null],
+      ["Armor", S.armor, "Item armor (with talents) + bonus armor + 2 per Agility"],
+      ["Defense", "+" + n(S.defense)],
+      ["Dodge", "+" + n(S.dodge, 2) + "%"],
+      ["Parry", ["MAGE", "PRIEST", "WARLOCK"].includes(cls.token) ? null : "+" + n(S.parry, 2) + "%"],
+      ["Block", S.shield ? "+" + n(S.block, 2) + "%" : null],
+      ["Block value", S.blockValue || null],
     ]);
-    const hp = rules.baseHealth[cls.token][lvl - 1] + sta * rules.healthPerStamina[lvl - 1] + g("health");
-    const mana = cls.power === 0 ? rules.baseMana[cls.token][lvl - 1] + int * 15 + g("mana") : null;
     section("Health and mana", [
-      ["Health", `${hp}+`, "Base health for your class and level, plus 10 per Stamina from gear. Your base Stamina will add more."],
-      ["Mana", mana != null ? `${mana}+` : null, "Base mana plus 15 per Intellect from gear. Your base Intellect will add more."],
+      ["Health", S.health, "Base health for your class and level, plus 10 per Stamina."],
+      ["Mana", S.mana || null, "Base mana plus 15 per Intellect."],
     ]);
     const res = ["fire", "frost", "nature", "shadow", "arcane"].filter((r) => g(r + "Resist"));
     if (res.length) section("Resistances", res.map((r) => [r[0].toUpperCase() + r.slice(1), g(r + "Resist")]));
 
-    // talents that count on the sheet
     if (tal.lines.length) {
       const s = el("div", "sheet-sec");
       s.append(el("h3", null, "Talents counted"));

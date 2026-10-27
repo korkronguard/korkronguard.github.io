@@ -403,6 +403,23 @@
     } else if (t.estimated) {
       tip.append(el("div", "note", "Numbers per rank are estimated from Classic (Forever's files only give one rank)."));
     }
+    // what one more point would change in the numbers (from js/panel.js)
+    if (now < max && app.previewTalent) {
+      const lines = app.previewTalent(t.index) || [];
+      if (lines.length) {
+        tip.append(el("div", "lbl", now ? "One more point:" : "Learning it:"));
+        const ul = el("ul", "preview");
+        for (const l of lines.slice(0, 8)) {
+          const li = el("li", l.up ? "up" : "down");
+          li.append(el("span", null, l.label + ": "), l.text);
+          ul.append(li);
+        }
+        if (lines.length > 8) ul.append(el("li", "muted", `…and ${lines.length - 8} more`));
+        tip.append(ul);
+      } else if (t.effects && t.effects[now] && t.effects[now].length) {
+        tip.append(el("div", "note muted", "Doesn't change the numbers we calculate yet."));
+      }
+    }
     if (sticky) {
       const row = el("div", "tbtns");
       const minus = el("button", "btn", "− Remove");
