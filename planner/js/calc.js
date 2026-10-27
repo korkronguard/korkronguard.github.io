@@ -88,13 +88,22 @@
     return list;
   }
 
+  // Warrior Weaponmaster / Rogue Hack and Slash: effect 0 = crit, 1 = armor ignored, 2 = extra attack chance.
+  // Weapon subclasses: 0/1 axe, 4/5 mace, 6 polearm, 7/8 sword, 10 staff, 13 fist, 15 dagger.
+  const WEAPON_TALENTS = {
+    "Weaponmaster": [{ kind: "crit", effect: 0, subclasses: [0, 1, 6] }, { kind: "armor", effect: 1, subclasses: [4, 5, 10] },
+      { kind: "extra", effect: 2, subclasses: [7, 8] }],
+    "Hack and Slash": [{ kind: "crit", effect: 0, subclasses: [13, 15] }, { kind: "armor", effect: 1, subclasses: [4] },
+      { kind: "extra", effect: 2, subclasses: [0, 7] }],
+  };
+
   function talentEffects(ctx) {
     const out = {
       crit: 0, hit: 0, spellHit: 0, spellCrit: 0, dodge: 0, parry: 0, block: 0, defense: 0, armorPct: 0,
       statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 },
       mods: [],       // ability modifiers: { op, pct, value, mask, name }
       dmgPct: [],     // damage done %: { school, value, name }
-      offhandPct: 0, armorIgnore: 0,
+      offhandPct: 0, armorIgnore: 0, extraAttack: 0,
       lines: [],      // for the sheet: what each talent added
     };
     const weapons = ctx.worn.filter((w) => w.item.class === 2);
@@ -142,6 +151,21 @@
         }
       }
       if (parts.length) out.lines.push({ name: t.name, text: [...new Set(parts)].join(", ") });
+      // one talent, a different bonus per main-hand weapon type (the numbers are its 1st/2nd/3rd effect)
+      const wt = WEAPON_TALENTS[t.name];
+      if (wt) {
+        const mh = ctx.worn.find((w) => w.slot === "mainHand" && w.item.class === 2);
+        const vals = (t.effects[r - 1] || []).map((e) => e.value);
+        const pick = mh && wt.find((x) => x.subclasses.includes(mh.item.subclass));
+        if (!pick) {
+          out.lines.push({ name: t.name, text: "no bonus with this main-hand weapon", off: true });
+        } else {
+          const v = vals[pick.effect] || 0;
+          if (pick.kind === "crit") { out.crit += v; out.lines.push({ name: t.name, text: `+${v}% crit` }); }
+          if (pick.kind === "armor") { out.armorIgnore += v; out.lines.push({ name: t.name, text: `ignores ${v}% armor` }); }
+          if (pick.kind === "extra") { out.extraAttack += v / 100; out.lines.push({ name: t.name, text: `${v}% chance of an extra swing` }); }
+        }
+      }
     });
     // gear bonuses that work like talents (stat %, crit, hit, ability modifiers from set bonuses)
     for (const a of gearAuras(ctx)) {
@@ -300,34 +324,32 @@
   // ------------------------------------------------------------ white hits
 
 
-  // ------------------------------------------------------------ procs (Classic values; Forever's files leave them out)
+  // ------------------------------------------------------------ procs (numbers from the talents' own ranks)
 
   const rankOf = (ctx, name, pred) => {
     const i = ctx.flat.findIndex((t) => t.name === name && (!pred || pred(t)));
     return i >= 0 ? ctx.ranks[i] || 0 : 0;
   };
-  // Flurry: attack speed for 3 swings after a crit. Forever's buff holds Classic's top value (30%).
-  const FLURRY = [0, 10, 15, 20, 25, 30];
-  // Deep Wounds: % of average weapon damage over 12 sec after a crit (Classic 20/40/60)
-  const DEEP_WOUNDS = [0, 20, 40, 60];
+  // a talent's first number at the learned rank (Flurry 5-25% attack speed, Deep Wounds 20/40/60%...)
+  const talentValue = (ctx, name) => {
+    const i = ctx.flat.findIndex((t) => t.name === name);
+    const r = i >= 0 ? ctx.ranks[i] || 0 : 0;
+    const e = r && (ctx.flat[i].effects[r - 1] || [])[0];
+    return e ? e.value : 0;
+  };
 
   function procs(ctx, S) {
     const out = { haste: 0, extraAttack: 0, deepWounds: 0, lines: [] };
-    const flurry = rankOf(ctx, "Flurry");
+    const flurry = talentValue(ctx, "Flurry"); // attack speed for 3 swings after a crit
     if (flurry) {
       const c = Math.max(0, S.crit - critSuppression(ctx)) / 100;
       const uptime = 1 - Math.pow(1 - c, 4); // ~4 hits (white + abilities) per 3 Flurry swings
-      out.haste = FLURRY[flurry] * uptime;
-      out.lines.push(`Flurry: +${FLURRY[flurry]}% attack speed, up ${Math.round(uptime * 100)}% of the time`);
+      out.haste = flurry * uptime;
+      out.lines.push(`Flurry: +${flurry}% attack speed, up ${Math.round(uptime * 100)}% of the time`);
     }
-    // Weaponmaster (Warrior, swords): 1% per rank chance of an extra swing
-    const swordRank = rankOf(ctx, "Weaponmaster", (t) => t.needs && t.needs.subclassMask === 384);
-    if (swordRank && S.mh && (S.mh.subclass === 7 || S.mh.subclass === 8)) {
-      out.extraAttack = swordRank / 100;
-      out.lines.push(`Weaponmaster (swords): ${swordRank}% chance of an extra swing`);
-    }
-    const dw = rankOf(ctx, "Deep Wounds");
-    if (dw && S.mh) out.deepWounds = DEEP_WOUNDS[Math.min(3, dw)] / 100;
+    if (S.tal.extraAttack && S.mh) out.extraAttack = S.tal.extraAttack; // Weaponmaster / Hack and Slash
+    const dw = talentValue(ctx, "Deep Wounds"); // % of average weapon damage over 12 sec after a crit
+    if (dw && S.mh) out.deepWounds = dw / 100;
     return out;
   }
 
@@ -335,7 +357,6 @@
 
   // Classic rage: rage = 7.5 x damage / c, where c depends on level
   const rageConversion = (L) => 0.0091107836 * L * L + 3.225598133 * L + 4.2652911;
-  const UNBRIDLED = [0, 8, 16, 24, 32, 40]; // % chance per hit of 1 extra rage (Classic)
 
   function rotation(ctx, S, white, abilities) {
     const byName = Object.fromEntries(abilities.filter((a) => !a.locked).map((a) => [a.name, a]));
@@ -348,7 +369,7 @@
 
     if (token === "WARRIOR" && white.length) {
       const c = rageConversion(ctx.level);
-      const unbridled = UNBRIDLED[Math.min(5, rankOf(ctx, "Unbridled Wrath"))] / 100;
+      const unbridled = talentValue(ctx, "Unbridled Wrath") / 100; // chance per hit of 1 extra rage
       let rage = 0;
       for (const w of white.filter((x) => x.label !== "Ranged" && x.label !== "Wand")) {
         rage += (w.perSwing * 7.5 / c + unbridled) / w.effSpeed;
@@ -386,7 +407,7 @@
         .map((n) => byName[n]).filter((a) => a && a.cost && a.expected);
       const evis = byName["Eviscerate"];
       if (builders.length && evis) {
-        const sealFate = rankOf(ctx, "Seal Fate") * 20 / 100;
+        const sealFate = talentValue(ctx, "Seal Fate") / 100;
         const best = builders.map((b) => {
           const cp = (b.name === "Mutilate" ? 2 : 1) + (b.critChance / 100) * sealFate;
           const n = 5 / cp;

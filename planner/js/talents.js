@@ -152,7 +152,7 @@
 
   function encode() {
     const seq = state.seq.map((i) => LINK_CHARS[i]).join("");
-    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t=${seq}` +
+    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t2=${seq}` +
       app.encoders.map((f) => f()).join("");
   }
 
@@ -164,7 +164,8 @@
     loadClass(token);
     const lvl = parseInt(p.get("l"), 10);
     state.level = lvl >= 1 && lvl <= 60 ? lvl : 60;
-    const seq = [...(p.get("t") || "")].map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
+    // "t2": the trait-table trees (2026-10-27). Older "t" links pointed into the old layout, so their picks are dropped.
+    const seq = [...(p.get("t2") || "")].map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
     state.seq = reorder(seq.slice(0, MAX_POINTS)) || keepValid(seq);
     return true;
   }
