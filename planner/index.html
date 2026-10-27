@@ -15,7 +15,7 @@
 <header class="top">
   <div class="brand">
     <h1>Kor'kron Planner</h1>
-    <span class="sub">Talents for WoW: Forever</span>
+    <span class="sub">Talents and gear for WoW: Forever</span>
   </div>
   <div class="actions">
     <button type="button" id="copyLink" class="btn primary">Copy link</button>
@@ -40,18 +40,46 @@
     </div>
   </section>
 
-  <p class="hint" id="hint">Click a talent to add a point. Right-click (or Shift-click) to take one back.</p>
+  <nav class="tabs" role="tablist" aria-label="Planner pages">
+    <button type="button" role="tab" id="tabTalents" data-view="talents" aria-selected="true">Talents</button>
+    <button type="button" role="tab" id="tabGear" data-view="gear" aria-selected="false">Gear &amp; Stats</button>
+  </nav>
 
-  <section class="trees" id="trees" aria-label="Talent trees"></section>
+  <div id="talentsView" role="tabpanel" aria-labelledby="tabTalents">
+    <p class="hint" id="hint">Click a talent to add a point. Right-click (or Shift-click) to take one back.</p>
 
-  <section class="path" aria-labelledby="pathTitle">
-    <div class="path-head">
-      <h2 id="pathTitle">Leveling path</h2>
-      <span class="muted">The order you clicked is the order you'd learn them.</span>
+    <section class="trees" id="trees" aria-label="Talent trees"></section>
+
+    <section class="path" aria-labelledby="pathTitle">
+      <div class="path-head">
+        <h2 id="pathTitle">Leveling path</h2>
+        <span class="muted">The order you clicked is the order you'd learn them.</span>
+      </div>
+      <ol id="path"></ol>
+    </section>
+  </div>
+
+  <div id="gearView" role="tabpanel" aria-labelledby="tabGear" hidden>
+    <p class="hint">Click a slot to pick an item. Only items your class can use at this level are listed.</p>
+    <div class="gear-layout">
+      <section class="slots" id="slots" aria-label="Equipment"></section>
+      <section class="sheet" id="sheet" aria-label="Character sheet"></section>
     </div>
-    <ol id="path"></ol>
-  </section>
+  </div>
 </main>
+
+<dialog class="picker" id="picker" aria-labelledby="pickerTitle">
+  <div class="picker-head">
+    <h2 id="pickerTitle">Pick an item</h2>
+    <button type="button" class="btn" id="pickerClose" aria-label="Close">✕</button>
+  </div>
+  <div class="picker-tools">
+    <input type="search" id="pickerSearch" placeholder="Search by name or stat (e.g. strength, crit)" autocomplete="off">
+    <button type="button" class="btn" id="pickerRemove">Empty this slot</button>
+  </div>
+  <p class="muted" id="pickerCount"></p>
+  <ul class="picker-list" id="pickerList"></ul>
+</dialog>
 
 <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 <div class="toast" id="toast" role="status" hidden></div>
@@ -66,6 +94,7 @@
 <script src="data/classes.js"></script>
 <script src="data/talents.js"></script>
 <script src="js/talents.js"></script>
+<script src="js/gear.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="planner"></script>
 </body>
 </html>

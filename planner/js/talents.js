@@ -27,6 +27,17 @@
   let flat = [];        // this class's talents, in link order: tree by tree, row by row
   let byId = new Map(); // talent id -> entry in flat
 
+  // Shared with the gear page (js/gear.js): it adds its own part of the link and redraws after changes.
+  const app = (window.KP.app = {
+    state,
+    encoders: [],   // functions returning extra link parts, e.g. "&g=..."
+    hooks: [],      // called after every change
+    flat: () => flat,
+    liveRanks: () => tally(state.seq.slice(0, pointsForLevel(state.level))).ranks,
+    changed: () => changed(),
+    toast: (msg) => toast(msg),
+  });
+
   const pointsForLevel = (lvl) => Math.max(0, Math.min(MAX_POINTS, lvl - FIRST_TALENT_LEVEL + 1));
   const levelForPoint = (n) => n + FIRST_TALENT_LEVEL; // n = 0-based pick number
 
@@ -141,7 +152,8 @@
 
   function encode() {
     const seq = state.seq.map((i) => LINK_CHARS[i]).join("");
-    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t=${seq}`;
+    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t=${seq}` +
+      app.encoders.map((f) => f()).join("");
   }
 
   function decode(hash) {
@@ -161,6 +173,7 @@
     history.replaceState(null, "", encode());
     render();
     if (openTip) showTip(openTip.talent, openTip.anchor, openTip.sticky);
+    app.hooks.forEach((f) => f());
   }
 
   // ------------------------------------------------------------ drawing
@@ -464,7 +477,13 @@
       prompt("Copy this link:", url);
     }
   });
-  addEventListener("hashchange", () => { if (location.hash !== encode() && decode(location.hash)) { hideTip(); render(); } });
+  addEventListener("hashchange", () => {
+    if (location.hash !== encode() && decode(location.hash)) {
+      hideTip();
+      render();
+      app.hooks.forEach((f) => f());
+    }
+  });
   if ("ontouchstart" in window) $("hint").textContent = "Tap a talent to see it, then use + and − to add or remove points.";
 
   // ------------------------------------------------------------ start
