@@ -420,7 +420,7 @@
     const L = list(c);
     const [bm, mm, sv] = c.treePts;
     const meleeTalents = ["Lacerating Strikes", "Strider Kick", "Predator's Edge", "Savage Strikes", "Expose Prey"].filter((n) => c.talent[n]);
-    const auto = sv > Math.max(bm, mm) && meleeTalents.length >= 2 ? "melee" : "ranged";
+    const auto = KP.calc.hunterStyle({ ...c.ctx, style: "auto" }); // same rule as the damage estimate
     const style = state.prio.style === "auto" ? auto : state.prio.style;
     L.toggles.push({ key: "style", label: "Style", value: state.prio.style, auto,
       options: [["auto", `Auto (${auto})`], ["ranged", "Ranged"], ["melee", "Melee"]],
@@ -437,6 +437,11 @@
     const A = c.res;
     const unit = "mana";
     const lone = c.talent["Lone Wolf"];
+    const starved = (c.R.rotation && c.R.rotation.starved) || [];
+    if (starved.length) {
+      L.facts.push(`Mana: over a 3-minute fight your mana can't pay for every ${starved.join(" / ")}. ` +
+        "Skip the lowest damage per mana first (see the numbers below), or bring more Intellect / mana regen.");
+    }
 
     L.section("Before the pull", null);
     if (style === "ranged") {
@@ -498,6 +503,8 @@
             c.talent["Rapid Recuperation"] ? "Rapid Recuperation: mana regeneration keeps going for 15 sec after you sting" : null] });
       }
       L.sortFrom(0);
+      L.add("Immolation Trap", { tag: "Optional", score: 0, text: "Usable in combat in Forever: worth it when the boss is tanked close enough to reach its feet.",
+        facts: [dmgLine(A["Immolation Trap"], unit)] });
       const auto = (c.R.white || []).find((w) => w.label === "Ranged");
       L.add("Auto Shot", { tag: "Always", score: 0, text: "Never let it stop; don't move or cast through it.",
         facts: [auto ? `${fmt(auto.dps, 1)} damage per second on its own` : null] });
@@ -511,6 +518,12 @@
         facts: [dmgLine(A["Mongoose Bite"], unit), c.talent["Lacerating Strikes"] ? "Lacerating Strikes: it also adds a bleed worth 40% of its damage" : null] });
       L.add("Counterattack", { tag: "When it lights up", score: 700, text: "After you parry. Can't be dodged.", facts: [dmgLine(A["Counterattack"], unit)] });
       L.add("Strider Kick", { tag: "On cooldown", score: 600 + perUse(A["Strider Kick"]), text: "100% weapon damage.", facts: [dmgLine(A["Strider Kick"], unit)] });
+      const trap = A["Immolation Trap"];
+      L.add("Immolation Trap", { tag: "On cooldown", score: 650 + perUse(trap),
+        text: "Drop it at your feet, under the boss: Forever lets you lay traps in combat.",
+        facts: [trap && !trap.locked ? `${fmt(trap.expected)} Fire damage over ${sec(trap.durMs || 15000)}, ${fmt(trap.cost)} mana, ${sec(trap.cdMs)} cooldown` +
+          (trap.mods && trap.mods.length ? ` (${trap.mods.join(", ")})` : "") : dmgLine(trap, unit),
+          "In Classic traps only worked out of combat; Forever's game data drops that rule"] });
       L.add("Raptor Strike", { tag: "On cooldown", score: 500 + perUse(A["Raptor Strike"]), text: "Every 6 sec (it goes on your next swing).",
         facts: [dmgLine(A["Raptor Strike"], unit), c.talent["Savage Strikes"] ? `Savage Strikes: +${fmt(talentNumber(c, "Savage Strikes"))}% crit on melee abilities` : null] });
       L.sortFrom(0);

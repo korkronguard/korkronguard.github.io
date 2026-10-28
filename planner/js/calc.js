@@ -255,7 +255,8 @@
       gear, tal, attr, baseAp,
       ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
         buffValue(ctx, "Battle Shout"),
-      rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi),
+      rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
+        sum(hunterSelfBuffs(ctx).map((b) => b.value)),
       hit: g("hit") / per("meleeHit") + tal.hit,
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit,
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
@@ -299,11 +300,26 @@
 
   // a group buff or target debuff the player switched on: the highest rank a same-level Warrior would have
   function buffValue(ctx, name) {
-    if (!(ctx.buffs || {})[name]) return 0;
-    const ranks = (KP.abilities.BUFFS || {})[name] || [];
+    return (ctx.buffs || {})[name] ? rankValue(name, ctx.level) : 0;
+  }
+  function rankValue(name, level) {
     let v = 0;
-    for (const r of ranks) if (r.level <= ctx.level) v = r.value;
+    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = r.value;
     return v;
+  }
+  // a ranged Hunter always has Aspect of the Hawk up and Hunter's Mark on the target (rank for the level)
+  function hunterSelfBuffs(ctx) {
+    if (ctx.cls.token !== "HUNTER" || hunterStyle(ctx) !== "ranged") return [];
+    return ["Aspect of the Hawk", "Hunter's Mark"].map((name) => ({ name, value: rankValue(name, ctx.level) })).filter((b) => b.value);
+  }
+  // ranged or melee Hunter: the player's choice, else melee for Survival with at least two melee talents
+  const HUNTER_MELEE_TALENTS = ["Lacerating Strikes", "Strider Kick", "Predator's Edge", "Savage Strikes", "Expose Prey"];
+  function hunterStyle(ctx) {
+    if (ctx.style === "ranged" || ctx.style === "melee") return ctx.style;
+    const pts = [0, 0, 0], learned = new Set();
+    ctx.flat.forEach((t, i) => { if (ctx.ranks[i]) { pts[t.tree] += ctx.ranks[i]; learned.add(t.name); } });
+    const melee = HUNTER_MELEE_TALENTS.filter((n) => learned.has(n)).length;
+    return pts[2] > Math.max(pts[0], pts[1]) && melee >= 2 ? "melee" : "ranged";
   }
   const SUNDER_STACKS = 5;
 
@@ -458,6 +474,11 @@
       }
     }
 
+    if (token === "HUNTER") {
+      const h = hunterRotation(ctx, S, white, byName);
+      if (h) return h;
+    }
+
     if (ctx.cls.power === 0) {
       const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
       const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
@@ -493,6 +514,134 @@
       }
     }
     return result(whiteDps + extra, white.length ? "White hits only; this class's rotation isn't worked out yet." : "Equip a weapon to see damage.");
+  }
+
+  // ------------------------------------------------------------ Hunter
+
+  const FIGHT_SEC = 180; // the fight length the mana budget assumes
+
+  // Fit attacks into the global cooldown / cast time, then into the mana you have over the fight.
+  // shots: { name, perUse, rate (uses per sec if always pressed), mana, busy (sec of button time per use) }
+  function fitShots(shots, manaPerSec) {
+    let time = 0.95; // leave a little room for moving and reacting
+    for (const s of [...shots].sort((a, b) => b.perUse / (b.busy || 1e-9) - a.perUse / (a.busy || 1e-9))) {
+      const need = s.rate * s.busy;
+      s.f = need ? Math.max(0, Math.min(1, time / need)) : 1;
+      time -= need * s.f;
+    }
+    let mana = manaPerSec;
+    for (const s of [...shots].sort((a, b) => (b.mana ? b.perUse / b.mana : Infinity) - (a.mana ? a.perUse / a.mana : Infinity))) {
+      const need = s.rate * s.f * s.mana;
+      if (need > mana) { s.f *= need ? Math.max(0, mana / need) : 1; s.manaCut = true; }
+      mana -= s.rate * s.f * s.mana;
+    }
+    return shots.map((s) => ({ ...s, dps: s.perUse * s.rate * s.f }));
+  }
+
+  function hunterRotation(ctx, S, white, byName) {
+    const style = hunterStyle(ctx);
+    const level = ctx.level;
+    const baseMana = rules.baseMana.HUNTER[level - 1] || 0;
+    const manaOf = (a) => a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
+    const learned = (name) => {
+      const i = ctx.flat.findIndex((t) => t.name === name);
+      return i >= 0 ? ctx.ranks[i] || 0 : 0;
+    };
+    const talentEffect = (name, test) => {
+      const i = ctx.flat.findIndex((t) => t.name === name);
+      const r = i >= 0 ? ctx.ranks[i] : 0;
+      return r ? (ctx.flat[i].effects[r - 1] || []).find(test) : null;
+    };
+    // Rapid Fire: attack speed for 15 sec every few minutes (Rapid Killing shortens the cooldown)
+    const rf = ((KP.spellbook || {}).HUNTER || []).find((b) => b.name === "Rapid Fire");
+    const rfRank = rf && [...rf.ranks].reverse().find((r) => (r.level || 1) <= level);
+    let haste = 0;
+    if (rfRank) {
+      const pct = parseFloat((/speed by (\d+)/.exec(rf.desc) || [])[1] || 0);
+      const cut = talentEffect("Rapid Killing", (e) => e.aura === 107 && e.misc === 11);
+      const cd = Math.max(1, rfRank.cdMs + (cut ? cut.value : 0));
+      haste = (pct * (rfRank.durMs || 15000)) / cd;
+    }
+    // mana: Classic regen (15 + Spirit/5 every 2 sec) only partly continues while you keep shooting;
+    // talents that "allow N% of your Mana Regeneration to continue while casting" (Rapid Recuperation needs Serpent Sting)
+    const keepPct = (withSting) => Math.max(0, ...ctx.flat.map((t, i) => {
+      const r = ctx.ranks[i];
+      if (!r || (t.name === "Rapid Recuperation" && !withSting)) return 0;
+      const m = /allows? (\d+)% of your Mana Regeneration to continue while casting/i.exec(t.desc[r - 1] || "");
+      return m ? parseFloat(m[1]) : 0;
+    }));
+    const spiritRegen = (15 + S.attr.spirit / 5) / 2;
+    const manaPerSec = (withSting) => (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
+    const shot = (a, opts = {}) => a && !a.locked && a.expected > 0 && {
+      name: opts.name || a.name, perUse: opts.perUse != null ? opts.perUse : a.expected,
+      rate: opts.rate || 1 / Math.max(1.5, (opts.every || a.cdMs || 1500) / 1000), mana: manaOf(a),
+      busy: opts.busy != null ? opts.busy : Math.max(1.5, a.castMs / 1000), cast: a.castMs / 1000,
+    };
+    const parts = [];
+    let dps = 0;
+    const notes = [];
+    const starved = [];
+
+    if (style === "ranged") {
+      const auto = white.find((w) => w.label === "Ranged");
+      if (!auto) return null;
+      const aimed = byName["Aimed Shot"], multi = byName["Multi-Shot"];
+      const big = aimed && (!multi || aimed.expected >= multi.expected) ? aimed : multi; // they share a cooldown
+      const shots = [shot(big), shot(byName["Arcane Shot"]), shot(byName["Sniper Shot"]),
+        shot(byName["Serpent Sting"], { every: byName["Serpent Sting"] && byName["Serpent Sting"].durMs })].filter(Boolean);
+      const fitted = fitShots(shots, manaPerSec(shots.some((s) => s.name === "Serpent Sting")));
+      starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
+      const castFrac = Math.min(0.9, sum(fitted.map((s) => s.rate * s.f * s.cast))); // Auto Shot pauses while you cast
+      const autoDps = auto.dps * (1 + haste / 100) * (1 - castFrac);
+      parts.push({ name: "Auto Shot", dps: autoDps });
+      dps += autoDps;
+      for (const s of fitted) {
+        dps += s.dps;
+        parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+      }
+      const self = hunterSelfBuffs(ctx);
+      notes.push("Auto Shot plus " + (fitted.map((s) => s.name).join(", ") || "no shots yet") + " as often as cooldowns, casting and mana allow");
+      if (self.length) notes.push(self.map((b) => `${b.name} +${b.value}`).join(" and ") + " ranged attack power included");
+      if (castFrac > 0.01) notes.push(`Auto Shot pauses ${Math.round(castFrac * 100)}% of the time while you cast`);
+    } else {
+      const mh = white.find((w) => w.label === "Main hand");
+      if (!mh) return null;
+      for (const w of white.filter((x) => x.label !== "Ranged" && x.label !== "Wand")) {
+        const d = w.dps * (1 + haste / 100);
+        parts.push({ name: `${w.label} (white)`, dps: d });
+        dps += d;
+      }
+      const raptor = byName["Raptor Strike"];
+      const shots = [];
+      // Raptor Strike goes on your next swing: it adds its damage over a normal swing
+      if (raptor && !raptor.locked) shots.push(shot(raptor, { perUse: Math.max(0, raptor.expected - mh.perSwing),
+        rate: 1 / Math.max(raptor.cdMs / 1000, mh.effSpeed), busy: 0 }));
+      shots.push(shot(byName["Strider Kick"]));
+      const mb = byName["Mongoose Bite"];
+      const expose = talentEffect("Expose Prey", (e) => e.aura === 42);
+      if (mb && expose) { // with Hunter's Mark up, every melee hit can allow Mongoose Bite
+        const swingsPerSec = sum(white.filter((x) => x.label !== "Ranged" && x.label !== "Wand").map((w) => 1 / w.effSpeed));
+        const bleed = learned("Lacerating Strikes") ? 1.4 : 1; // Lacerating Strikes: +40% as a bleed
+        shots.push(shot(mb, { perUse: mb.expected * bleed, rate: Math.min(1 / (mb.cdMs / 1000), swingsPerSec * expose.value / 100) }));
+      }
+      const lac = byName["Lacerate"];
+      shots.push(shot(lac, { every: lac && lac.durMs }));
+      const trap = byName["Immolation Trap"];
+      shots.push(shot(trap)); // Forever lets you lay traps in combat; in melee the boss stands on it
+      const fitted = fitShots(shots.filter(Boolean), manaPerSec(false));
+      starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
+      for (const s of fitted) {
+        dps += s.dps;
+        parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+      }
+      notes.push("Melee: white hits plus " + (fitted.map((s) => s.name).join(", ") || "no abilities yet") + " as cooldowns and mana allow");
+      if (mb && !expose) notes.push("Mongoose Bite only after you dodge (not counted unless you take Expose Prey)");
+    }
+    if (haste) notes.push(`Rapid Fire averages +${haste.toFixed(1)}% attack speed`);
+    if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
+    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula); pet and hawks not counted; Aspect of the Viper not used`);
+    const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved };
   }
 
   function whiteHits(ctx, S) {
@@ -548,7 +697,8 @@
   }
 
   function modsFor(S, rank) {
-    const list = S.tal.mods.filter((m) => overlap(m.mask, rank.mask));
+    // a trap's damage spell has its own mask (Clever Traps points at it)
+    const list = S.tal.mods.filter((m) => overlap(m.mask, rank.mask) || (rank.mask2 && overlap(m.mask, rank.mask2)));
     const flat = (op) => sum(list.filter((m) => m.op === op && !m.pct).map((m) => m.value));
     const pct = (op) => sum(list.filter((m) => m.op === op && m.pct).map((m) => m.value));
     return { list, flat, pct };
@@ -688,7 +838,7 @@
     const expected = directExpected + dotExpected;
     const channelMs = rank.channeled ? rank.durMs : 0;
     const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100));
-    const cdMs = Math.max(0, rank.cdMs + mods.flat(11));
+    const cdMs = Math.max(0, (rank.cdMs + mods.flat(11)) * (1 + mods.pct(11) / 100));
     const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100));
     const cost = rank.powerType === 1 ? costRaw / 10 : costRaw; // rage is stored x10
     const heal = r.heal * dmgMult;
@@ -716,5 +866,5 @@
     return { S, white, abilities: list, rotation: rotation(ctx, S, white, list) };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase };
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle };
 })();

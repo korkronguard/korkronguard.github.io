@@ -67,6 +67,7 @@
       cls: state.cls, level: state.level, flat: app.flat(), ranks: ranks || app.liveRanks(),
       race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
       worn: app.worn ? app.worn() : [], base: state.base, target: target(), buffs: state.buffs,
+      style: (state.prio || {}).style, // Hunter ranged/melee choice from the Priority tab
     };
   }
   app.ctx = ctx;
