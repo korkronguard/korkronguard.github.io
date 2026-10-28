@@ -115,7 +115,9 @@
       if (!t.passive && t.ranks.length === 1) return; // an ability you cast, not an always-on bonus
       if (t.needs) {
         const have = t.needs.class === 2 ? weaponMask : armorMask;
-        if (!(have & t.needs.subclassMask)) {
+        // e.g. Dual Wield Specialization: the weapon has to be in the off hand (inventory type 22)
+        const offHandOk = !(t.needs.invTypes & (1 << 22)) || ctx.worn.some((w) => w.slot === "offHand" && w.item.class === 2);
+        if (!(have & t.needs.subclassMask) || !offHandOk) {
           out.lines.push({ name: t.name, text: "needs a matching weapon or shield", off: true });
           return;
         }

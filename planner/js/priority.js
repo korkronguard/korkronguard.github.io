@@ -28,18 +28,22 @@
   const TWO_HAND = [1, 5, 6, 8, 10]; // weapon subclasses: 2H axe, 2H mace, polearm, 2H sword, staff
 
   // Settings on this tab (in the link): tank mode, Hunter style
-  state.prio = state.prio || { tank: null, style: "auto" };
+  state.prio = state.prio || { tank: null, style: "auto", weapons: "auto" };
+  const WEAPON_SETUPS = { "2h": "Two-hander", dw: "Dual wield", shield: "Sword and board" };
+  const WS_LINK = { "2h": "2", dw: "d", shield: "s" };
   app.encoders.push(() => {
     let s = "";
     if (state.prio.tank != null) s += "&tk=" + (state.prio.tank ? 1 : 0);
     if (state.prio.style !== "auto") s += "&hs=" + state.prio.style[0];
+    if (state.prio.weapons !== "auto") s += "&ws=" + WS_LINK[state.prio.weapons];
     return s;
   });
   function readHash() {
     const p = new URLSearchParams(location.hash.replace(/^#/, ""));
     const tk = p.get("tk");
     state.prio = { tank: tk === "1" ? true : tk === "0" ? false : null,
-      style: { r: "ranged", m: "melee" }[p.get("hs")] || "auto" };
+      style: { r: "ranged", m: "melee" }[p.get("hs")] || "auto",
+      weapons: Object.keys(WS_LINK).find((k) => WS_LINK[k] === p.get("ws")) || "auto" };
   }
 
   // ------------------------------------------------------------ what this character has
@@ -73,6 +77,8 @@
       shield: !!(oh && oh.class === 4 && oh.subclass === 6),
       dualWield: !!(oh && oh.class === 2),
     };
+    // what's in your hands: from the gear (the Warrior's Weapons choice can override it)
+    c.hold = { known: c.gearKnown, shield: c.shield, twoHand: c.twoHand, dual: c.dualWield };
     c.spell = (name) => book.find((b) => b.name === name);
     c.rank = (name) => {
       const b = c.spell(name);
@@ -113,8 +119,9 @@
         if (why && !out.later.some((l) => l.name === name) && worthMentioning(c, name)) out.later.push({ name, why });
         return null;
       }
-      if (opts.shield && c.gearKnown && !c.shield) {
-        if (!out.later.some((l) => l.name === name)) out.later.push({ name, why: "needs a shield equipped" });
+      const missing = !opts.always && holdMissing(c, (c.spell(name) || {}).needs);
+      if (missing) {
+        if (!out.later.some((l) => l.name === name)) out.later.push({ name, why: "needs " + missing });
         return null;
       }
       const b = c.spell(name) || {};
@@ -136,6 +143,23 @@
       current.section.items = head.concat(tail);
     };
     return out;
+  }
+
+  // What an item requirement (from the game's SpellEquippedItems) asks for: "shield", "dual", "twoHand" or null.
+  // Weapon subclass bits: one-handers 0 axe, 4 mace, 7 sword, 13 fist, 15 dagger; shield = armor subclass bit 6.
+  const ONE_HAND_BITS = (1 << 0) | (1 << 4) | (1 << 7) | (1 << 13) | (1 << 15);
+  const OFF_HAND_WEAPON = 1 << 22; // inventory type 22
+  function holdNeed(needs) {
+    if (!needs) return null;
+    if (needs.class === 4 && needs.subclassMask & (1 << 6)) return "shield";
+    if (needs.invTypes & OFF_HAND_WEAPON) return "dual";
+    if (needs.class === 2 && !(needs.subclassMask & ONE_HAND_BITS)) return "twoHand";
+    return null;
+  }
+  const NEED_TEXT = { shield: "a shield (Sword and board)", dual: "an off-hand weapon (Dual wield)", twoHand: "a two-handed weapon" };
+  function holdMissing(c, needs) {
+    const need = holdNeed(needs);
+    return need && c.hold.known && !c.hold[need] ? NEED_TEXT[need] : null;
   }
 
   // "Not yet": level-locked spells always; talent-locked ones only from a tree you've put real points into
@@ -173,13 +197,23 @@
     L.title = `${specName} Warrior${tank ? ", tanking" : ""}`;
     L.facts.push(`Talents: ${arms} / ${fury} / ${prot}` + (c.talent["Mortal Strike"] ? " · Mortal Strike" : "") +
       (c.talent["Bloodthirst"] ? " · Bloodthirst" : "") + (c.talent["Shield Slam"] ? " · Shield Slam" : ""));
-    if (c.gearKnown) {
-      L.facts.push(c.twoHand ? "Two-handed weapon" : c.dualWield ? "Dual wielding" : c.shield ? "One-hander and shield" : c.mh ? "One-handed weapon" : "No weapon equipped");
-    } else {
-      L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
+    // weapons: from the gear unless the player picks a setup (any setup can tank or deal damage)
+    const fromGear = c.twoHand ? "2h" : c.dualWield ? "dw" : c.shield ? "shield" : null;
+    const guess = spec === "prot" ? "shield" : spec === "fury" ? "dw" : "2h";
+    const auto = fromGear || guess;
+    const setup = state.prio.weapons !== "auto" ? state.prio.weapons : auto;
+    c.hold = { known: true, shield: setup === "shield", twoHand: setup === "2h", dual: setup === "dw" };
+    L.toggles.push({ key: "weapons", label: "Weapons", value: state.prio.weapons,
+      options: [["auto", `Auto (${WEAPON_SETUPS[auto]}${fromGear ? "" : ", guessed"})`], ...Object.entries(WEAPON_SETUPS)],
+      help: "What you hold changes what you can press: shield abilities need a shield, and some talents only work with one setup." });
+    L.facts.push(`Weapons: ${WEAPON_SETUPS[setup]}` + (state.prio.weapons === "auto" && !fromGear ? " (guessed from your talents; pick gear on Gear & Stats for real numbers)" : ""));
+    if (state.prio.weapons !== "auto" && fromGear && fromGear !== setup) {
+      L.facts.push(`Your equipped gear is ${WEAPON_SETUPS[fromGear]}: the list follows your choice, but damage numbers still use what you wear.`);
     }
+    if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
     const A = c.res;
     const unit = "rage";
+    weaponTalents(c, L, setup);
 
     if (tank) return warriorTank(c, L, A, unit);
 
@@ -234,7 +268,7 @@
       if (it) it.facts.push(`Cooldown in Forever: ${sec(slam.cdMs - (imp ? 3000 : 0))}${imp ? " (Improved Slam −3 sec)" : ""}`);
     }
     cdHit("Spearing Strike", "On cooldown; much stronger against Giants, Dragonkin and mounted targets.");
-    if (c.has("Shield Slam") && (!c.gearKnown || c.shield)) {
+    if (c.has("Shield Slam") && c.hold.shield) {
       const it = cdHit("Shield Slam", "Works in any stance (game data), so keep using it while you deal damage.", 900);
       if (it && c.talent["Bastion"]) it.facts.push(`Bastion: +${fmt(talentNumber(c, "Bastion"))}% damage with a shield`);
     }
@@ -291,7 +325,7 @@
       (c.talent["Raging Blows"] ? " Raging Blows makes it 3 rage cheaper." : "") });
     L.add("Thunder Clap", { tag: "Optional", stance, text: "Slows their attacks; small damage." });
     // off-tank: free to deal damage now, but ready to take the boss
-    if (spec === "prot" || c.shield) {
+    if (spec === "prot" || c.hold.shield) {
       L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
       const tm = talentNumber(c, "Improved Tactical Mastery");
       L.add("Defensive Stance", { tag: "Swap", text: "Swap before you take the boss." +
@@ -306,10 +340,39 @@
     return L;
   }
 
+  // learned talents that only work with one weapon setup: say whether they count with this one
+  function weaponTalents(c, L, setup) {
+    const ranks = app.liveRanks();
+    const rows = [];
+    c.flat.forEach((t, i) => {
+      const r = ranks[i];
+      if (!r) return;
+      let need = holdNeed(t.needs);
+      if (!need && /while a shield|with a shield|your shield/i.test(t.desc[r - 1])) need = "shield";
+      if (need) rows.push({ t, r, ok: !!c.hold[need], need });
+      else if (t.name === "Weaponmaster") rows.push({ t, r, ok: true, typed: true });
+    });
+    if (!rows.length) return;
+    L.section("Your weapon talents", `Talents that depend on what you hold, checked against ${WEAPON_SETUPS[setup]}.`);
+    for (const { t, r, ok, need, typed } of rows) {
+      const mh = c.mh ? c.mh.name : null;
+      L.add(t.name, { always: true, icon: t.icon, tag: ok ? "Counts" : "Wasted here",
+        text: typed ? (mh ? `Bonus depends on your main-hand weapon type (${mh}).` : "Bonus depends on your main-hand weapon type: axe/polearm crit, mace/staff armor, sword extra swings.")
+          : ok ? "Works with this setup." : `Needs ${NEED_TEXT[need]}: does nothing with ${WEAPON_SETUPS[setup]}.`,
+        facts: [t.desc[r - 1].split("\n")[0]] });
+    }
+  }
+
   function warriorTank(c, L, A, unit) {
     const stance = "defensive";
-    L.facts.push("Stance: Defensive Stance" + (c.talent["Defiance"] ? ` (Defiance: +${fmt(talentNumber(c, "Defiance"))}% threat with a shield)` : ""));
-    if (c.gearKnown && !c.shield) L.facts.push("No shield: Shield Slam, Shield Block and Shield Bash need one.");
+    L.facts.push("Stance: Defensive Stance" + (c.talent["Defiance"] && c.hold.shield ? ` (Defiance: +${fmt(talentNumber(c, "Defiance"))}% threat with a shield)` : ""));
+    if (c.hold.shield) {
+      L.facts.push("Sword and board: the tankiest setup. Blocking (Shield Block, block chance), the shield's armor, Shield Slam and Shield Wall all need it.");
+    } else {
+      L.facts.push((c.hold.dual ? "Dual-wield" : "Two-hander") + " tank: more damage, so more threat from damage, but you take more: " +
+        "no blocks, no Shield Slam, Shield Block or Shield Wall (they need a shield, game data), and Revenge only lights up after dodges and parries.");
+      if (c.hold.dual) L.facts.push("Theory: while Heroic Strike is queued, your off-hand misses less, so keep one queued when rage allows.");
+    }
     L.section("Threat priority", "Press the first one that's ready. The damage numbers come from your gear; extra threat noted where the game files hold it.");
     const threatLine = (name) => {
       const r = c.rank(name);
@@ -318,9 +381,9 @@
       if (/threat/i.test(d)) return "Extra threat on top of its damage (worked out by the server, not in the game files)";
       return null;
     };
-    L.add("Shield Slam", { tag: "On cooldown", stance, shield: true, text: "Biggest threat hit. Needs a shield.",
+    L.add("Shield Slam", { tag: "On cooldown", stance, text: "Biggest threat hit. Needs a shield.",
       facts: [dmgLine(A["Shield Slam"], unit), threatLine("Shield Slam")] });
-    L.add("Revenge", { tag: "When it lights up", stance, text: "After you block, dodge or parry. Cheap: use every time.",
+    L.add("Revenge", { tag: "When it lights up", stance, text: (c.hold.shield ? "After you block, dodge or parry." : "After you dodge or parry (no blocks without a shield).") + " Cheap: use every time.",
       facts: [dmgLine(A["Revenge"], unit), threatLine("Revenge"),
         c.talent["Improved Revenge"] ? `Improved Revenge: +${fmt(talentNumber(c, "Improved Revenge"))}% damage` : null] });
     for (const name of ["Mortal Strike", "Bloodthirst"]) {
@@ -331,9 +394,10 @@
     L.add("Sunder Armor", { tag: "Build to 5, then filler", stance, text: "Stack it to 5 early (the raid's damage goes up), then use it as a filler.",
       facts: [sunder ? `−${fmt(buffNumber("Sunder Armor", c.level))} armor per stack, ${fmt(sunder.cost / 10)} rage` +
         (c.talent["Improved Sunder Armor"] ? ` (Improved Sunder Armor −${fmt(talentNumber(c, "Improved Sunder Armor"))})` : "") : null, threatLine("Sunder Armor")] });
-    L.add("Shield Block", { tag: "On cooldown", stance, shield: true, text: "Against physical hitters: fewer big hits and more Revenges.",
+    L.add("Shield Block", { tag: "On cooldown", stance, text: "Against physical hitters: fewer big hits and more Revenges.",
       facts: [c.talent["Shield Specialization"] ? `Shield Specialization: ${fmt(talentNumber(c, "Shield Specialization"))}% more block chance, rage when you block` : null] });
-    L.add("Heroic Strike", { tag: "Rage dump", text: "Only with spare rage (keep enough for Shield Slam and Revenge).",
+    L.add("Heroic Strike", { tag: "Rage dump", text: c.hold.shield ? "Only with spare rage (keep enough for Shield Slam and Revenge)." :
+      "Your main rage dump without a shield; Cleave instead when you hold 2+ enemies.",
       facts: [dmgLine(A["Heroic Strike"], unit), threatLine("Heroic Strike")] });
     L.section("Keep up", null);
     L.add("Thunder Clap", { tag: "Keep up", stance, text: "Slows the boss's attacks (less damage to you).",
@@ -584,8 +648,8 @@
     }
     if (L.later.length) {
       const s = el("section", "prio-sec");
-      s.append(el("h3", null, "Not yet"));
-      s.append(el("p", "muted small", "These would join the list above: " + L.later.map((x) => `${x.name} (${x.why})`).join(" · ")));
+      s.append(el("h3", null, "Not available right now"));
+      s.append(el("p", "muted small", "These would join the list above (not learned yet, or not with this setup): " + L.later.map((x) => `${x.name} (${x.why})`).join(" · ")));
       box.append(s);
     }
     box.append(el("p", "muted small prio-foot", "Numbers: your character against the target in the panel, from Forever's game data " +
