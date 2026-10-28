@@ -611,6 +611,66 @@
     return L;
   }
 
+  // ------------------------------------------------------------ Shaman
+
+  function shaman(c) {
+    const [ele, enh, resto] = c.treePts;
+    const spec = c.talent["Stormstrike"] || (enh > ele && enh > resto) ? "enh" : resto > ele ? "resto" : "ele";
+    if (spec === "resto") {
+      const L = generic(c);
+      L.title = "Restoration Shaman";
+      L.facts.unshift("Restoration is a healer: a healing priority isn't part of the planner yet. Below: your damage spells by the numbers.");
+      return L;
+    }
+    const L = list(c);
+    const A = c.res, unit = "mana";
+    const rot = c.R.rotation || {};
+    L.title = spec === "enh" ? "Enhancement Shaman" : "Elemental Shaman";
+    L.facts.push(`Talents: ${ele} / ${enh} / ${resto}` + ["Stormstrike", "Rage of the Farseer", "Lava Burst", "Elemental Mastery"]
+      .filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
+    if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
+    const desc = (n) => (c.spell(n) || {}).desc || "";
+    if (spec === "enh") {
+      L.section("Keep up", null);
+      L.add("Windfury Weapon", { tag: "Keep up", text: "Your main-hand imbue: chances of extra attacks on every hit.",
+        facts: [desc("Windfury Weapon").split(".").slice(1, 2).join(".").trim() + " (game data)",
+          c.talent["Elemental Weapons"] ? `Elemental Weapons: Windfury effect +${fmt(talentNumber(c, "Elemental Weapons") ? numberAfter(c.flat.find((t) => t.name === "Elemental Weapons").desc[c.talent["Elemental Weapons"] - 1], "Windfury Weapon effect by") : 0)}%` : null,
+          "On the main hand it turns off the Windfury Totem's benefit for you (game data)"] });
+      L.add("Strength of Earth Totem", { tag: "Totem", text: "Strength for your melee group.", facts: [`+${fmt(buffNumber("Strength of Earth", c.level))} Strength at your level`] });
+      L.add("Grace of Air Totem", { tag: "Totem", text: "Agility for your melee group.", facts: [`+${fmt(buffNumber("Grace of Air", c.level))} Agility at your level`] });
+      L.add("Windfury Totem", { tag: "Totem", text: "For the rest of your melee group (your own Windfury Weapon replaces it for you)." });
+      L.section("Attack priority", "Press the first one that's ready.");
+      L.add("Stormstrike", { tag: "On cooldown", score: 1000, text: "Weapon damage, and your next Earth Shock, Lightning Bolt or Chain Lightning hits 20% harder.",
+        facts: [dmgLine(A["Stormstrike"], unit), c.talent["Improved Stormstrike"] ? "Improved Stormstrike: 50% mana regeneration while casting for 15 sec after it" : null] });
+      const shocks = ["Earth Shock", "Flame Shock", "Frost Shock"].filter((n) => c.has(n));
+      const bestShock = shocks.map((n) => [n, A[n]]).filter(([, a]) => a && !a.locked && a.expected).sort((x, y) => y[1].expected - x[1].expected)[0];
+      for (const n of shocks) {
+        L.add(n, { tag: bestShock && bestShock[0] === n ? "On cooldown" : "Situational", score: bestShock && bestShock[0] === n ? 900 : 100,
+          text: n === "Earth Shock" ? "Right after Stormstrike for the +20%. Also your interrupt." : n === "Flame Shock" ? "Fire damage plus a burn over 12 sec." : "Slows the target.",
+          facts: [dmgLine(A[n], unit), "Shocks share one cooldown: the planner uses whichever does the most for you" +
+            (c.talent["Shamanistic Focus"] ? ` (Shamanistic Focus: ${fmt(talentNumber(c, "Shamanistic Focus"))}% cheaper)` : "")] });
+      }
+      L.add("Lightning Bolt", { tag: "With Maelstrom", score: 50, text: "When Maelstrom Weapon has made it fast and cheap (5 stacks: instant).",
+        facts: [c.talent["Maelstrom Weapon"] ? "Maelstrom Weapon: melee hits make your next Lightning Bolt faster and cheaper (game data)" : null] });
+      L.sortFrom(0);
+      L.section("Cooldowns", null);
+      L.add("Rage of the Farseer", { tag: "Cooldown", text: "On cooldown: +30% attack speed for 25 sec, every 3 min." });
+    } else {
+      L.section("Keep up", null);
+      L.add("Flame Shock", { tag: "Keep up", text: "Its burn is worth keeping on the target, and Lava Burst hits harder while it's there.",
+        facts: [dmgLine(A["Flame Shock"], unit)] });
+      L.section("Spell priority", "Press the first one that's ready.");
+      L.add("Lava Burst", { tag: "On cooldown", score: 1000, text: "Your big hit; +20% while Flame Shock is on the target.", facts: [dmgLine(A["Lava Burst"], unit)] });
+      L.add("Chain Lightning", { tag: "On cooldown", score: 500, text: "On cooldown if your mana allows; best with several targets.", facts: [dmgLine(A["Chain Lightning"], unit)] });
+      L.add("Lightning Bolt", { tag: "Filler", score: 100, text: "Your filler between cooldowns.", facts: [dmgLine(A["Lightning Bolt"], unit)] });
+      L.sortFrom(0);
+      L.section("Cooldowns", null);
+      L.add("Elemental Mastery", { tag: "Cooldown", text: "Before a Lava Burst or Lightning Bolt." });
+    }
+    if (rot.note) L.facts.push("Estimate: " + rot.note.split(". ")[0] + ".");
+    return L;
+  }
+
   function talentIcon(c, name) {
     const t = c.flat.find((x) => x.name === name);
     return t && t.icon;
@@ -949,7 +1009,7 @@
   function render() {
     if (!app.view || app.view() !== "priority" || !state.cls || !KP.spellbook) return;
     const c = character();
-    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue };
+    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman };
     const L = (rules[c.token] || generic)(c);
     draw(L);
   }

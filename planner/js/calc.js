@@ -516,6 +516,17 @@
       const h = hunterRotation(ctx, S, white, byName);
       if (h) return h;
     }
+    if (token === "PALADIN" && white.length) {
+      const r = retRotation(ctx, S, white, byName);
+      if (r) return r;
+    }
+    if (token === "SHAMAN" && white.length && S.mh) {
+      const r = enhRotation(ctx, S, white, byName);
+      if (r && r.dps > whiteDps) {
+        const caster = casterRotation(ctx, S, abilities);
+        if (!caster || r.dps >= caster.dps) return r;
+      }
+    }
     if (token === "DRUID" && S.form) {
       const d = S.form === "cat" ? catRotation(ctx, S, white, byName) : bearRotation(ctx, S, white, byName);
       if (d) return d;
@@ -730,6 +741,141 @@
     notes.push("Eviscerate's attack power part is an estimate (3% per point; the game files don't hold it); poisons aren't counted yet");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, sndPoints, builder: pick.b.name };
+  }
+
+  // ------------------------------------------------------------ Retribution Paladin and Enhancement Shaman
+
+  const procRank = (name, level) => {
+    let r = null;
+    for (const x of (KP.abilities.PROCS || {})[name] || []) if (x.level <= level) r = x;
+    return r;
+  };
+  // a white swing's raw average (weapon + attack power), before armor: for Holy damage based on the weapon
+  const rawSwing = (S, w, extraAp = 0) => (w.weapon.min + w.weapon.max) / 2 + ((S.ap + extraAp) / 14) * w.weapon.speed;
+  // a melee swing's expected damage with more attack power, scaled from the white-hit numbers
+  const swingWithAp = (S, mh, extraAp) => mh.perSwing * rawSwing(S, S.mh, extraAp) / rawSwing(S, S.mh);
+
+  // Seal of Command procs (Holy damage, not reduced by armor) or Seal of Righteousness, Judgement every cooldown
+  // (in Forever it doesn't use up the Seal), Holy Strike, Hammer of the Righteous with a one-hander, Hammer of
+  // Wrath in the last 20% of the fight, all within the mana you have.
+  const SOC_PPM = 7; // Seal of Command procs per minute: Classic's rate; the game files don't hold it
+  function retRotation(ctx, S, white, byName) {
+    const mh = white.find((w) => w.label === "Main hand");
+    if (!mh || !S.mh) return null;
+    const level = ctx.level;
+    const sealsPct = talentNumber(ctx, "Improved Seals", /by (\d+)%/) / 100;
+    const holyPct = 1 + damagePct(S, 2) / 100;
+    const vengeance = talentNumber(ctx, "Vengeance", /by (\d+)% for/) * 3; // assumed at full stacks while you crit
+    const vMult = 1 + vengeance / 100;
+    const land = Math.max(0, 100 - mh.miss - mh.dodge) / 100;
+    const crit = Math.min(100, S.crit - critSuppression(ctx)) / 100;
+    const parts = [{ name: "White hits", dps: mh.dps * vMult }];
+    let dps = mh.dps * vMult;
+    const notes = [];
+    const soc = learnedTalent(ctx, "Seal of Command") && bookRank("PALADIN", "Seal of Command", level);
+    if (soc) {
+      const perProc = (0.7 * rawSwing(S, S.mh) * (1 + crit) + 0.29 * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult;
+      const d = (SOC_PPM / 60) * land * perProc;
+      parts.push({ name: "Seal of Command procs", dps: d });
+      dps += d;
+      notes.push(`Seal of Command at ${SOC_PPM} procs a minute (Classic's rate; not in the game files)`);
+    } else {
+      notes.push("Seal of Righteousness's damage per hit isn't in the game files, so it isn't counted");
+    }
+    const baseMana = (rules.baseMana.PALADIN || [])[level - 1] || 0;
+    const sealCost = soc ? soc.cost : ((bookRank("PALADIN", "Seal of Righteousness", level) || {}).cost || 0);
+    const shots = [];
+    const jr = procRank(soc ? "Judgement of Command" : "Judgement of Righteousness", level);
+    const jRank = bookRank("PALADIN", "Judgement", level);
+    if (jr && jRank) {
+      const cd = Math.max(1, jRank.cdMs / 1000 - talentNumber(ctx, "Improved Judgement", /by (\d+) sec/));
+      const per = (jr.value + jr.coef * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
+      const refund = talentNumber(ctx, "Sanctified Judgement", /return (\d+)%/) / 100;
+      shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: 1 / cd,
+        // Sanctified Judgement gives back part of the judged Seal's cost
+        mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
+        busy: 1.5, cast: 0 });
+    }
+    const hs = byName["Holy Strike"];
+    if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: 1 / Math.max(1.5, hs.cdMs / 1000), mana: hs.cost, busy: 1.5, cast: 0 });
+    const hotr = bookRank("PALADIN", "Hammer of the Righteous", level);
+    const oneHand = S.mh.inv !== 17;
+    if (hotr && oneHand) {
+      const per = 3 * (rawSwing(S, S.mh) / S.mh.weapon.speed) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
+      shots.push({ name: "Hammer of the Righteous", perUse: per, rate: 1 / Math.max(1.5, hotr.cdMs / 1000), mana: (hotr.costPct || 6) * baseMana / 100, busy: 1.5, cast: 0 });
+    }
+    const how = byName["Hammer of Wrath"];
+    if (how && !how.locked && how.expected) {
+      shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: 0.2 / Math.max(1.5, how.cdMs / 1000), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
+    }
+    // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec)
+    const budget = manaBudget(ctx, S, keepWhileCasting);
+    const fitted = fitShots(shots, Math.max(0, budget.perSec - sealCost / 30));
+    for (const s of fitted) {
+      dps += s.dps;
+      parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+    }
+    if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
+    if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
+    notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
+    const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
+  }
+
+  // Windfury Weapon's extra attacks on white hits, Stormstrike, the best shock (Stormstrike makes the next one
+  // hit harder), Rage of the Farseer's attack speed averaged in, all within your mana.
+  function enhRotation(ctx, S, white, byName) {
+    const mh = white.find((w) => w.label === "Main hand");
+    if (!mh) return null;
+    const level = ctx.level;
+    const parts = [], notes = [];
+    // Rage of the Farseer: +30% attack speed for 25 sec, every 3 min
+    const rof = learnedTalent(ctx, "Rage of the Farseer") && bookRank("SHAMAN", "Rage of the Farseer", level);
+    const rofDesc = ((((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === "Rage of the Farseer")) || {}).desc || "";
+    const haste = rof ? parseFloat((/speed by (\d+)%/.exec(rofDesc) || [])[1] || 0) * ((rof.durMs || 25000) / rof.cdMs) : 0;
+    const swingsPerSec = (1 + haste / 100) / mh.effSpeed;
+    let dps = mh.perSwing * swingsPerSec;
+    parts.push({ name: "White hits", dps });
+    // Windfury Weapon: a chance per main-hand hit of extra attacks with bonus attack power
+    const wf = bookRank("SHAMAN", "Windfury Weapon", level);
+    if (wf) {
+      const wfDesc = ((((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === "Windfury Weapon")) || {}).desc || "";
+      const m = /(\d+)% chance of granting you (\d+) extra attacks? with (\d+) extra melee attack power/.exec(wfDesc);
+      if (m) {
+        const boost = 1 + talentNumber(ctx, "Elemental Weapons", /Windfury Weapon effect by (\d+)%/) / 100;
+        const land = Math.max(0, 100 - mh.miss - mh.dodge) / 100;
+        const extra = parseFloat(m[1]) / 100 * parseFloat(m[2]) * land; // extra attacks per swing
+        const d = swingsPerSec * extra * swingWithAp(S, mh, parseFloat(m[3]) * boost);
+        parts.push({ name: "Windfury Weapon (extra attacks)", dps: d });
+        dps += d;
+        notes.push(`Windfury Weapon: ${m[1]}% chance per hit of ${m[2]} extra attacks with +${Math.round(parseFloat(m[3]) * boost)} attack power (game data; any internal cooldown isn't in the files)`);
+      }
+    }
+    const shots = [];
+    const ss = byName["Stormstrike"];
+    const baseMana = (rules.baseMana.SHAMAN || [])[level - 1] || 0;
+    const manaOf = (a) => a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
+    const ssRate = ss && !ss.locked && ss.expected ? 1 / Math.max(1.5, ss.cdMs / 1000) : 0;
+    if (ssRate) shots.push({ name: "Stormstrike", perUse: ss.expected, rate: ssRate, mana: manaOf(ss), busy: 1.5, cast: 0 });
+    // shocks share a cooldown: the one that does the most per use; Stormstrike's +20% lands on part of them
+    const shock = ["Earth Shock", "Flame Shock", "Frost Shock"].map((n) => byName[n])
+      .filter((a) => a && !a.locked && a.expected).sort((a, b) => b.expected - a.expected)[0];
+    if (shock) {
+      const rate = 1 / Math.max(1.5, (shock.cdMs || 6000) / 1000);
+      const buffed = shock.name === "Earth Shock" ? Math.min(1, ssRate / rate) * 0.2 : 0;
+      shots.push({ name: shock.name, perUse: shock.expected * (1 + buffed), rate, mana: manaOf(shock), busy: 1.5, cast: 0 });
+    }
+    const keep = (ctx) => Math.max(keepWhileCasting(ctx), ssRate && learnedTalent(ctx, "Improved Stormstrike") ? 50 : 0);
+    const fitted = fitShots(shots, manaBudget(ctx, S, keep).perSec);
+    for (const s of fitted) {
+      dps += s.dps;
+      parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+    }
+    if (haste) notes.push(`Rage of the Farseer averages +${haste.toFixed(1)}% attack speed`);
+    if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every shock over a 3-minute fight");
+    notes.push("Lightning Bolts with Maelstrom Weapon, Flametongue/Rockbiter and Windfury Totem aren't counted yet");
+    const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
 
   // ------------------------------------------------------------ Druid forms
