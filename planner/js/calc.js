@@ -478,40 +478,125 @@
     }
 
     if (ctx.cls.power === 0) {
-      const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
-      const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
-      // filler: spells you can cast back to back (no cooldown); a channeled spell's damage over time counts
-      const fillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
-        .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a) }))
-        .sort((x, y) => y.dps - x.dps);
-      const filler = fillers[0];
-      if (filler) {
-        let dps = 0, busy = 0;
-        const rot = [];
-        // damage over time spells worth keeping up: refreshed when they run out
-        const dots = usable.filter((a) => !a.channeled && a.dotExpected > 0 && a.durMs > 0 && !a.cdMs)
-          .map((a) => {
-            const every = Math.max(a.durMs / 1000, castTime(a));
-            return { a, every, dps: a.expected / every, time: castTime(a) / every };
-          })
-          .filter((d) => d.dps / d.time > filler.dps) // better than casting the filler in that time
-          .sort((x, y) => y.dps / y.time - x.dps / x.time);
-        for (const d of dots) {
-          if (busy + d.time > 0.9) continue;
-          busy += d.time;
-          dps += d.dps;
-          rot.push({ name: `${d.a.name} (kept up)`, dps: d.dps });
-        }
-        const fd = filler.dps * (1 - busy);
-        dps += fd;
-        rot.push({ name: `${filler.a.name} (filler)`, dps: fd });
-        if (!white.length || dps > whiteDps) {
-          return { dps, parts: rot, note: "Keeps damage-over-time spells up and casts the best single-target spell in between. " +
-            "Mana, cooldowns and procs aren't counted." };
-        }
-      }
+      const c = casterRotation(ctx, S, abilities);
+      if (c && (!white.length || c.dps > whiteDps)) return c;
     }
     return result(whiteDps + extra, white.length ? "White hits only; this class's rotation isn't worked out yet." : "Equip a weapon to see damage.");
+  }
+
+  // ------------------------------------------------------------ casters
+
+  // Mana regen per second from Spirit (Classic formulas per 2-second tick; estimates until checked in game)
+  const SPIRIT_REGEN = { MAGE: [13, 4], PRIEST: [13, 4], WARLOCK: [8, 4] }; // [base, Spirit per point]; others 15 + Spirit/5
+  function manaBudget(ctx, S, talentKeep) {
+    const [b, per] = SPIRIT_REGEN[ctx.cls.token] || [15, 5];
+    const spiritRegen = (b + S.attr.spirit / per) / 2;
+    const keep = talentKeep(ctx);
+    // Mage: one Evocation (regen +1500% for 8 sec) and the best mana gem you can conjure, once per fight
+    let extra = 0, busy = 0;
+    const extras = [];
+    if (ctx.cls.token === "MAGE") {
+      const evo = bookRank("MAGE", "Evocation", ctx.level);
+      if (evo) {
+        const boost = parseFloat((/increased by (\d+)%/.exec(bookDesc("MAGE", "Evocation")) || [])[1] || 0);
+        const sec = (evo.durMs || 8000) / 1000;
+        extra += (S.mp5 / 5 + spiritRegen) * (1 + boost / 100) * sec;
+        busy += sec / FIGHT_SEC;
+        extras.push("Evocation");
+      }
+      const gem = ["Conjure Mana Ruby", "Conjure Mana Citrine", "Conjure Mana Jade", "Conjure Mana Agate"]
+        .find((n) => bookRank("MAGE", n, ctx.level));
+      if (gem) {
+        extra += parseFloat((/restore (\d+) mana/.exec(bookDesc("MAGE", gem)) || [])[1] || 0);
+        extras.push("a mana gem");
+      }
+    }
+    return { perSec: (S.mana + extra + (S.mp5 / 5 + spiritRegen * keep / 100) * FIGHT_SEC) / FIGHT_SEC, keep, busy, extras };
+  }
+  const bookDesc = (token, name) => ((((KP.spellbook || {})[token] || []).find((b) => b.name === name)) || {}).desc || "";
+  // talents that "allow N% of your Mana Regeneration to continue while casting" (Reflection, Reverence, ...)
+  const keepWhileCasting = (ctx) => Math.max(0, ...ctx.flat.map((t, i) => {
+    const r = ctx.ranks[i];
+    const m = r && /allows? (\d+)% of your Mana [Rr]egeneration to continue while casting/.exec(t.desc[r - 1] || "");
+    return m ? parseFloat(m[1]) : 0;
+  }));
+
+  // Damage-over-time spells worth keeping up, then the best filler you can afford over a fight: the strongest
+  // spell, or a mix of a strong one and an efficient one when the strong one would run you out of mana.
+  function casterRotation(ctx, S, abilities) {
+    const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
+    const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
+    const baseMana = (rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0;
+    // talents that make casts cheaper on average: Clearcasting procs (Arcane Concentration), Master of Elements refunds
+    const clearcast = talentNumber(ctx, "Arcane Concentration", /(\d+)% chance/) / 100;
+    const moe = talentNumber(ctx, "Master of Elements", /refund (\d+)%/) / 100;
+    const manaOf = (a) => {
+      const raw = a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
+      const refund = (a.school & (4 | 16)) ? moe * a.critChance / 100 : 0;
+      return raw * (1 - clearcast) * (1 - refund);
+    };
+    const fillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
+      .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a), mps: manaOf(a) / castTime(a) }))
+      .sort((x, y) => y.dps - x.dps);
+    if (!fillers.length) return null;
+    const budget = manaBudget(ctx, S, keepWhileCasting);
+    let mana = budget.perSec, busy = budget.busy, dps = 0;
+    const parts = [];
+    const best = fillers[0];
+    const dots = usable.filter((a) => !a.channeled && a.dotExpected > 0 && a.durMs > 0 && !a.cdMs)
+      .map((a) => {
+        const every = Math.max(a.durMs / 1000, castTime(a));
+        return { a, every, dps: a.expected / every, time: castTime(a) / every, mps: manaOf(a) / every };
+      })
+      .filter((d) => d.dps / d.time > best.dps) // better than casting the filler in that time
+      .sort((x, y) => y.dps / y.time - x.dps / x.time);
+    for (const d of dots) {
+      if (busy + d.time > 0.9 || d.mps > mana) continue;
+      busy += d.time;
+      mana -= d.mps;
+      dps += d.dps;
+      parts.push({ name: `${d.a.name} (kept up)`, dps: d.dps });
+    }
+    const free = 1 - busy;
+    const perFillerSec = mana / Math.max(free, 0.01); // mana you can spend per second of filler casting
+    // best pair (strong A, efficient B): time share f on A so the mix just fits the budget
+    let pick = null;
+    for (const A of fillers) {
+      for (const B of fillers) {
+        let f;
+        if (A.mps <= perFillerSec) f = 1;
+        else if (B.mps >= A.mps || B.mps > perFillerSec) continue;
+        else f = (perFillerSec - B.mps) / (A.mps - B.mps);
+        const d = f * A.dps + (1 - f) * B.dps;
+        if (!pick || d > pick.d) pick = { A, B, f, d };
+      }
+    }
+    let note = "Keeps damage-over-time spells up and casts the best single-target spell in between";
+    // short on mana: one spell cast only as often as the mana allows; best when it has the most damage per mana
+    const starved = fillers.map((X) => {
+      const f = X.mps ? Math.min(1, perFillerSec / X.mps) : 1;
+      return { A: X, B: X, f, d: X.dps * f, starved: f < 0.999 };
+    }).sort((x, y) => y.d - x.d)[0];
+    if (!pick || starved.d > pick.d) {
+      pick = starved;
+      if (starved.starved) note += `; your mana only covers ${Math.round(starved.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
+    }
+    const fd = pick.d * free;
+    dps += fd;
+    if (pick.f >= 0.999 || pick.A === pick.B) {
+      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd });
+      if (pick.A !== best) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
+    } else {
+      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: pick.f * pick.A.dps * free },
+        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free });
+      note += `; mixes ${pick.A.a.name} with the cheaper ${pick.B.a.name} so the mana lasts`;
+    }
+    note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
+      (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
+      [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
+        moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
+      "Other cooldowns and procs aren't counted." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
 
   // ------------------------------------------------------------ Rogue
@@ -934,7 +1019,10 @@
     const miss = Math.max(0, t.miss - mods.flat(16));
     const land = Math.max(0, 100 - miss - t.dodge) / 100;
     const avg = (dmin + dmax) / 2;
-    const directExpected = land * avg * (1 + Math.min(100, critChance) / 100 * (critMult - 1));
+    let directExpected = land * avg * (1 + Math.min(100, critChance) / 100 * (critMult - 1));
+    // Ignite (Mage): Fire crits burn for a share of their damage over 4 sec
+    const ignite = (rank.school & 4) && isSpell ? talentNumber(ctx, "Ignite", /additional (\d+)% of your spell's damage/) : 0;
+    if (ignite) directExpected += land * (Math.min(100, critChance) / 100) * avg * critMult * (ignite / 100);
     const dotExpected = land * dot;
     const expected = directExpected + dotExpected;
     const channelMs = rank.channeled ? rank.durMs : 0;

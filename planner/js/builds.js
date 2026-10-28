@@ -14,7 +14,7 @@
     if (text != null) e.textContent = text;
     return e;
   };
-  const ROLE = { dps: "Damage", tank: "Tank" };
+  const ROLE = { dps: "Damage", tank: "Tank", heal: "Healer" };
 
   function iconStyle(node, fileId, size) {
     const n = KP.talents.icons[String(fileId)];
@@ -60,8 +60,10 @@
     head.append(ic, titles);
     box.append(head, el("p", "build-summary", build.summary));
     if (capstone) box.append(el("p", "muted small", `${capstone.name} at level ${capstone.level}.`));
-    box.append(el("p", "muted small", `Estimated ${build.dps60} damage per second at 60, measured with ${build.reference.join(" + ")} ` +
-      "and raid buffs on. Use it to compare builds, not as a promise."));
+    box.append(el("p", "muted small", build.dps60 == null
+      ? "Healing isn't in the planner's math yet, so there's no number for this build and its leveling order follows rows."
+      : `Estimated ${build.dps60} damage per second at 60, measured with ${build.reference.join(" + ")} ` +
+        "and raid buffs on. Use it to compare builds, not as a promise."));
     const btn = el("button", "btn primary", "Load this build");
     btn.type = "button";
     btn.addEventListener("click", () => load(build));
@@ -90,7 +92,7 @@
     box.textContent = "";
     const builds = (KP.builds || {})[state.cls.token];
     if (!builds || !builds.length) {
-      box.append(el("p", "muted", `No suggested ${state.cls.name} builds yet: Warrior and Hunter come first, the other classes follow.`));
+      box.append(el("p", "muted", `No suggested ${state.cls.name} builds yet.`));
       return;
     }
     const treeNames = KP.talents.trees[state.cls.token].map((t) => t.name);
