@@ -308,6 +308,25 @@
     return box;
   }
 
+  // healers: single-target healing per second you can keep up over a fight
+  function healingBox(R) {
+    const box = el("div", "prot");
+    const top = el("div", "prot-top");
+    top.append(el("span", "muted small", "Estimated healing per second (one target)"));
+    const v = el("strong", "prot-dps green", fmt(R.healing.hps, 1));
+    badge("healing.hps", v);
+    top.append(v);
+    box.append(top);
+    const ul = el("ul", "plain small");
+    for (const p of R.healing.parts) {
+      const li = el("li");
+      li.append(el("span", null, p.name), el("span", "muted", ` ${fmt(p.dps, 1)}`));
+      ul.append(li);
+    }
+    box.append(ul, el("p", "muted small", "Rough: " + R.healing.note));
+    return box;
+  }
+
   function whiteTable(R) {
     const box = el("div", "psec");
     box.append(el("h4", null, "White hits (auto attack)"));
@@ -409,14 +428,19 @@
   function panel(R, opts) {
     const box = el("div", "panel-in");
     if (opts.controls) box.append(controls(R));
-    box.append(rotationBox(R), statGrid(R), whiteTable(R), abilityList(R));
+    // a healer build (most points in a healing tree's spells) sees its healing first
+    const heals = R.healing && R.healing.hps > 0;
+    const healerFirst = heals && (!R.rotation || R.healing.hps > R.rotation.dps);
+    if (healerFirst) box.append(healingBox(R), rotationBox(R));
+    else box.append(rotationBox(R), ...(heals ? [healingBox(R)] : []));
+    box.append(statGrid(R), whiteTable(R), abilityList(R));
     box.append(el("p", "muted small pnote", "Estimates. Forever's own numbers for abilities, gear and talents; " +
       "the attack table, armor and level attack power follow Classic's rules. Hover a line for details."));
     return box;
   }
 
   function snapshot(R) {
-    const m = { rotation: R.rotation.dps, ap: R.S.ap, hit: R.S.hit, crit: R.S.crit, sp: R.S.sp, spellHit: R.S.spellHit, spellCrit: R.S.spellCrit,
+    const m = { rotation: R.rotation.dps, "healing.hps": R.healing ? R.healing.hps : 0, ap: R.S.ap, hit: R.S.hit, crit: R.S.crit, sp: R.S.sp, spellHit: R.S.spellHit, spellCrit: R.S.spellCrit,
       healing: R.S.healing, armor: R.S.armor, health: R.S.health, mana: R.S.mana, "white.total": sum(R.white.map((w) => w.dps)) };
     for (const k of STATS) m["attr." + k] = R.S.attr[k];
     for (const w of R.white) m["white." + w.label] = w.dps;

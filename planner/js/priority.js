@@ -369,7 +369,7 @@
     const A = c.res;
     const unit = "mana";
     const desc = (n) => (c.spell(n) || {}).desc || "";
-    if (spec === "holy" && !tank) L.facts.push("Holy is a healer: this list covers dealing damage. A healing priority isn't part of the planner yet.");
+    if (spec === "holy" && !tank) return healer(c, "Holy Paladin", `Talents: ${holy} / ${prot} / ${ret}`);
 
     if (tank) {
       L.facts.push("No taunt in the Paladin spellbook (game data): you hold threat with damage, so open strong.");
@@ -455,7 +455,7 @@
     const tank = state.prio.tank != null ? state.prio.tank : isFeral && !!(c.talent["Natural Reaction"] || c.talent["Thick Hide"]);
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: Bear Form tank (threat first). Off: Cat Form damage, e.g. an off-tank between pulls." });
-    if (!isFeral && !tank) return generic(c);
+    if (!isFeral && !tank) return resto > bal ? healer(c, "Restoration Druid", `Talents: ${bal} / ${feral} / ${resto}`) : generic(c);
     L.title = `Feral Druid, ${tank ? "Bear Form tank" : "Cat Form damage"}`;
     L.facts.push(`Talents: ${bal} / ${feral} / ${resto}`);
     L.facts.push("Form attacks use Classic's base-attack rule (the game files don't hold it); everything else is Forever's data.");
@@ -616,12 +616,7 @@
   function shaman(c) {
     const [ele, enh, resto] = c.treePts;
     const spec = c.talent["Stormstrike"] || (enh > ele && enh > resto) ? "enh" : resto > ele ? "resto" : "ele";
-    if (spec === "resto") {
-      const L = generic(c);
-      L.title = "Restoration Shaman";
-      L.facts.unshift("Restoration is a healer: a healing priority isn't part of the planner yet. Below: your damage spells by the numbers.");
-      return L;
-    }
+    if (spec === "resto") return healer(c, "Restoration Shaman", `Talents: ${ele} / ${enh} / ${resto}`);
     const L = list(c);
     const A = c.res, unit = "mana";
     const rot = c.R.rotation || {};
@@ -670,6 +665,85 @@
     if (rot.note) L.facts.push("Estimate: " + rot.note.split(". ")[0] + ".");
     return L;
   }
+
+  // ------------------------------------------------------------ Priest
+
+  function priest(c) {
+    const [disc, holy, shadow] = c.treePts;
+    if (shadow > Math.max(disc, holy) || c.talent["Shadowform"]) {
+      const L = generic(c);
+      L.title = "Shadow Priest";
+      L.facts.unshift(`Talents: ${disc} / ${holy} / ${shadow}`);
+      L.section("Keep up", null);
+      L.add("Shadowform", { tag: "Always", text: "Stay in it: more Shadow damage and less damage taken (you can't cast Holy spells in it)." });
+      L.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
+      L.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
+      return L;
+    }
+    return healer(c, disc > holy ? "Discipline Priest" : "Holy Priest", `Talents: ${disc} / ${holy} / ${shadow}`);
+  }
+
+  // ------------------------------------------------------------ healers (any class)
+
+  const HEALER_TOOLS = {
+    PALADIN: { emergency: ["Holy Shock", "Divine Favor", "Lay on Hands", "Divine Shield"], mana: ["Blessing of Wisdom", "Light's Vigil"],
+      group: [] },
+    DRUID: { emergency: ["Swiftmend", "Nature's Swiftness", "Barkskin"], mana: ["Innervate"], group: ["Wild Growth", "Tranquility"] },
+    SHAMAN: { emergency: ["Nature's Swiftness", "Riptide"], mana: ["Mana Tide Totem", "Water Shield", "Mana Spring Totem"],
+      group: ["Chain Heal", "Healing Stream Totem"] },
+    PRIEST: { emergency: ["Power Word: Shield", "Penance", "Desperate Prayer", "Power Infusion"], mana: ["Inner Focus"],
+      group: ["Prayer of Healing", "Holy Nova", "Prayer of Mending"] },
+  };
+
+  function healer(c, title, talentsLine) {
+    const L = list(c);
+    L.title = title;
+    L.facts.push(talentsLine);
+    if (!c.gearKnown) L.facts.push("No gear picked: healing numbers use your base stats only (Gear & Stats tab for real numbers).");
+    const H = c.R.healing;
+    const baseMana = (KP.classes.rules.baseMana[c.token] || [])[c.level - 1] || 0;
+    const manaOf = (a) => a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
+    const crit = Math.min(100, c.R.S.spellCrit) / 100;
+    if (H) L.facts.push(`Estimate: ${fmt(H.hps, 1)} healing per second on one target, sustained over a 3-minute fight (no overhealing).`);
+    const tools = HEALER_TOOLS[c.token] || { emergency: [], mana: [], group: [] };
+    // what the estimate keeps up or uses on cooldown
+    const steady = (H ? H.parts : []).filter((p) => /kept up|on cooldown|absorb/.test(p.name));
+    if (steady.length) {
+      L.section("Keep up and use on cooldown", "From the healing estimate: worth their time and mana for you.");
+      for (const p of steady) {
+        const name = p.name.replace(/ \(.*$/, "");
+        L.add(name, { tag: /kept up/.test(p.name) ? "Keep up" : /absorb/.test(p.name) ? "Shield" : "On cooldown",
+          facts: [`${fmt(p.dps, 1)} healing per second in the estimate`] });
+      }
+    }
+    // every single-target heal, by healing per mana (what decides most of a healer's casts)
+    const heals = c.R.abilities.filter((a) => !a.locked && a.heal > 10 && !tools.group.includes(a.name) && !(a.cdMs >= 60000));
+    const main = H && H.parts.find((p) => /main heal|% of casts/.test(p.name));
+    L.section("Your heals by the numbers", "Most efficient first. When mana is tight, lean on the top of this list; when someone is dropping fast, the biggest heal wins.");
+    for (const a of heals) {
+      const amount = a.heal * (a.name === "Binding Heal" ? 0.5 : 1) * (1 + crit * 0.5); // Binding Heal: the target's half
+      const mana = manaOf(a);
+      const cast = Math.max(1.5, (a.channelMs || a.castMs) / 1000);
+      L.add(a.name, { tag: main && main.name.startsWith(a.name) ? "Main heal" : a.cdMs ? "Cooldown" : "Heal", score: mana ? amount / mana : 0,
+        facts: [`${fmt(amount)} average healing${a.name === "Binding Heal" ? " on the target (you get the same)" : ""} (crits counted) · ${fmt(mana)} mana · ${fmt(mana ? amount / mana : 0, 1)} per mana · ` +
+          `${fmt(amount / cast)} per second of casting` + (a.cdMs ? ` · ${sec(a.cdMs)} cooldown` : "")] });
+    }
+    L.sortFrom(0);
+    if (tools.emergency.length) {
+      L.section("When someone is about to die", null);
+      for (const n of tools.emergency) L.add(n, { tag: "Emergency", text: firstSentence((c.spell(n) || {}).desc) });
+    }
+    if (tools.mana.length) {
+      L.section("Mana", null);
+      for (const n of tools.mana) L.add(n, { tag: "Mana", text: firstSentence((c.spell(n) || {}).desc) });
+    }
+    if (tools.group.length) {
+      L.section("Group healing", "Not in the one-target estimate: use these when several people are hurt.");
+      for (const n of tools.group) L.add(n, { tag: "Group", text: firstSentence((c.spell(n) || {}).desc) });
+    }
+    return L;
+  }
+  const firstSentence = (d) => ((d || "").split(/(?<=\.)\s/)[0] || "").trim();
 
   function talentIcon(c, name) {
     const t = c.flat.find((x) => x.name === name);
@@ -1009,7 +1083,7 @@
   function render() {
     if (!app.view || app.view() !== "priority" || !state.cls || !KP.spellbook) return;
     const c = character();
-    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman };
+    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman, PRIEST: priest };
     const L = (rules[c.token] || generic)(c);
     draw(L);
   }

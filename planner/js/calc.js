@@ -277,22 +277,24 @@
     const school = { holy: g("holyDamage"), fire: g("fireDamage"), nature: g("natureDamage"),
       frost: g("frostDamage"), shadow: g("shadowDamage"), arcane: g("arcaneDamage") };
     const worn = (slot) => ctx.worn.find((w) => w.slot === slot);
+    // talents that turn Intellect or Spirit into power (Careful Aim, Mental Dexterity, Spiritual Guidance...)
+    const fromStats = statTalents(ctx, attr);
     const formAp = form ? form.ap + attr.agility * form.apPerAgi +
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
     const S = {
       gear, tal, attr, baseAp, form: formKey,
       ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
-        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp,
+        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp + fromStats.ap,
       rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
-        sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura"),
+        sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap,
       hit: g("hit") / per("meleeHit") + tal.hit,
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + buffValue(ctx, "Leader of the Pack"),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
       spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit,
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
         spellCrit: intRatio ? (BASE_SPELL_CRIT[cls.token] || 0) + attrBase.intellect / intRatio : 0 },
-      sp, school, healing: g("healing") + g("spellPower"),
-      armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 +
+      sp: sp + fromStats.sp, school, healing: g("healing") + g("spellPower") + fromStats.sp + fromStats.healing,
+      armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
         (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
       defense: g("defense") / per("defense") + tal.defense,
       dodge: g("dodge") / per("dodge") + tal.dodge,
@@ -378,6 +380,28 @@
 
   function critSuppression(ctx) {
     return Math.max(0, Math.min(3, ctx.target.diff)); // ~1% less crit per level the target is above you
+  }
+
+  // Learned talents whose tooltip turns a share of Intellect or Spirit into attack power, spell damage, healing or
+  // armor (read from the text, which uses the game's rank values)
+  function statTalents(ctx, attr) {
+    const out = { ap: 0, sp: 0, healing: 0, armor: 0 };
+    ctx.flat.forEach((t, i) => {
+      const r = ctx.ranks[i];
+      if (!r) return;
+      const d = t.desc[r - 1] || "";
+      let m;
+      if ((m = /Attack Power by (?:an amount equal to )?(\d+)% of your Intellect/.exec(d))) out.ap += attr.intellect * m[1] / 100;
+      if ((m = /spell damage and healing by up to (\d+)% of your Intellect/.exec(d))) out.sp += attr.intellect * m[1] / 100;
+      else if ((m = /spell damage by up to (\d+)% of your Intellect/.exec(d))) out.sp += attr.intellect * m[1] / 100;
+      if ((m = /spell healing by (?:up to )?(\d+)% of your (?:total )?Intellect/.exec(d))) out.healing += attr.intellect * m[1] / 100;
+      if ((m = /spell healing by up to (\d+)% of your total Spirit and your spell damage by up to (\d+)% of your total Spirit/.exec(d))) {
+        out.healing += attr.spirit * (m[1] - m[2]) / 100; // the damage share also counts for healing below
+        out.sp += attr.spirit * m[2] / 100;
+      }
+      if ((m = /Armor by an amount equal to (\d+)% of your Intellect/.exec(d))) out.armor += attr.intellect * m[1] / 100;
+    });
+    return out;
   }
 
   // Cat or Bear Form for a Druid: Bear in tank mode, else Cat for a Feral build (most points in Feral Combat);
@@ -612,30 +636,34 @@
       dps += d.dps;
       parts.push({ name: `${d.a.name} (kept up)`, dps: d.dps });
     }
+    // spells with a cooldown (Mind Blast, Lava Burst, Chain Lightning, Fire Blast...): on cooldown when a cast does
+    // more per second of casting than the filler. Target-limited spells (Undead/Demons) are left out; "20% health or
+    // less" ones count for the last 20% of the fight.
+    const cds = usable.filter((a) => a.cdMs > 0 && (a.directExpected > 0 || a.dotExpected > 0) && !/Undead|Demon/.test(a.rank.desc || ""))
+      .map((a) => {
+        const execute = /20% (?:health )?or less|20% or less health|less than 20% health/i.test(a.rank.desc || "");
+        const rate = (execute ? 0.2 : 1) / Math.max(castTime(a), a.cdMs / 1000);
+        return { a, rate, per: a.expected, time: castTime(a), mps: manaOf(a) * rate, execute };
+      })
+      .filter((x) => x.per / x.time > best.dps)
+      .sort((x, y) => y.per / y.time - x.per / x.time);
+    for (const x of cds) {
+      if (busy + x.rate * x.time > 0.95) continue;
+      const f = x.mps > mana ? Math.max(0, mana / x.mps) : 1; // only as often as the mana allows
+      if (f < 0.05) continue;
+      // worth it only if it beats spending that time and mana on the filler
+      const without = fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy);
+      const withIt = x.per * x.rate * f + fillerPick(fillers, best, mana - x.mps * f, 1 - busy - x.rate * x.time * f).d * (1 - busy - x.rate * x.time * f);
+      if (withIt <= without) continue;
+      busy += x.rate * x.time * f;
+      mana -= x.mps * f;
+      dps += x.per * x.rate * f;
+      parts.push({ name: `${x.a.name} (on cooldown${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f });
+    }
     const free = 1 - busy;
-    const perFillerSec = mana / Math.max(free, 0.01); // mana you can spend per second of filler casting
-    // best pair (strong A, efficient B): time share f on A so the mix just fits the budget
-    let pick = null;
-    for (const A of fillers) {
-      for (const B of fillers) {
-        let f;
-        if (A.mps <= perFillerSec) f = 1;
-        else if (B.mps >= A.mps || B.mps > perFillerSec) continue;
-        else f = (perFillerSec - B.mps) / (A.mps - B.mps);
-        const d = f * A.dps + (1 - f) * B.dps;
-        if (!pick || d > pick.d) pick = { A, B, f, d };
-      }
-    }
-    let note = "Keeps damage-over-time spells up and casts the best single-target spell in between";
-    // short on mana: one spell cast only as often as the mana allows; best when it has the most damage per mana
-    const starved = fillers.map((X) => {
-      const f = X.mps ? Math.min(1, perFillerSec / X.mps) : 1;
-      return { A: X, B: X, f, d: X.dps * f, starved: f < 0.999 };
-    }).sort((x, y) => y.d - x.d)[0];
-    if (!pick || starved.d > pick.d) {
-      pick = starved;
-      if (starved.starved) note += `; your mana only covers ${Math.round(starved.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
-    }
+    let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
+    const pick = fillerPick(fillers, best, mana, free);
+    if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
     const fd = pick.d * free;
     dps += fd;
     if (pick.f >= 0.999 || pick.A === pick.B) {
@@ -650,8 +678,98 @@
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
-      "Other cooldowns and procs aren't counted." + buffNote(ctx);
+      "Spells with a cooldown are cast when they beat the filler; procs and big cooldowns (like Arcane Power) aren't counted." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
+  }
+
+  // The filler for the casting time and mana that are left: the strongest spell, a strong/cheap mix that just fits
+  // the mana, or (short on mana) one spell cast as often as the mana allows. d = damage per second of filler time.
+  function fillerPick(fillers, best, mana, free) {
+    const perFillerSec = mana / Math.max(free, 0.01); // mana you can spend per second of filler casting
+    let pick = null;
+    for (const A of fillers) {
+      for (const B of fillers) {
+        let f;
+        if (A.mps <= perFillerSec) f = 1;
+        else if (B.mps >= A.mps || B.mps > perFillerSec) continue;
+        else f = (perFillerSec - B.mps) / (A.mps - B.mps);
+        const d = f * A.dps + (1 - f) * B.dps;
+        if (!pick || d > pick.d) pick = { A, B, f, d };
+      }
+    }
+    const starved = fillers.map((X) => {
+      const f = X.mps ? Math.max(0, Math.min(1, perFillerSec / X.mps)) : 1;
+      return { A: X, B: X, f, d: X.dps * f, starved: f < 0.999 };
+    }).sort((x, y) => y.d - x.d)[0];
+    return !pick || starved.d > pick.d ? starved : pick;
+  }
+
+  // ------------------------------------------------------------ healing
+
+  // Single-target healing you can keep up over a fight: heals over time kept up, cooldown heals (Riptide, Swiftmend,
+  // Power Word: Shield once per Weakened Soul) when they're worth it, then the best heal you can afford in between.
+  // Crits heal 150%; every point of healing counts (no overhealing).
+  const WEAKENED_SOUL_MS = 15000; // Power Word: Shield again on the same target (Classic; the debuff isn't in our data)
+  function healRotation(ctx, S, abilities) {
+    // one target only: no group or bouncing heals, no heals that only work on yourself, nothing we can't put a number
+    // on (Swiftmend uses up a heal over time)
+    const GROUP_HEALS = ["Holy Nova", "Prayer of Healing", "Chain Heal", "Wild Growth", "Tranquility", "Prayer of Mending"];
+    // long-cooldown emergency heals (Desperate Prayer...) don't shape a fight's healing
+    const heals = abilities.filter((a) => !a.locked && a.heal > 10 && !a.aoe && !GROUP_HEALS.includes(a.name) && !(a.cdMs >= 60000) &&
+      !(a.rank.effects || []).some((e) => e.chain > 1) &&
+      !(a.rank.effects || []).filter((e) => e.effect === 10 || e.aura === 8 || e.aura === 69).every((e) => e.target === 1));
+    if (!heals.length) return null;
+    const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
+    const baseMana = (rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0;
+    const crit = Math.min(100, S.spellCrit) / 100;
+    // Illumination-style talents: a heal crit gives back part of its base cost
+    const back = (talentNumber(ctx, "Illumination", /Mana equal to (\d+)% of the base cost/) / 100) * crit;
+    const manaOf = (a) => (a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0)) * (1 - back);
+    // Binding Heal heals you and the target for the same amount: only the target's half counts here
+    const per = (a) => a.heal * (a.name === "Binding Heal" ? 0.5 : 1) * (1 + crit * 0.5);
+    const isHot = (a) => (a.rank.effects || []).some((e) => e.effect === 6 && e.aura === 8) && !(a.rank.effects || []).some((e) => e.effect === 10);
+    const isShield = (a) => (a.rank.effects || []).some((e) => e.aura === 69);
+    const fillers = heals.filter((a) => !a.cdMs && !isHot(a) && !isShield(a))
+      .map((a) => ({ a, dps: per(a) / castTime(a), mps: manaOf(a) / castTime(a) })).sort((x, y) => y.dps - x.dps);
+    const budget = manaBudget(ctx, S, keepWhileCasting);
+    let mana = budget.perSec, busy = budget.busy, hps = 0;
+    const parts = [];
+    const best = fillers[0] || { dps: 0, mps: 0 };
+    // heals over time and cooldown heals: worth it when they beat the filler for the time and mana
+    const extras = heals.filter((a) => isHot(a) || a.cdMs || isShield(a)).map((a) => {
+      const every = isShield(a) ? Math.max(WEAKENED_SOUL_MS, a.cdMs) / 1000 : isHot(a) ? Math.max(castTime(a), (a.durMs || 0) / 1000) : Math.max(castTime(a), a.cdMs / 1000);
+      return { a, rate: 1 / every, per: per(a), time: castTime(a), mps: manaOf(a) / every };
+    }).sort((x, y) => y.per / y.time - x.per / x.time);
+    for (const x of extras) {
+      if (busy + x.rate * x.time > 0.95) continue;
+      const f = x.mps > mana ? Math.max(0, mana / x.mps) : 1;
+      if (f < 0.05) continue;
+      const without = fillers.length ? fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy) : 0;
+      const withIt = x.per * x.rate * f + (fillers.length ? fillerPick(fillers, best, mana - x.mps * f, 1 - busy - x.rate * x.time * f).d * (1 - busy - x.rate * x.time * f) : 0);
+      if (withIt <= without) continue;
+      busy += x.rate * x.time * f;
+      mana -= x.mps * f;
+      hps += x.per * x.rate * f;
+      const kind = isShield(x.a) ? "absorb, once per Weakened Soul" : isHot(x.a) ? "kept up" : "on cooldown";
+      parts.push({ name: `${x.a.name} (${kind}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f });
+    }
+    let note = "One target: heals over time kept up, cooldown heals when they're worth it, then the best heal your mana allows";
+    if (fillers.length) {
+      const pick = fillerPick(fillers, best, mana, 1 - busy);
+      const free = 1 - busy;
+      if (pick.f >= 0.999 || pick.A === pick.B) {
+        parts.push({ name: `${pick.A.a.name} (main heal)`, dps: pick.d * free });
+      } else {
+        parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of casts)`, dps: pick.f * pick.A.dps * free },
+          { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free });
+      }
+      hps += pick.d * free;
+      if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time`;
+    }
+    note += `. Crits heal 150%${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
+      `Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
+      "Group heals (Chain Heal, Prayer of Healing, Wild Growth...) aren't counted.";
+    return { hps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
 
   // ------------------------------------------------------------ Rogue
@@ -1228,6 +1346,8 @@
           } else if (e.aura === 8) {
             const n = e.period ? Math.floor((src.durMs || 0) / e.period) : 0;
             heal += n * (v + e.coef * S.healing * coefMult);
+          } else if (e.aura === 69 && e.target !== 1) { // an absorb shield on someone else (Power Word: Shield)
+            heal += v + e.coef * S.healing * coefMult;
           }
           break;
       }
@@ -1341,7 +1461,8 @@
     const S = stats(ctx);
     const white = whiteHits(ctx, S);
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
-    return { S, white, abilities: list, rotation: rotation(ctx, S, white, list) };
+    const healing = ["PRIEST", "PALADIN", "DRUID", "SHAMAN"].includes(ctx.cls.token) && !S.form ? healRotation(ctx, S, list) : null;
+    return { S, white, abilities: list, rotation: rotation(ctx, S, white, list), healing };
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle };

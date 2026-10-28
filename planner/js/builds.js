@@ -60,8 +60,9 @@
     head.append(ic, titles);
     box.append(head, el("p", "build-summary", build.summary));
     if (capstone) box.append(el("p", "muted small", `${capstone.name} at level ${capstone.level}.`));
-    box.append(el("p", "muted small", build.dps60 == null
-      ? "Healing isn't in the planner's math yet, so there's no number for this build and its leveling order follows rows."
+    box.append(el("p", "muted small", build.hps60 != null
+      ? `Estimated ${build.hps60} healing per second at 60 on one target (sustained over a fight, no overhealing), measured with ` +
+        `${build.reference.join(" + ")} and raid buffs on. Use it to compare builds, not as a promise.`
       : `Estimated ${build.dps60} damage per second at 60, measured with ${build.reference.join(" + ")} ` +
         "and raid buffs on. Use it to compare builds, not as a promise."));
     const btn = el("button", "btn primary", "Load this build");
@@ -99,7 +100,7 @@
     const how = el("p", "muted small build-how");
     how.textContent = "How these are made: the final builds are suggestions for each role. The leveling order comes from the " +
       "planner's math: you go down your main tree first and take its 31-point talent the moment it opens; within that, each " +
-      "point goes where it adds the most damage (or, for a tank, survival and threat) at that level. Points the math can't " +
+      "point goes where it adds the most damage (for a tank, survival and threat; for a healer, healing) at that level. Points the math can't " +
       "measure (utility, procs it doesn't model yet) say so and are placed by row.";
     box.append(how);
     const grid = el("div", "build-grid");
