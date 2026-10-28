@@ -483,6 +483,26 @@ ul.plain li { padding: 2px 0; }
 .picker-sort select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--text); }
 
 /* ---------- smaller screens ---------- */
+/* Builds tab */
+.build-how { margin: 0 0 12px; }
+.build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+.build-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.build-head { display: flex; gap: 12px; align-items: center; }
+.build-icon { width: 40px; height: 40px; border-radius: 6px; border: 1px solid #444; }
+.build-head h3 { margin: 0; font-size: 17px; color: var(--gold); }
+.build-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 3px; }
+.build-summary { font-size: 14px; margin: 10px 0 6px; }
+.build-card p.muted { margin: 4px 0; }
+.build-card .btn { margin-top: 8px; }
+.build-order { margin-top: 10px; }
+.build-order > summary { cursor: pointer; color: var(--gold); font-size: 13px; }
+.build-order ol { list-style: none; margin: 8px 0 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.build-order li { display: grid; grid-template-columns: 46px 20px minmax(0, 1fr); gap: 2px 8px; align-items: center;
+  padding: 3px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.build-order li > .muted { grid-column: 3; }
+.build-lv { color: var(--muted); }
+.build-ticon { width: 20px; height: 20px; border-radius: 3px; }
+
 /* Priority tab */
 .prio-layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
 .prio { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }

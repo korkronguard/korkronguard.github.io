@@ -156,11 +156,12 @@
     if (needs.class === 4 && needs.subclassMask & (1 << 6)) return "shield";
     if (needs.invTypes & OFF_HAND_WEAPON) return "dual";
     if (needs.class === 2 && !(needs.subclassMask & ONE_HAND_BITS)) return "twoHand";
+    if (needs.class === 2 && needs.subclassMask === 1 << 15) return "dagger";
     if (needs.class === 2 && !(needs.subclassMask & TWO_HAND_BITS)) return "oneHand";
     return null;
   }
   const NEED_TEXT = { shield: "a shield (Sword and board)", dual: "an off-hand weapon (Dual wield)", twoHand: "a two-handed weapon",
-    oneHand: "a one-handed weapon" };
+    oneHand: "a one-handed weapon", dagger: "a dagger in the main hand" };
   function holdMissing(c, needs) {
     const need = holdNeed(needs);
     return need && c.hold.known && !c.hold[need] ? NEED_TEXT[need] : null;
@@ -517,6 +518,94 @@
     return L;
   }
 
+  // ------------------------------------------------------------ Rogue
+
+  function rogue(c) {
+    const L = list(c);
+    const [ass, com, sub] = c.treePts;
+    L.title = `${ass >= com && ass >= sub && ass ? "Assassination" : com >= sub && com ? "Combat" : sub ? "Subtlety" : ""} Rogue`.trim();
+    L.facts.push(`Talents: ${ass} / ${com} / ${sub}` + ["Mutilate", "Seal Fate", "Blade Flurry", "Adrenaline Rush", "Hemorrhage", "Preparation"]
+      .filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
+    // main-hand weapon type: Backstab, Mutilate and Ambush need a dagger (game data)
+    const fromGear = c.mh ? (c.mh.subclass === 15 ? "dagger" : "other") : null;
+    const guess = c.talent["Mutilate"] || c.talent["Puncturing Wounds"] || c.talent["Opportunity"] || sub > com ? "dagger" : "other";
+    const auto = fromGear || guess;
+    const chosen = ["dagger", "other"].includes(state.prio.weapons) ? state.prio.weapons : "auto";
+    const setup = chosen === "auto" ? auto : chosen;
+    const NAMES = { dagger: "Daggers", other: "Swords, maces or fists" };
+    c.hold = { known: true, dagger: setup === "dagger", oneHand: true, dual: !!c.dualWield || !c.gearKnown };
+    L.toggles.push({ key: "weapons", label: "Main hand", value: chosen,
+      options: [["auto", `Auto (${NAMES[auto]}${fromGear ? "" : ", guessed"})`], ["dagger", NAMES.dagger], ["other", NAMES.other]],
+      help: "Backstab, Mutilate and Ambush need a dagger in the main hand (game data); Sinister Strike works with anything." });
+    L.facts.push(`Main hand: ${NAMES[setup]}` + (chosen === "auto" && !fromGear ? " (guessed from your talents)" : ""));
+    if (chosen !== "auto" && fromGear && fromGear !== setup) L.facts.push(`You're wearing ${NAMES[fromGear].toLowerCase()}: damage numbers use what you wear.`);
+    if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need weapons (Gear & Stats tab).");
+    const A = c.res, unit = "energy";
+    const rot = c.R.rotation || {};
+    const desc = (n) => (c.spell(n) || {}).desc || "";
+
+    L.section("Opener", "From Stealth.");
+    L.add("Premeditation", { tag: "Before you open", text: "Two free combo points." });
+    L.add("Ambush", { tag: "Opener", text: "From behind, with a dagger." + (c.talent["Initiative"] ? " Initiative adds an extra combo point." : ""),
+      facts: [dmgLine(A["Ambush"], unit), c.talent["Improved Ambush"] ? `Improved Ambush: +${fmt(talentNumber(c, "Improved Ambush"))}% crit chance` : null] });
+    L.add("Cheap Shot", { tag: "Opener", text: "A stun and 2 combo points (good when you can't get behind)." });
+    L.add("Garrote", { tag: "Opener", text: "A bleed from behind" + (c.talent["Dirty Deeds"] ? " (Dirty Deeds: from any side, cheaper)." : "."), facts: [dmgLine(A["Garrote"], unit)] });
+
+    L.section("Keep up", null);
+    const snd = c.rank("Slice and Dice");
+    if (snd) {
+      const haste = buffNumber("Slice and Dice", c.level);
+      const worth = rot.sndPoints;
+      L.add("Slice and Dice", { tag: worth === 0 ? "Not worth it yet" : "Keep up",
+        text: worth ? `Refresh it at ${worth} combo point${worth > 1 ? "s" : ""}: the best length for your current numbers.` :
+          worth === 0 ? "With your gear your white hits are too small for it to pay off: put the points into Eviscerate instead. It wins once you have more attack power or buffs." :
+            "Keep it up between Eviscerates.",
+        facts: [`+${haste}% attack speed (game data), ${sec(snd.durMs)} plus ${sec(snd.durPerPoint || 3000)} per combo point` +
+          (c.talent["Improved Slice and Dice"] ? ` (Improved Slice and Dice: +${fmt(talentNumber(c, "Improved Slice and Dice"))}% longer)` : "")] });
+    }
+    if (!(c.ctx.buffs || {})["Sunder Armor"]) {
+      L.add("Expose Armor", { tag: "If no Warrior sunders", text: "5 points on the boss when no Warrior keeps Sunder Armor up.",
+        facts: [`−${fmt(buffNumber("Expose Armor", c.level))} armor per combo point (−${fmt(buffNumber("Expose Armor", c.level) * 5)} at 5, game data)`,
+          "In Classic it doesn't stack with Sunder Armor (check in game)"] });
+    }
+    if (c.talent["Serrated Blades"] || c.talent["Thousand Cuts"] || c.talent["Hemorrhage"]) {
+      L.add("Rupture", { tag: "Keep up", text: "Your talents favour it: keep the bleed going.",
+        facts: [dmgLine(A["Rupture"], unit), c.talent["Serrated Blades"] ? "Serrated Blades: +30% Rupture damage" : null,
+          c.talent["Thousand Cuts"] ? "Thousand Cuts: each Rupture tick makes your next Hemorrhage/Backstab cheaper" : null] });
+    }
+    L.add("Venom", { tag: "Keep up", text: "Finisher: +30% poison damage and +10% poison chance while it lasts." });
+
+    L.section("Combo point builders", "Use the best one you can (order = damage per energy with your gear).");
+    const start = 0;
+    for (const [n, note] of [["Mutilate", "Needs daggers in both hands; 2 combo points."], ["Backstab", "From behind, with a dagger."],
+      ["Sinister Strike", "Works with any weapon, from any side."], ["Hemorrhage", "Also makes your Rupture hit harder."],
+      ["Ghostly Strike", "On cooldown when you have the energy (also +15% dodge)."]]) {
+      const a = A[n];
+      L.add(n, { tag: n === rot.builder ? "Your main builder" : n === "Ghostly Strike" ? "On cooldown" : "Builder", text: note,
+        score: perCost(a) + (n === rot.builder ? 1000 : 0), facts: [dmgLine(a, unit)] });
+    }
+    L.sortFrom(start);
+    const cpTalents = [["Seal Fate", "crits add an extra combo point"], ["Ruthlessness", "finishers can leave a combo point behind"],
+      ["Relentless Strikes", "finishers can give 25 energy back"], ["Puncturing Wounds", "Backstab can add an extra point"]]
+      .filter(([n]) => c.talent[n]).map(([n, t]) => `${n}: ${t}`);
+    L.section("Finisher", "At 5 combo points.");
+    const ev = A["Eviscerate"];
+    L.add("Eviscerate", { tag: "At 5 points", text: "Your damage finisher.",
+      facts: [dmgLine(ev, unit), ...cpTalents,
+        "Its attack power part is an estimate: the game files don't hold it (we use 3% of attack power per point)"] });
+
+    L.section("Cooldowns", null);
+    L.add("Adrenaline Rush", { tag: "Cooldown", text: "Double energy for 15 sec: line it up with Slice and Dice up." });
+    L.add("Blade Flurry", { tag: "Cooldown", text: "+20% attack speed and a second target for 15 sec." });
+    L.add("Cold Blood", { tag: "Cooldown", text: "Before a 5-point Eviscerate (or a Mutilate): a guaranteed crit." });
+    L.add("Preparation", { tag: "Cooldown", text: "Resets your other cooldowns: use it after the first round of them." });
+    L.add("Vanish", { tag: "Situational", text: "Drops threat" + (c.hold.dagger ? ", and lets you Ambush again." : ".") });
+    L.section("Threat", null);
+    L.add("Feint", { tag: "When threat is high", text: "Lowers your threat without breaking your rotation." });
+    L.facts.push("Poisons are items, not spells, so they're not in the planner's numbers yet (they add real damage in game).");
+    return L;
+  }
+
   function talentIcon(c, name) {
     const t = c.flat.find((x) => x.name === name);
     return t && t.icon;
@@ -855,7 +944,7 @@
   function render() {
     if (!app.view || app.view() !== "priority" || !state.cls || !KP.spellbook) return;
     const c = character();
-    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid };
+    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue };
     const L = (rules[c.token] || generic)(c);
     draw(L);
   }

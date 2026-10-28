@@ -44,6 +44,7 @@
     <button type="button" role="tab" id="tabTalents" data-view="talents" aria-selected="true">Talents</button>
     <button type="button" role="tab" id="tabGear" data-view="gear" aria-selected="false">Gear &amp; Stats</button>
     <button type="button" role="tab" id="tabPriority" data-view="priority" aria-selected="false">Priority</button>
+    <button type="button" role="tab" id="tabBuilds" data-view="builds" aria-selected="false">Builds</button>
   </nav>
 
   <div id="talentsView" role="tabpanel" aria-labelledby="tabTalents">
@@ -72,6 +73,12 @@
       <section class="sheet" id="sheet" aria-label="Character sheet"></section>
     </div>
     <section class="side wide" id="gearAttacks" aria-label="Attacks and abilities"></section>
+  </div>
+
+  <div id="buildsView" role="tabpanel" aria-labelledby="tabBuilds" hidden>
+    <p class="hint">Three suggested builds per class, with the order to take each point while you level. Load one as a
+      starting point, or make your own on the Talents tab.</p>
+    <section class="builds" id="builds" aria-label="Suggested builds"></section>
   </div>
 
   <div id="priorityView" role="tabpanel" aria-labelledby="tabPriority" hidden>
@@ -118,11 +125,13 @@
 <script src="data/talents.js"></script>
 <script src="data/abilities.js"></script>
 <script src="data/spellbook.js"></script>
+<script src="data/builds.js"></script>
 <script src="js/talents.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/gear.js"></script>
 <script src="js/panel.js"></script>
 <script src="js/priority.js"></script>
+<script src="js/builds.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="planner"></script>
 </body>
 </html>

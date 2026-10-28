@@ -30,7 +30,7 @@
   // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
   const BUFF_KEYS = { b: "Battle Shout", m: "Blessing of Might", k: "Blessing of Kings", w: "Mark of the Wild",
     e: "Strength of Earth", g: "Grace of Air", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
-    s: "Sunder Armor", f: "Faerie Fire", r: "Curse of Recklessness" };
+    s: "Sunder Armor", x: "Expose Armor", f: "Faerie Fire", r: "Curse of Recklessness" };
   // [name, label, who brings it, what it does ({v} = the number at your level)]
   const BUFF_LIST = [
     ["Group buffs", [
@@ -46,6 +46,7 @@
     ]],
     ["Target debuffs", [
       ["Sunder Armor", "Sunder Armor ×5", "Warrior", "−{v} armor per stack, 5 stacks"],
+      ["Expose Armor", "Expose Armor (5 points)", "Rogue", "−{v} armor per combo point; doesn't stack with Sunder (Classic rule)"],
       ["Faerie Fire", "Faerie Fire", "Druid", "−{v} armor"],
       ["Curse of Recklessness", "Curse of Recklessness", "Warlock", "−{v} armor"],
     ]],

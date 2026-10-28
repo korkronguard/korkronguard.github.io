@@ -182,7 +182,7 @@
       const id = parseInt(v, 36);
       if (SLOTS[i] && id > 0) gear[SLOTS[i].key] = id;
     });
-    return { view: ["gear", "priority"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
+    return { view: ["gear", "priority", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
   }
 
   // ------------------------------------------------------------ icons and tooltips
@@ -527,12 +527,15 @@
     $("talentsView").hidden = v !== "talents";
     $("gearView").hidden = v !== "gear";
     $("priorityView").hidden = v !== "priority";
+    $("buildsView").hidden = v !== "builds";
     $("tabTalents").setAttribute("aria-selected", v === "talents");
     $("tabGear").setAttribute("aria-selected", v === "gear");
     $("tabPriority").setAttribute("aria-selected", v === "priority");
+    $("tabBuilds").setAttribute("aria-selected", v === "builds");
     $("tooltip").hidden = true;
-    if (v !== "talents") loadItems(render); // the priority tab needs to know your weapons too
+    if (v !== "talents" && v !== "builds") loadItems(render); // the priority tab needs to know your weapons too
     if (app.renderPriority) app.renderPriority();
+    if (app.renderBuilds) app.renderBuilds();
     if (push) app.changed();
   }
 
@@ -545,6 +548,8 @@
   $("tabTalents").addEventListener("click", () => setView("talents", true));
   $("tabGear").addEventListener("click", () => setView("gear", true));
   $("tabPriority").addEventListener("click", () => setView("priority", true));
+  $("tabBuilds").addEventListener("click", () => setView("builds", true));
+  app.setView = setView;
   app.view = () => view;
   $("pickerClose").addEventListener("click", () => $("picker").close());
   $("pickerSearch").addEventListener("input", renderPicker);

@@ -62,6 +62,9 @@
   // effect target types that hit just your target (others hit an area, or you)
   const SINGLE_TARGET = [6, 25, 77];
   const LONGER_PER_POINT = { Rupture: 2000 };
+  // Eviscerate says "increased by Attack Power" but the number is worked out by the server. Estimate: 3% of
+  // attack power per combo point (the rule from the next expansion). Flagged in the notes.
+  const EVISCERATE_AP_PER_POINT = 0.03;
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const overlap = (a, b) => a.some((v, k) => (v & b[k]) !== 0);
@@ -333,7 +336,9 @@
 
   function mitigation(ctx, S) {
     // armor debuffs on the target: 5 Sunders, Faerie Fire, Curse of Recklessness
-    const sundered = Math.max(0, (ctx.target.armor || 0) - buffValue(ctx, "Sunder Armor") * SUNDER_STACKS -
+    // Sunder Armor and Expose Armor don't stack in Classic (the stronger one counts; check in Forever)
+    const sunderLike = Math.max(buffValue(ctx, "Sunder Armor") * SUNDER_STACKS, buffValue(ctx, "Expose Armor") * COMBO_POINTS);
+    const sundered = Math.max(0, (ctx.target.armor || 0) - sunderLike -
       buffValue(ctx, "Faerie Fire") - buffValue(ctx, "Curse of Recklessness"));
     const armor = sundered * (1 - S.tal.armorIgnore / 100);
     const dr = armor / (armor + 400 + 85 * ctx.level);
@@ -401,7 +406,8 @@
   const EXECUTE_PHASE = 0.2; // share of a boss fight spent below 20% health
   const buffNote = (ctx) => {
     const on = Object.keys(ctx.buffs || {}).filter((k) => ctx.buffs[k]);
-    return on.length ? ` With ${on.join(" and ")}.` : " No group buffs or debuffs (switch them on above).";
+    if (!on.length) return " No group buffs or debuffs (switch them on above).";
+    return on.length > 3 ? ` With ${on.length} group buffs and debuffs on.` : ` With ${on.join(" and ")}.`;
   };
 
   function rotation(ctx, S, white, abilities) {
@@ -463,27 +469,9 @@
     }
 
     if (token === "ROGUE" && white.length) {
-      const regen = 10; // energy per second
-      const dagger = S.mh && S.mh.subclass === 15;
-      const builders = ["Sinister Strike", "Hemorrhage", ...(dagger ? ["Backstab"] : []),
-        ...(dagger && S.oh && S.oh.subclass === 15 ? ["Mutilate"] : [])]
-        .map((n) => byName[n]).filter((a) => a && a.cost && a.expected);
-      const evis = byName["Eviscerate"];
-      if (builders.length && evis) {
-        const sealFate = talentValue(ctx, "Seal Fate") / 100;
-        const best = builders.map((b) => {
-          const cp = (b.name === "Mutilate" ? 2 : 1) + (b.critChance / 100) * sealFate;
-          const n = 5 / cp;
-          const energy = n * b.cost + evis.cost;
-          return { b, n, energy, dps: (n * b.expected + evis.expected) / (energy / regen) };
-        }).sort((x, y) => y.dps - x.dps)[0];
-        parts.push({ name: `${best.b.name} (builder)`, dps: (best.n * best.b.expected) / (best.energy / regen) });
-        parts.push({ name: "Eviscerate (5 points)", dps: evis.expected / (best.energy / regen) });
-        return result(whiteDps + extra + best.dps, `${best.b.name} to 5 combo points, then Eviscerate, 10 energy per second. ` +
-          (dagger ? "Backstab/Mutilate assume you're behind the target. " : "") + "No Slice and Dice yet." + buffNote(ctx));
-      }
+      const r = rogueRotation(ctx, S, white, byName);
+      if (r) return r;
     }
-
     if (token === "HUNTER") {
       const h = hunterRotation(ctx, S, white, byName);
       if (h) return h;
@@ -524,6 +512,95 @@
       }
     }
     return result(whiteDps + extra, white.length ? "White hits only; this class's rotation isn't worked out yet." : "Equip a weapon to see damage.");
+  }
+
+  // ------------------------------------------------------------ Rogue
+
+  // a number in a learned talent's tooltip, found by a pattern (the tooltip uses the game's rank values)
+  function talentNumber(ctx, name, re) {
+    const i = ctx.flat.findIndex((t) => t.name === name);
+    const r = i >= 0 ? ctx.ranks[i] : 0;
+    const m = r && re.exec(ctx.flat[i].desc[r - 1] || "");
+    return m ? parseFloat(m[1]) : 0;
+  }
+  const bookRank = (token, name, level) => {
+    const b = ((KP.spellbook || {})[token] || []).find((x) => x.name === name);
+    return b ? [...b.ranks].reverse().find((r) => (r.level || 1) <= level) : null;
+  };
+  const learnedTalent = (ctx, name) => ctx.flat.some((t, i) => t.name === name && ctx.ranks[i]);
+
+  // Steady state: keep Slice and Dice up (refreshed at 5 points), spend the rest of the energy on the best
+  // builder to 5 points and Eviscerate.
+  function rogueRotation(ctx, S, white, byName) {
+    const melee = white.filter((w) => w.label === "Main hand" || w.label === "Off hand");
+    const whiteDps = sum(melee.map((w) => w.dps));
+    const dagger = S.mh && S.mh.subclass === 15;
+    const builders = ["Sinister Strike", "Hemorrhage", ...(dagger ? ["Backstab"] : []),
+      ...(dagger && S.oh && S.oh.subclass === 15 ? ["Mutilate"] : [])]
+      .map((n) => byName[n]).filter((a) => a && !a.locked && a.cost && a.expected);
+    const evis = byName["Eviscerate"];
+    if (!builders.length || !evis || evis.locked) return null;
+    const level = ctx.level;
+    // energy: 10 per second, Adrenaline Rush doubles it for 15 sec every 5 min
+    const ar = learnedTalent(ctx, "Adrenaline Rush") && bookRank("ROGUE", "Adrenaline Rush", level);
+    const regen = 10 * (1 + (ar ? (ar.durMs || 15000) / ar.cdMs : 0));
+    const sealFate = talentNumber(ctx, "Seal Fate", /(\d+)% chance/) / 100;
+    const ruthless = talentNumber(ctx, "Ruthlessness", /(\d+)% chance/) / 100;          // free point after a finisher
+    const rsChance = Math.min(1, talentNumber(ctx, "Relentless Strikes", /(\d+)% chance per Combo Point/) * COMBO_POINTS / 100);
+    const refund = rsChance * (talentNumber(ctx, "Relentless Strikes", /restore (\d+) Energy/) || 0);
+    const pick = builders.map((b) => {
+      const cp = (b.name === "Mutilate" ? 2 : 1) + (b.critChance / 100) * sealFate;
+      const n = Math.max(0, (COMBO_POINTS - ruthless) / cp); // builders per 5-point finisher
+      return { b, n, energy: n * b.cost + evis.cost - refund, dmg: n * b.expected + evis.expected };
+    }).sort((x, y) => y.dmg / y.energy - x.dmg / x.energy)[0];
+    const bfRank = learnedTalent(ctx, "Blade Flurry") && bookRank("ROGUE", "Blade Flurry", level);
+    const bf = bfRank ? 20 * (bfRank.durMs || 15000) / bfRank.cdMs : 0; // +20% attack speed, averaged
+    const parts = [{ name: "White hits", dps: whiteDps * (1 + bf / 100) }];
+    const notes = [];
+    let dps;
+    const snd = bookRank("ROGUE", "Slice and Dice", level);
+    const haste = rankValue("Slice and Dice", level);
+    const noSnd = whiteDps * (1 + bf / 100) + (regen / pick.energy) * pick.dmg;
+    let sndPoints = null; // combo points to refresh Slice and Dice at (0 = not worth it), for the Priority tab
+    if (snd && haste) {
+      // try Slice and Dice at 1-5 combo points: short and cheap, or long and expensive
+      const longer = talentNumber(ctx, "Improved Slice and Dice", /by (\d+)%/);
+      const cp = pick.n ? (COMBO_POINTS - ruthless) / pick.n : 1; // combo points per builder
+      let best = null;
+      for (let points = 1; points <= COMBO_POINTS; points++) {
+        const D = ((snd.durMs + (snd.durPerPoint || 0) * points) / 1000) * (1 + longer / 100);
+        const nSnd = Math.max(0, (points - ruthless) / cp);
+        const sndEnergy = nSnd * pick.b.cost + snd.cost - Math.min(1, rsChance * points / COMBO_POINTS) * (refund / (rsChance || 1));
+        const k = Math.max(0, (regen * D - sndEnergy) / pick.energy); // Eviscerates per Slice and Dice
+        const builderDps = ((nSnd + pick.n * k) * pick.b.expected) / D;
+        const evisDps = (k * evis.expected) / D;
+        const total = whiteDps * (1 + bf / 100) * (1 + haste / 100) + builderDps + evisDps;
+        if (!best || total > best.total) best = { points, D, builderDps, evisDps, total };
+      }
+      sndPoints = best.total >= noSnd ? best.points : 0;
+      if (best.total >= noSnd) {
+        dps = best.total;
+        parts.push({ name: `Slice and Dice (+${haste}% attack speed)`, dps: whiteDps * (1 + bf / 100) * (haste / 100) });
+        parts.push({ name: `${pick.b.name} (builder)`, dps: best.builderDps }, { name: "Eviscerate (5 points)", dps: best.evisDps });
+        notes.push(`Slice and Dice kept up at ${best.points} combo point${best.points > 1 ? "s" : ""} (${best.D.toFixed(0)} sec; the best length for your numbers), ` +
+          `the rest into ${pick.b.name} to 5 points and Eviscerate`);
+      } else {
+        notes.push("Slice and Dice doesn't pay for itself with your gear yet (white hits too small): Eviscerate does more");
+      }
+    }
+    if (dps == null) {
+      dps = noSnd;
+      parts.push({ name: `${pick.b.name} (builder)`, dps: (regen / pick.energy) * pick.n * pick.b.expected },
+        { name: "Eviscerate (5 points)", dps: (regen / pick.energy) * evis.expected });
+      notes.push(`${pick.b.name} to 5 combo points, then Eviscerate` + (snd ? "" : " (Slice and Dice comes at level 10)"));
+    }
+    notes.push(`${regen.toFixed(1)} energy per second` + (ar ? " (Adrenaline Rush averaged in)" : ""));
+    const counted = [sealFate && "Seal Fate", ruthless && "Ruthlessness", refund && "Relentless Strikes", bf && "Blade Flurry (averaged)"].filter(Boolean);
+    if (counted.length) notes.push("counts " + counted.join(", "));
+    if (dagger) notes.push("Backstab/Mutilate assume you're behind the target");
+    notes.push("Eviscerate's attack power part is an estimate (3% per point; the game files don't hold it); poisons aren't counted yet");
+    const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, sndPoints, builder: pick.b.name };
   }
 
   // ------------------------------------------------------------ Hunter
@@ -759,7 +836,8 @@
           hasDirect = true;
           break;
         case 2: {
-          const bonus = (physical ? 0 : e.coef * spellPower * coefMult) + (e.apCoef || 0) * ap;
+          const bonus = (physical ? 0 : e.coef * spellPower * coefMult) + (e.apCoef || 0) * ap +
+            (src.familyName === "Eviscerate" ? ap * EVISCERATE_AP_PER_POINT * COMBO_POINTS : 0);
           dmin += v * (1 - spread) + perCombo + bonus;
           dmax += v * (1 + spread) + perCombo + bonus;
           hasDirect = true;
@@ -800,6 +878,19 @@
       if (i >= 0 && !ctx.ranks[i]) return { ...base, locked: "Needs the talent", rank: rank || ab.ranks[0] };
     }
     if (!rank) return { ...base, locked: `Learned at level ${ab.ranks[0].level}`, rank: ab.ranks[0] };
+    // what it needs in your hands (game data): e.g. Backstab a dagger, Shield Slam a shield
+    const needs = (((KP.spellbook || {})[ctx.cls.token] || []).find((b) => b.name === ab.name) || {}).needs;
+    if (needs && ctx.worn.length) {
+      if (needs.class === 4 && needs.subclassMask & (1 << 6) && !S.shield) return { ...base, rank, locked: "Needs a shield" };
+      // ranged weapon types: 2 bow, 3 gun, 16 thrown, 18 crossbow, 19 wand; shots check the ranged slot
+      const RANGED = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
+      const rangedOnly = needs.class === 2 && (needs.subclassMask & RANGED) && !(needs.subclassMask & ~RANGED);
+      const item = rangedOnly ? S.rg : S.mh;
+      if (needs.class === 2 && item && !(needs.subclassMask & (1 << item.subclass))) {
+        return { ...base, rank, locked: needs.subclassMask === 1 << 15 ? "Needs a dagger in the main hand" :
+          rangedOnly ? "Needs a different ranged weapon" : "Needs a different main-hand weapon" };
+      }
+    }
     if (ctx.cls.token === "DRUID" && (rank.powerType === 1 || rank.powerType === 3)) {
       return { ...base, rank, locked: "Cat/Bear form damage isn't worked out yet" };
     }
