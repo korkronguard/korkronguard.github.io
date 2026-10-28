@@ -96,6 +96,7 @@
       race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
       worn: app.worn ? app.worn() : [], base: state.base, target: target(), buffs: state.buffs,
       style: (state.prio || {}).style, // Hunter ranged/melee choice from the Priority tab
+      tank: (state.prio || {}).tank,   // tank mode (a Druid tanks in Bear Form)
     };
   }
   app.ctx = ctx;

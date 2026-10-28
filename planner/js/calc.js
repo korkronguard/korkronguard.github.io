@@ -18,6 +18,14 @@
   const BASE_AP = { WARRIOR: [3, -20], PALADIN: [3, -20], HUNTER: [2, -20], ROGUE: [2, -20], SHAMAN: [2, -20],
     DRUID: [0, -20], PRIEST: [0, -10], MAGE: [0, -10], WARLOCK: [0, -10] };
   const BASE_RAP = { HUNTER: [2, -10], WARRIOR: [1, -10], ROGUE: [1, -10] };
+  // Druid forms, from the game data: Cat Form (Passive) 3025, Bear Form (Passive) 1178, Dire Bear Form (Passive) 9635
+  // and SpellShapeshiftForm (attack speed). In a form your weapon's damage is replaced by a base hit that grows with
+  // level; that part isn't in the files, so it uses Classic's rule (0.85-1.25 x level per second of attack speed).
+  const FORMS = {
+    cat: { name: "Cat Form", ap: 12, apPerAgi: 1, speed: 1.0, armorPct: 0, health: 0 },
+    bear: { name: "Bear Form", ap: 30, apPerAgi: 0, speed: 2.5, armorPct: 180, health: 20 },
+    dire: { name: "Dire Bear Form", ap: 120, apPerAgi: 0, speed: 2.5, armorPct: 360, health: 600 },
+  };
   // "Normalized" abilities use a fixed speed instead of the weapon's own
   const NORMAL_SPEED = { dagger: 1.7, oneHand: 2.4, twoHand: 3.3, ranged: 2.8 };
   // Attack table by how many levels the target is above you (Classic)
@@ -235,9 +243,18 @@
     const motw = buffValue(ctx, "Mark of the Wild");
     for (const k of STATS) gear[k] = (gear[k] || 0) + (statBuffs[k] || 0) + motw;
     const kings = buffValue(ctx, "Blessing of Kings");
+    // Druid form: Heart of the Wild adds Strength in Cat Form and Stamina in Bear Form (its 3rd and 2nd numbers)
+    const formKey = druidForm(ctx);
+    const form = formKey && FORMS[formKey];
+    const formPct = { strength: 0, stamina: 0 };
+    if (form) {
+      const i = ctx.flat.findIndex((t) => t.name === "Heart of the Wild");
+      const vals = i >= 0 && ctx.ranks[i] ? (ctx.flat[i].effects[ctx.ranks[i] - 1] || []).map((e) => e.value) : [];
+      if (formKey === "cat") formPct.strength = vals[2] || 0; else formPct.stamina = vals[1] || 0;
+    }
     const attr = {}, attrBase = {};
     for (const k of STATS) {
-      attr[k] = Math.round((base[k] + g(k)) * (1 + (tal.statPct[k] + kings) / 100));
+      attr[k] = Math.round((base[k] + g(k)) * (1 + (tal.statPct[k] + kings + (formPct[k] || 0)) / 100));
       attrBase[k] = Math.round(base[k] * (1 + tal.statPct[k] / 100));
     }
     // crit from Agility (and spell crit from Intellect). A typed-in crit % already includes the base part,
@@ -260,10 +277,12 @@
     const school = { holy: g("holyDamage"), fire: g("fireDamage"), nature: g("natureDamage"),
       frost: g("frostDamage"), shadow: g("shadowDamage"), arcane: g("arcaneDamage") };
     const worn = (slot) => ctx.worn.find((w) => w.slot === slot);
+    const formAp = form ? form.ap + attr.agility * form.apPerAgi +
+      (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
     const S = {
-      gear, tal, attr, baseAp,
+      gear, tal, attr, baseAp, form: formKey,
       ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
-        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might"),
+        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp,
       rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura"),
       hit: g("hit") / per("meleeHit") + tal.hit,
@@ -273,17 +292,19 @@
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
         spellCrit: intRatio ? (BASE_SPELL_CRIT[cls.token] || 0) + attrBase.intellect / intRatio : 0 },
       sp, school, healing: g("healing") + g("spellPower"),
-      armor: Math.round(itemArmor * (1 + tal.armorPct / 100)) + g("bonusArmor") + attr.agility * 2,
+      armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 +
+        (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
       defense: g("defense") / per("defense") + tal.defense,
       dodge: g("dodge") / per("dodge") + tal.dodge,
       parry: g("parry") / per("parry") + tal.parry,
       block: g("block") / per("block") + tal.block,
       blockValue: g("blockValue"),
-      health: rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health"),
+      health: rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health") + (form ? form.health : 0),
       mana: cls.power === 0 ? rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana") : 0,
       mp5: g("manaRegen"),
-      mh: worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
-      oh: worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
+      // in a Druid form the form's own attack replaces the weapon
+      mh: form ? formWeapon(form, lvl) : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
+      oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
       shield: !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6),
     };
@@ -359,7 +380,26 @@
     return Math.max(0, Math.min(3, ctx.target.diff)); // ~1% less crit per level the target is above you
   }
 
+  // Cat or Bear Form for a Druid: Bear in tank mode, else Cat for a Feral build (most points in Feral Combat);
+  // without a tank choice, Bear when the build has Natural Reaction or Thick Hide (like the Priority tab)
+  function druidForm(ctx) {
+    if (ctx.cls.token !== "DRUID") return null;
+    const pts = [0, 0, 0];
+    const learned = new Set();
+    ctx.flat.forEach((t, i) => { if (ctx.ranks[i]) { pts[t.tree] += ctx.ranks[i]; learned.add(t.name); } });
+    const feral = pts[1] > Math.max(pts[0], pts[2]);
+    const bear = ctx.tank === true || (ctx.tank == null && feral && (learned.has("Natural Reaction") || learned.has("Thick Hide")));
+    if (bear) return bookRank("DRUID", "Dire Bear Form", ctx.level) ? "dire" : bookRank("DRUID", "Bear Form", ctx.level) ? "bear" : null;
+    if (feral) return bookRank("DRUID", "Cat Form", ctx.level) ? "cat" : null;
+    return null;
+  }
+  function formWeapon(form, level) {
+    return { name: `${form.name} (base attack)`, class: 2, subclass: 13, inv: 13, form: true,
+      weapon: { min: level * 0.85 * form.speed, max: level * 1.25 * form.speed, speed: form.speed } };
+  }
+
   function normalSpeed(item, kind) {
+    if (item && item.form) return item.weapon.speed;
     if (kind === "ranged") return NORMAL_SPEED.ranged;
     if (item.inv === 17) return NORMAL_SPEED.twoHand;
     if (item.subclass === 15) return NORMAL_SPEED.dagger;
@@ -475,6 +515,10 @@
     if (token === "HUNTER") {
       const h = hunterRotation(ctx, S, white, byName);
       if (h) return h;
+    }
+    if (token === "DRUID" && S.form) {
+      const d = S.form === "cat" ? catRotation(ctx, S, white, byName) : bearRotation(ctx, S, white, byName);
+      if (d) return d;
     }
 
     if (ctx.cls.power === 0) {
@@ -686,6 +730,100 @@
     notes.push("Eviscerate's attack power part is an estimate (3% per point; the game files don't hold it); poisons aren't counted yet");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, sndPoints, builder: pick.b.name };
+  }
+
+  // ------------------------------------------------------------ Druid forms
+
+  // Cat: keep Rake and Rip up when they're worth it, the rest of the energy on the best builder to 5 points and
+  // Ferocious Bite. Rend and Tear: abilities hit harder while a bleed is up.
+  function catRotation(ctx, S, white, byName) {
+    const whiteDps = sum(white.filter((w) => w.label === "Main hand").map((w) => w.dps));
+    const ok = (n) => byName[n] && !byName[n].locked && byName[n].expected > 0 && byName[n].cost;
+    const builders = ["Shred", "Claw"].filter(ok).map((n) => byName[n]);
+    if (!builders.length) return null;
+    const builder = builders.sort((a, b) => b.expected / b.cost - a.expected / a.cost)[0];
+    const bite = ok("Ferocious Bite") ? byName["Ferocious Bite"] : null;
+    const rake = ok("Rake") ? byName["Rake"] : null;
+    const rip = ok("Rip") ? byName["Rip"] : null;
+    const rnt = talentNumber(ctx, "Rend and Tear", /by (\d+)%/) / 100;
+    const regen = 10;
+    let best = null;
+    for (const useRake of rake ? [false, true] : [false]) {
+      for (const useRip of rip ? [false, true] : [false]) {
+        let rakeRate = useRake ? 1 / Math.max(1, (rake.durMs || 9000) / 1000) : 0;
+        let ripRate = useRip ? 1 / Math.max(1, (rip.durMs || 12000) / 1000) : 0;
+        // energy for the bleeds and the builders that pay for Rip's 5 points (Rake gives a point too);
+        // if that's more than you regenerate, they can't be kept up all the time
+        const need = rakeRate * (useRake ? rake.cost : 0) + Math.max(0, COMBO_POINTS * ripRate - rakeRate) * builder.cost +
+          ripRate * (useRip ? rip.cost : 0);
+        if (need > regen) { rakeRate *= regen / need; ripRate *= regen / need; }
+        const cpForRip = Math.max(0, COMBO_POINTS * ripRate - rakeRate);
+        const fixed = rakeRate * (useRake ? rake.cost : 0) + cpForRip * builder.cost + ripRate * (useRip ? rip.cost : 0);
+        const left = Math.max(0, regen - fixed);
+        const biteRate = bite ? left / (COMBO_POINTS * builder.cost + bite.cost) : 0;
+        const builderRate = cpForRip + biteRate * COMBO_POINTS + (bite ? 0 : left / builder.cost);
+        // Rend and Tear counts only while a bleed is actually up
+        const upFrac = (rate, dur) => Math.min(1, rate * dur / 1000);
+        const bleedUp = Math.max(useRake ? upFrac(rakeRate, rake.durMs || 9000) : 0, useRip ? upFrac(ripRate, rip.durMs || 12000) : 0);
+        const mult = 1 + rnt * bleedUp;
+        const parts = [{ name: "White hits (Cat Form)", dps: whiteDps }];
+        const up = (rate, dur) => Math.round(upFrac(rate, dur) * 100);
+        if (useRake) parts.push({ name: `Rake (up ${up(rakeRate, rake.durMs || 9000)}%)`, dps: rakeRate * rake.expected * mult });
+        if (useRip) parts.push({ name: `Rip (5 points, up ${up(ripRate, rip.durMs || 12000)}%)`, dps: ripRate * rip.expected * mult });
+        parts.push({ name: `${builder.name} (builder)`, dps: builderRate * builder.expected * mult });
+        if (bite) parts.push({ name: "Ferocious Bite (5 points)", dps: biteRate * bite.expected * mult });
+        const dps = sum(parts.map((p) => p.dps));
+        if (!best || dps > best.dps) best = { dps, parts, useRake, useRip, bleedUp, bites: biteRate > 0.001 };
+      }
+    }
+    const uses = [best.useRake && "Rake", best.useRip && "Rip at 5 points", best.bites && "Ferocious Bite at 5 points"].filter(Boolean);
+    const notes = [`${builder.name} builds combo points for ${uses.join(", ").replace(/, ([^,]*)$/, " and $1") || "nothing yet"} ` +
+      "(10 energy per second; whichever mix does the most damage for your numbers)"];
+    if (rnt && best.bleedUp) notes.push(`Rend and Tear +${Math.round(rnt * 100)}% while a bleed is up (${Math.round(best.bleedUp * 100)}% of the time)`);
+    if (builder.name === "Shred") notes.push("Shred assumes you're behind the target");
+    notes.push("Cat Form's base attack follows Classic's rule (the game files don't hold it)");
+    return { dps: best.dps, parts: best.parts.filter((p) => p.dps > 0.05),
+      note: notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx) };
+  }
+
+  // Bear: rage from your own hits (being hit gives a tank much more, not counted), spent on Primal Bite on cooldown,
+  // Lacerate kept at 5 stacks, then Maul with what's left. Damage here is also your threat from damage.
+  function bearRotation(ctx, S, white, byName) {
+    const mh = white.find((w) => w.label === "Main hand");
+    if (!mh) return null;
+    const c = rageConversion(ctx.level);
+    let rage = (mh.perSwing * 7.5 / c) / mh.effSpeed;
+    const frenzy = talentNumber(ctx, "Blood Frenzy", /gain an additional (\d+) Rage/);
+    if (frenzy) rage += (mh.crit / 100) / mh.effSpeed * frenzy; // extra rage on crits
+    let dps = mh.dps;
+    const parts = [{ name: "White hits (Bear Form)", dps: mh.dps }];
+    const ok = (n) => byName[n] && !byName[n].locked && byName[n].expected > 0;
+    const pb = ok("Primal Bite") ? byName["Primal Bite"] : null;
+    if (pb && pb.cdMs) {
+      const perSec = 1 / (pb.cdMs / 1000), f = Math.min(1, rage / (pb.cost * perSec || 1));
+      rage -= pb.cost * perSec * f;
+      parts.push({ name: "Primal Bite (on cooldown)", dps: pb.expected * perSec * f });
+      dps += pb.expected * perSec * f;
+    }
+    const lac = ok("Lacerate") ? byName["Lacerate"] : null;
+    if (lac && rage > 0) { // 5 stacks refreshed once per duration: roughly 5 times one application's bleed
+      const perSec = 1 / Math.max(1, (lac.durMs || 15000) / 1000), f = Math.min(1, rage / (lac.cost * perSec || 1));
+      rage -= lac.cost * perSec * f;
+      parts.push({ name: "Lacerate (5 stacks kept up)", dps: lac.expected * 5 * perSec * f });
+      dps += lac.expected * 5 * perSec * f;
+    }
+    const maul = ok("Maul") ? byName["Maul"] : null;
+    if (maul && rage > 0) { // Maul replaces a swing: it adds its damage over that swing
+      const swingRage = mh.perSwing * 7.5 / c;
+      const perSec = Math.min(rage / (maul.cost + swingRage), 1 / mh.effSpeed);
+      const d = perSec * Math.max(0, maul.expected - mh.perSwing);
+      parts.push({ name: `Maul (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
+      dps += d;
+    }
+    const note = "Rage from your own hits (Classic formula)" + (frenzy ? ", Blood Frenzy counted" : "") +
+      "; being hit gives a tank much more, not counted. Primal Bite on cooldown, Lacerate at 5 stacks, Maul with the rest. " +
+      "Bear Form's base attack follows Classic's rule (the game files don't hold it)." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
 
   // ------------------------------------------------------------ Hunter
@@ -976,8 +1114,13 @@
           rangedOnly ? "Needs a different ranged weapon" : "Needs a different main-hand weapon" };
       }
     }
-    if (ctx.cls.token === "DRUID" && (rank.powerType === 1 || rank.powerType === 3)) {
-      return { ...base, rank, locked: "Cat/Bear form damage isn't worked out yet" };
+    if (ctx.cls.token === "DRUID") {
+      const f = S.form;
+      if (rank.powerType === 3 && f !== "cat") return { ...base, rank, locked: "Needs Cat Form" };
+      if (rank.powerType === 1 && f !== "bear" && f !== "dire") return { ...base, rank, locked: "Needs Bear Form" };
+      if (rank.powerType === 0 && f && !rank.heal && rank.effects.every((e) => e.effect !== 10)) {
+        return { ...base, rank, locked: `Not in ${FORMS[f].name}` };
+      }
     }
     const mods = modsFor(S, rank);
     const src = { ...rank, familyName: ab.name };

@@ -458,9 +458,14 @@
     if (!isFeral && !tank) return generic(c);
     L.title = `Feral Druid, ${tank ? "Bear Form tank" : "Cat Form damage"}`;
     L.facts.push(`Talents: ${bal} / ${feral} / ${resto}`);
-    L.facts.push("Cat and Bear Form damage numbers aren't worked out yet: this list uses the game's costs, cooldowns, threat and talent data.");
+    L.facts.push("Form attacks use Classic's base-attack rule (the game files don't hold it); everything else is Forever's data.");
     const desc = (n) => (c.spell(n) || {}).desc || "";
-    const cost = (n, unit) => { const r = c.rank(n); return r ? `${fmt(r.cost / (unit === "rage" ? 10 : 1))} ${unit}` + (r.cdMs ? `, ${sec(r.cdMs)} cooldown` : "") : null; };
+    const cost = (n, unit) => {
+      const a = c.res[n];
+      if (a && !a.locked && a.expected) return dmgLine(a, unit); // damage, cost and damage per point of rage/energy
+      const r = c.rank(n);
+      return r ? `${fmt(r.cost / (unit === "rage" ? 10 : 1))} ${unit}` + (r.cdMs ? `, ${sec(r.cdMs)} cooldown` : "") : null;
+    };
     const ff = c.spell("Faerie Fire");
     const ffInForm = ff && ff.stances && (ff.stances & (tank ? (1 << 4) | (1 << 7) : 1));
     if (tank) {
