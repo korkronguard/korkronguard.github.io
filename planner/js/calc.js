@@ -73,6 +73,7 @@
   // Eviscerate says "increased by Attack Power" but the number is worked out by the server. Estimate: 3% of
   // attack power per combo point (the rule from the next expansion). Flagged in the notes.
   const EVISCERATE_AP_PER_POINT = 0.03;
+  const POISON_CHANCE = 20; // % chance per hit to apply a poison: Classic's; not in the files
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const overlap = (a, b) => a.some((v, k) => (v & b[k]) !== 0);
@@ -378,6 +379,14 @@
     return { miss: Math.max(0, MELEE_MISS[d] - hit), dodge: kind === "melee" ? 5 + d * 0.5 : 0 };
   }
 
+  // How much hit removes every miss against the target (Classic attack table): abilities and one-weapon white hits,
+  // dual-wield white hits (+19%), spells (1% always misses)
+  function hitCaps(ctx) {
+    const d = Math.max(0, Math.min(3, ctx.target.diff));
+    const melee = MELEE_MISS[d] + (d >= 3 ? 1 : 0);
+    return { melee, dualWhite: melee + 19, spell: SPELL_MISS[d] - 1 };
+  }
+
   function critSuppression(ctx) {
     return Math.max(0, Math.min(3, ctx.target.diff)); // ~1% less crit per level the target is above you
   }
@@ -447,6 +456,7 @@
     return e ? e.value : 0;
   };
 
+  const WF_TOTEM_CHANCE = 0.2;
   function procs(ctx, S) {
     const out = { haste: 0, extraAttack: 0, deepWounds: 0, lines: [] };
     const flurry = talentValue(ctx, "Flurry"); // attack speed for 3 swings after a crit
@@ -457,6 +467,14 @@
       out.lines.push(`Flurry: +${flurry}% attack speed, up ${Math.round(uptime * 100)}% of the time`);
     }
     if (S.tal.extraAttack && S.mh) out.extraAttack = S.tal.extraAttack; // Weaponmaster / Hack and Slash
+    // Windfury Totem: a chance per main-hand hit of an extra attack with more attack power (a Shaman's own
+    // Windfury Weapon turns it off for them, game data). The chance isn't in the files: Classic's 20%.
+    const wft = buffValue(ctx, "Windfury Totem");
+    if (wft && S.mh && !S.mh.form && !(ctx.cls.token === "SHAMAN" && bookRank("SHAMAN", "Windfury Weapon", ctx.level))) {
+      const boost = rawSwing(S, S.mh, wft) / rawSwing(S, S.mh);
+      out.extraAttack += WF_TOTEM_CHANCE * boost;
+      out.lines.push(`Windfury Totem: ${WF_TOTEM_CHANCE * 100}% chance of an extra attack with +${wft} attack power (chance: Classic's)`);
+    }
     const dw = talentValue(ctx, "Deep Wounds"); // % of average weapon damage over 12 sec after a crit
     if (dw && S.mh) out.deepWounds = dw / 100;
     return out;
@@ -852,11 +870,24 @@
         { name: "Eviscerate (5 points)", dps: (regen / pick.energy) * evis.expected });
       notes.push(`${pick.b.name} to 5 combo points, then Eviscerate` + (snd ? "" : " (Slice and Dice comes at level 10)"));
     }
+    // Instant Poison on both weapons: a chance per hit of Nature damage (spell hit table; poisons don't crit)
+    const poison = procRank("Instant Poison", level);
+    if (poison) {
+      const chance = (POISON_CHANCE + talentNumber(ctx, "Improved Poisons", /apply Poisons to your target by (\d+)%/)) / 100;
+      const vile = 1 + talentNumber(ctx, "Vile Poisons", /dealt by your poisons by (\d+)%/) / 100;
+      const land = (100 - table(ctx, S, "magic").miss) / 100;
+      const hits = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) +
+        (regen / pick.energy) * (pick.n + 1) * 0.9; // ability hits on the main hand
+      const d = hits * chance * poison.value * vile * land * (1 + damagePct(S, 8) / 100);
+      parts.push({ name: "Instant Poison (both weapons)", dps: d });
+      dps += d;
+      notes.push(`Instant Poison on both weapons, ${Math.round(chance * 100)}% chance per hit (the base 20% is Classic's; not in the files)`);
+    }
     notes.push(`${regen.toFixed(1)} energy per second` + (ar ? " (Adrenaline Rush averaged in)" : ""));
     const counted = [sealFate && "Seal Fate", ruthless && "Ruthlessness", refund && "Relentless Strikes", bf && "Blade Flurry (averaged)"].filter(Boolean);
     if (counted.length) notes.push("counts " + counted.join(", "));
     if (dagger) notes.push("Backstab/Mutilate assume you're behind the target");
-    notes.push("Eviscerate's attack power part is an estimate (3% per point; the game files don't hold it); poisons aren't counted yet");
+    notes.push("Eviscerate's attack power part is an estimate (3% per point; the game files don't hold it)");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, sndPoints, builder: pick.b.name };
   }
@@ -1465,5 +1496,5 @@
     return { S, white, abilities: list, rotation: rotation(ctx, S, white, list), healing };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle };
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps };
 })();

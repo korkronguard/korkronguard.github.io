@@ -29,7 +29,7 @@
   state.target = state.target || { mode: "boss", armor: null };
   // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
   const BUFF_KEYS = { b: "Battle Shout", m: "Blessing of Might", k: "Blessing of Kings", w: "Mark of the Wild",
-    e: "Strength of Earth", g: "Grace of Air", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
+    e: "Strength of Earth", g: "Grace of Air", y: "Windfury Totem", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
     s: "Sunder Armor", x: "Expose Armor", f: "Faerie Fire", r: "Curse of Recklessness" };
   // [name, label, who brings it, what it does ({v} = the number at your level)]
   const BUFF_LIST = [
@@ -40,6 +40,7 @@
       ["Mark of the Wild", "Mark of the Wild", "Druid", "+{v} all stats"],
       ["Strength of Earth", "Strength of Earth Totem", "Shaman", "+{v} Strength"],
       ["Grace of Air", "Grace of Air Totem", "Shaman", "+{v} Agility"],
+      ["Windfury Totem", "Windfury Totem", "Shaman", "extra attacks with +{v} attack power (20% chance: Classic's)"],
       ["Leader of the Pack", "Leader of the Pack", "Feral Druid (talent)", "+{v}% crit"],
       ["Trueshot Aura", "Trueshot Aura", "Hunter (talent)", "+{v} ranged attack power"],
       ["Arcane Intellect", "Arcane Intellect", "Mage", "+{v} Intellect"],
@@ -273,13 +274,20 @@
     const melee = !!(S.mh || ["WARRIOR", "ROGUE", "PALADIN", "SHAMAN", "DRUID", "HUNTER"].includes(state.cls.token));
     if (melee) {
       cell("Attack power", fmt(S.ap), "ap", `Includes ${S.baseAp} from your level (Classic rule)`);
-      cell("Hit", fmt(S.hit, 1) + "%", "hit");
+      const cap = KP.calc.hitCaps(ctx());
+      const capNote = (have, need, what) => have >= need ? `${what}: capped (${fmt(have - need, 1)}% over does nothing)` : `${what}: ${fmt(need - have, 1)}% more to stop all misses`;
+      cell("Hit", fmt(S.hit, 1) + "%" + (S.hit >= cap.melee ? " (cap)" : ""), "hit",
+        `Hit cap against your target: ${cap.melee}% for abilities and one-weapon white hits` + (S.oh ? `, ${cap.dualWhite}% for dual-wield white hits` : "") +
+        ` (Classic attack table). ${capNote(S.hit, cap.melee, "Abilities")}` + (S.oh ? `. ${capNote(S.hit, cap.dualWhite, "White hits")}` : "") + ".");
       cell("Crit", fmt(S.crit, 1) + "%", "crit", S.estimated.includes("crit")
         ? "Base crit and crit from Agility are Classic estimates; plus gear ratings and talents." : "Your base crit + gear + talents.");
     }
     if (state.cls.power === 0) {
       cell("Spell damage", fmt(S.sp), "sp");
-      cell("Spell hit", fmt(S.spellHit, 1) + "%", "spellHit");
+      const scap = KP.calc.hitCaps(ctx()).spell;
+      cell("Spell hit", fmt(S.spellHit, 1) + "%" + (S.spellHit >= scap ? " (cap)" : ""), "spellHit",
+        `Spell hit cap against your target: ${scap}% (1% of spells always miss). ` +
+        (S.spellHit >= scap ? `Capped: ${fmt(S.spellHit - scap, 1)}% over does nothing.` : `${fmt(scap - S.spellHit, 1)}% more to stop the rest of the misses.`));
       cell("Spell crit", fmt(S.spellCrit, 1) + "%", "spellCrit", S.estimated.includes("spellCrit")
         ? "Base spell crit and crit from Intellect are Classic estimates; plus gear ratings and talents." : "Your base spell crit + gear + talents.");
       if (S.healing) cell("Healing", fmt(S.healing), "healing");

@@ -607,7 +607,7 @@
     L.add("Vanish", { tag: "Situational", text: "Drops threat" + (c.hold.dagger ? ", and lets you Ambush again." : ".") });
     L.section("Threat", null);
     L.add("Feint", { tag: "When threat is high", text: "Lowers your threat without breaking your rotation." });
-    L.facts.push("Poisons are items, not spells, so they're not in the planner's numbers yet (they add real damage in game).");
+    L.facts.push("Instant Poison on both weapons is counted (its 20% base chance per hit is Classic's; the game files don't hold it).");
     return L;
   }
 
