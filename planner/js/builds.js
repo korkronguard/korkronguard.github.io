@@ -16,6 +16,19 @@
   };
   const ROLE = { dps: "Damage", tank: "Tank", heal: "Healer" };
 
+  // the loaded build goes in the link (&bd=key) so a shared link keeps its explanations; it only counts while the
+  // picks still match the build
+  const readBuild = () => { state.loadedBuild = new URLSearchParams(location.hash.replace(/^#/, "")).get("bd") || null; };
+  readBuild();
+  addEventListener("hashchange", readBuild);
+  app.encoders.push(() => {
+    if (!state.loadedBuild || !state.cls) return "";
+    const b = ((KP.builds || {})[state.cls.token] || []).find((x) => x.key === state.loadedBuild);
+    if (!b) return "";
+    const seq = sequence(b);
+    return seq.length === state.seq.length && seq.every((v, i) => v === state.seq[i]) ? "&bd=" + b.key : "";
+  });
+
   function iconStyle(node, fileId, size) {
     const n = KP.talents.icons[String(fileId)];
     if (n == null) return;
@@ -32,6 +45,7 @@
 
   function load(build) {
     state.seq = sequence(build);
+    state.loadedBuild = build.key; // "Why these talents" uses the build's own numbers while the picks still match
     // set the Priority tab up for the build too
     if (state.prio) {
       if (build.weapons) state.prio.weapons = build.weapons;
@@ -40,7 +54,7 @@
     }
     app.setView("talents", false);
     app.changed();
-    app.toast(`Loaded "${build.name}". Its leveling path is under the trees.`);
+    app.toast(`Loaded "${build.name}". Its leveling path and why each talent is picked are under the trees.`);
   }
 
   function card(build, treeNames) {

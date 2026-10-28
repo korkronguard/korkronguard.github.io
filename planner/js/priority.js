@@ -18,7 +18,11 @@
   };
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? "–" : Number(v).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d }));
   const sec = (ms) => (ms >= 60000 && ms % 60000 === 0 ? `${ms / 60000} min` : `${fmt(ms / 1000, ms % 1000 ? 1 : 0)} sec`);
-  const firstNumber = (text) => { const m = /(\d+(?:\.\d+)?)/.exec(text || ""); return m ? parseFloat(m[1]) : null; };
+  // the first number in a tooltip; a range ("421 to 439") counts as its average
+  const firstNumber = (text) => {
+    const m = /(\d+(?:\.\d+)?)(?: to (\d+(?:\.\d+)?))?/.exec(text || "");
+    return m ? (parseFloat(m[1]) + parseFloat(m[2] || m[1])) / 2 : null;
+  };
   // the number after a phrase in a tooltip, e.g. numberAfter(desc, "Attack Power by") -> 120
   const numberAfter = (text, phrase) => { const i = (text || "").indexOf(phrase); return i < 0 ? null : firstNumber(text.slice(i + phrase.length)); };
 
@@ -106,7 +110,7 @@
 
   // A priority list: sections of entries; abilities the character doesn't have yet go to "later".
   function list(c) {
-    const out = { title: "", facts: [], toggles: [], sections: [], later: [], stanceSkipped: [] };
+    const out = { title: "", facts: [], toggles: [], sections: [], later: [], stanceSkipped: [], c };
     const current = { section: null };
     out.section = (title, note) => {
       current.section = { title, note, items: [] };
@@ -131,7 +135,8 @@
         return null;
       }
       const item = { name: opts.label || name, icon: opts.icon || b.icon, tag: opts.tag, text: opts.text,
-        facts: (opts.facts || []).filter(Boolean), source: opts.source || "data", score: opts.score };
+        facts: (opts.facts || []).filter(Boolean), source: opts.source || "data", score: opts.score, why: opts.why,
+        res: c.res[name] };
       current.section.items.push(item);
       return item;
     };
@@ -1027,6 +1032,89 @@
     return box;
   }
 
+  // ------------------------------------------------------------ "why here" for each line
+
+  // the reasoning behind each kind of line (its tag), in plain words
+  const TAG_WHY = {
+    "Keep up": "It keeps working for its whole duration (a buff, a debuff or damage over time), so one press is worth more than one attack. If it drops, everything after it gets weaker, so it comes first.",
+    "On cooldown": "One of your strongest presses, but it has a cooldown: every second it sits ready is damage you never get back.",
+    "Still on cooldown": "Even in this phase it's worth more per point of resource than the alternative.",
+    "Cooldown": "A long cooldown is worth the most when it overlaps your other boosts, or a moment that needs burst (for a Warrior, the Execute phase). Using it at a random moment wastes some of it; holding it all fight wastes all of it.",
+    "Emergency": "Not damage: it keeps you or your group alive. Use it before things go wrong, outside the normal order.",
+    "Last resort": "Only when everything else has failed: the cost or cooldown is too high to use casually.",
+    "When it lights up": "Only usable for a short window after something triggers it, and cheap or free for what it does, so it jumps ahead while it's available.",
+    "Rage dump": "The weakest use of rage (it only adds on top of a normal swing), so it gets only what's left after everything above. Rage over 100 is wasted, so dump it rather than sit at the cap.",
+    "Totem": "A totem keeps working for minutes: put it down once and replace it when it runs out or you move away.",
+    "Opener": "Only usable before the fight (from stealth or at range), and it's your strongest start.",
+    "From Prowl": "Only usable from stealth, so it's your opener.",
+    "Before you open": "Prepares the fight before it starts.",
+    "Before the pull": "Done before the fight: it costs nothing once combat starts.",
+    "At the pull": "Best right at the start, when it sets everything else up.",
+    "Finisher": "Spends combo points. Each point makes it stronger, so build up to 5 first, then spend.",
+    "At 5 points": "Spends combo points: 5 points give the most damage per energy.",
+    "Builder": "Builds the combo points your finisher spends. The one with the most damage per energy wins.",
+    "Build to 5, then filler": "Builds combo points first; once they're full it's simply your filler.",
+    "Spam": "In this phase nothing beats it per point of resource, so it's all you press.",
+    "Filler": "No cooldown, so it fills the gaps while the better buttons are waiting.",
+    "Then": "What you press when everything above is on cooldown or already running.",
+    "After that": "What you press when everything above is on cooldown or already running.",
+    "Channel": "A channeled spell: you stand still while it runs, so use it when it's worth more than your normal presses.",
+    "Form": "You stay in it the whole fight; everything else depends on it.",
+    "Aura": "A permanent effect for your group: set it once and leave it.",
+    "Always": "Always on: it never stops paying off.",
+    "Below 20%": "Only usable on a target under 20% health, where it's one of your best hits.",
+    "Undead / Demons": "Only works on Undead or Demon targets; there it's strong.",
+    "Interrupt": "Stopping a dangerous cast is worth more than any damage you'd do in that second.",
+    "Lost aggro": "Losing the boss costs the group more than any threat you'd make in that second.",
+    "Taunt on cooldown": "Losing the boss costs the group more than any threat you'd make in that second.",
+    "When threat is high": "Lowers your threat so you don't pull the boss off the tank.",
+    "Packs": "Hits several enemies: with enough of them it beats any single-target press.",
+    "2+ enemies": "Hits several enemies: with enough of them it beats any single-target press.",
+    "Many loose": "For many enemies spread out.",
+    "Mana": "Running out of mana stops everything, so these keep you going.",
+    "Swap": "Changes your setup for a different job.",
+    "If no tank does it": "Someone has to keep it on the target; if nobody else does, it's worth your time.",
+    "If no one else": "Only one person needs to keep it up; if nobody else does, it's worth your time.",
+    "If no other Druid": "Only one Druid needs to keep it up.",
+    "If no Warrior sunders": "Sunder Armor and this don't stack (Classic rule), so only use it without a Warrior's Sunder.",
+    "Stack to 5": "Each stack adds more and it's worth the most fully stacked, so build it up early.",
+    "Optional": "Worth it in some fights, not a must.",
+    "Situational": "Only for the fights that need it.",
+    "Out of energy": "For when you're waiting on energy.",
+  };
+  const POWER_UNIT = { 0: "mana", 1: "rage", 3: "energy" };
+
+  // the number the order is based on: damage (or healing) per point of resource, else per use
+  function rateOf(it) {
+    const a = it.res;
+    if (!a || a.locked) return null;
+    const v = a.expected || a.heal || 0;
+    if (!v) return null;
+    return a.cost ? { v: v / a.cost, per: true } : { v, per: false };
+  }
+
+  function whyLine(s, idx) {
+    const it = s.items[idx];
+    if (it.why) return it.why;
+    const bits = [];
+    if (TAG_WHY[it.tag]) bits.push(TAG_WHY[it.tag]);
+    const mine = rateOf(it);
+    if (it.score >= 900 && it.tag === "On cooldown") bits.push("It sits at the top because its cooldown, not your resource, is what limits it: press it every time it's ready.");
+    else if (mine) {
+      // compare with the nearest line in this group that has comparable numbers
+      const unit = it.res.heal && !it.res.expected ? "healing" : "damage";
+      const per = POWER_UNIT[state.cls.power] || "point";
+      const same = (x) => { const r = rateOf(x); return r && r.per === mine.per && x.tag === it.tag && !(x.score >= 900); };
+      const next = s.items.slice(idx + 1).find(same);
+      const prev = s.items.slice(0, idx).reverse().find(same);
+      const say = (r) => (mine.per ? `${fmt(r.v, 1)} ${unit} per ${per}` : `${fmt(r.v)} ${unit} per use`);
+      if (next && rateOf(next).v <= mine.v) bits.push(`Ahead of ${next.name}: ${say(mine)} vs ${say(rateOf(next))}.`);
+      else if (prev && rateOf(prev).v >= mine.v) bits.push(`Below ${prev.name}, which gives more: ${say(mine)} vs ${say(rateOf(prev))}.`);
+    }
+    if (it.source === "theory") bits.push("This placement is general class knowledge, not something the game files can show.");
+    return bits.join(" ");
+  }
+
   function draw(L) {
     const box = $("prio");
     box.textContent = "";
@@ -1034,6 +1122,9 @@
     head.append(el("h2", null, L.title));
     for (const f of L.facts) head.append(el("p", "muted small", f));
     if (L.toggles.length) head.append(toggles(L));
+    head.append(el("p", "muted small prio-how", "How this order works: things that keep paying off (buffs, debuffs, damage over time) " +
+      "come first, then your attacks with cooldowns, strongest first, then what you press with whatever is left. " +
+      "Each line says why it sits where it does."));
     box.append(head);
     let n = 0;
     for (const s of L.sections) {
@@ -1055,6 +1146,12 @@
         main.append(title);
         if (it.text) main.append(el("div", "prio-text", it.text));
         for (const f of it.facts) main.append(el("div", "prio-fact", f));
+        const why = whyLine(s, s.items.indexOf(it));
+        if (why) {
+          const w = el("div", "prio-why");
+          w.append(el("strong", null, "Why here: "), why);
+          main.append(w);
+        }
         li.append(ic, main);
         ol.append(li);
       }

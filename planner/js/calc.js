@@ -604,7 +604,9 @@
       const gem = ["Conjure Mana Ruby", "Conjure Mana Citrine", "Conjure Mana Jade", "Conjure Mana Agate"]
         .find((n) => bookRank("MAGE", n, ctx.level));
       if (gem) {
-        extra += parseFloat((/restore (\d+) mana/.exec(bookDesc("MAGE", gem)) || [])[1] || 0);
+        // "restore 1100 mana" or, with the tooltip's range, "restore 1045 to 1155 mana": use the average
+        const m = /restore (\d+)(?: to (\d+))? mana/.exec(bookDesc("MAGE", gem));
+        extra += m ? (parseFloat(m[1]) + parseFloat(m[2] || m[1])) / 2 : 0;
         extras.push("a mana gem");
       }
     }
@@ -649,6 +651,10 @@
       .sort((x, y) => y.dps / y.time - x.dps / x.time);
     for (const d of dots) {
       if (busy + d.time > 0.9 || d.mps > mana) continue;
+      // keep it up only if it beats spending that casting time and mana on the filler
+      const without = fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy);
+      const withIt = d.dps + fillerPick(fillers, best, mana - d.mps, 1 - busy - d.time).d * (1 - busy - d.time);
+      if (withIt <= without) continue;
       busy += d.time;
       mana -= d.mps;
       dps += d.dps;
@@ -1463,7 +1469,8 @@
     // Ignite (Mage): Fire crits burn for a share of their damage over 4 sec
     const ignite = (rank.school & 4) && isSpell ? talentNumber(ctx, "Ignite", /additional (\d+)% of your spell's damage/) : 0;
     if (ignite) directExpected += land * (Math.min(100, critChance) / 100) * avg * critMult * (ignite / 100);
-    const dotExpected = land * dot;
+    // damage over time that can crit in Forever (game data flag): its ticks crit like the ability's direct part
+    const dotExpected = land * dot * (rank.dotCrit ? 1 + Math.min(100, critChance) / 100 * (critMult - 1) : 1);
     const expected = directExpected + dotExpected;
     const channelMs = rank.channeled ? rank.durMs : 0;
     const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100));
