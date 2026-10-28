@@ -78,7 +78,7 @@
       dualWield: !!(oh && oh.class === 2),
     };
     // what's in your hands: from the gear (the Warrior's Weapons choice can override it)
-    c.hold = { known: c.gearKnown, shield: c.shield, twoHand: c.twoHand, dual: c.dualWield };
+    c.hold = { known: c.gearKnown, shield: c.shield, twoHand: c.twoHand, dual: c.dualWield, oneHand: !!(c.mh && !c.twoHand) };
     c.spell = (name) => book.find((b) => b.name === name);
     c.rank = (name) => {
       const b = c.spell(name);
@@ -147,16 +147,20 @@
 
   // What an item requirement (from the game's SpellEquippedItems) asks for: "shield", "dual", "twoHand" or null.
   // Weapon subclass bits: one-handers 0 axe, 4 mace, 7 sword, 13 fist, 15 dagger; shield = armor subclass bit 6.
+  // Two-handers: 1 axe, 5 mace, 6 polearm, 8 sword, 10 staff.
   const ONE_HAND_BITS = (1 << 0) | (1 << 4) | (1 << 7) | (1 << 13) | (1 << 15);
+  const TWO_HAND_BITS = (1 << 1) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 10);
   const OFF_HAND_WEAPON = 1 << 22; // inventory type 22
   function holdNeed(needs) {
     if (!needs) return null;
     if (needs.class === 4 && needs.subclassMask & (1 << 6)) return "shield";
     if (needs.invTypes & OFF_HAND_WEAPON) return "dual";
     if (needs.class === 2 && !(needs.subclassMask & ONE_HAND_BITS)) return "twoHand";
+    if (needs.class === 2 && !(needs.subclassMask & TWO_HAND_BITS)) return "oneHand";
     return null;
   }
-  const NEED_TEXT = { shield: "a shield (Sword and board)", dual: "an off-hand weapon (Dual wield)", twoHand: "a two-handed weapon" };
+  const NEED_TEXT = { shield: "a shield (Sword and board)", dual: "an off-hand weapon (Dual wield)", twoHand: "a two-handed weapon",
+    oneHand: "a one-handed weapon" };
   function holdMissing(c, needs) {
     const need = holdNeed(needs);
     return need && c.hold.known && !c.hold[need] ? NEED_TEXT[need] : null;
@@ -197,20 +201,7 @@
     L.title = `${specName} Warrior${tank ? ", tanking" : ""}`;
     L.facts.push(`Talents: ${arms} / ${fury} / ${prot}` + (c.talent["Mortal Strike"] ? " · Mortal Strike" : "") +
       (c.talent["Bloodthirst"] ? " · Bloodthirst" : "") + (c.talent["Shield Slam"] ? " · Shield Slam" : ""));
-    // weapons: from the gear unless the player picks a setup (any setup can tank or deal damage)
-    const fromGear = c.twoHand ? "2h" : c.dualWield ? "dw" : c.shield ? "shield" : null;
-    const guess = spec === "prot" ? "shield" : spec === "fury" ? "dw" : "2h";
-    const auto = fromGear || guess;
-    const setup = state.prio.weapons !== "auto" ? state.prio.weapons : auto;
-    c.hold = { known: true, shield: setup === "shield", twoHand: setup === "2h", dual: setup === "dw" };
-    L.toggles.push({ key: "weapons", label: "Weapons", value: state.prio.weapons,
-      options: [["auto", `Auto (${WEAPON_SETUPS[auto]}${fromGear ? "" : ", guessed"})`], ...Object.entries(WEAPON_SETUPS)],
-      help: "What you hold changes what you can press: shield abilities need a shield, and some talents only work with one setup." });
-    L.facts.push(`Weapons: ${WEAPON_SETUPS[setup]}` + (state.prio.weapons === "auto" && !fromGear ? " (guessed from your talents; pick gear on Gear & Stats for real numbers)" : ""));
-    if (state.prio.weapons !== "auto" && fromGear && fromGear !== setup) {
-      L.facts.push(`Your equipped gear is ${WEAPON_SETUPS[fromGear]}: the list follows your choice, but damage numbers still use what you wear.`);
-    }
-    if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
+    const setup = weaponSetup(c, L, spec === "prot" ? "shield" : spec === "fury" ? "dw" : "2h", ["2h", "dw", "shield"]);
     const A = c.res;
     const unit = "rage";
     weaponTalents(c, L, setup);
@@ -338,6 +329,197 @@
     L.later = L.later.filter((l) => !(["Mortal Strike", "Bloodthirst", "Shield Slam"].includes(l.name) &&
       ["Mortal Strike", "Bloodthirst", "Shield Slam"].some((n) => c.talent[n])));
     return L;
+  }
+
+  // Weapons: from the gear unless the player picks a setup (any setup can tank or deal damage).
+  // guess = the setup to assume without gear; allowed = the setups this class can use.
+  function weaponSetup(c, L, guess, allowed) {
+    const fromGear = c.twoHand ? "2h" : c.dualWield ? "dw" : c.shield ? "shield" : null;
+    const auto = fromGear && allowed.includes(fromGear) ? fromGear : guess;
+    const chosen = allowed.includes(state.prio.weapons) ? state.prio.weapons : "auto";
+    const setup = chosen !== "auto" ? chosen : auto;
+    c.hold = { known: true, shield: setup === "shield", twoHand: setup === "2h", dual: setup === "dw", oneHand: setup !== "2h" };
+    L.toggles.push({ key: "weapons", label: "Weapons", value: chosen,
+      options: [["auto", `Auto (${WEAPON_SETUPS[auto]}${fromGear ? "" : ", guessed"})`], ...allowed.map((k) => [k, WEAPON_SETUPS[k]])],
+      help: "What you hold changes what you can press: shield abilities need a shield, and some talents only work with one setup." });
+    L.facts.push(`Weapons: ${WEAPON_SETUPS[setup]}` + (chosen === "auto" && !fromGear ? " (guessed from your talents; pick gear on Gear & Stats for real numbers)" : ""));
+    if (chosen !== "auto" && fromGear && fromGear !== setup) {
+      L.facts.push(`Your equipped gear is ${WEAPON_SETUPS[fromGear]}: the list follows your choice, but damage numbers still use what you wear.`);
+    }
+    if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
+    return setup;
+  }
+
+  // ------------------------------------------------------------ Paladin
+
+  function paladin(c) {
+    const L = list(c);
+    const [holy, prot, ret] = c.treePts;
+    const spec = c.talent["Holy Shield"] || (prot > holy && prot > ret) ? "prot"
+      : c.talent["Seal of Command"] || c.talent["Twist of Light"] || (ret >= holy && ret > 0) ? "ret" : "holy";
+    const tank = state.prio.tank != null ? state.prio.tank : spec === "prot";
+    L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
+      help: "On: you hold the boss (Righteous Fury, threat first). Off: you're free to deal damage." });
+    L.title = `${{ prot: "Protection", ret: "Retribution", holy: "Holy" }[spec]} Paladin${tank ? ", tanking" : ""}`;
+    L.facts.push(`Talents: ${holy} / ${prot} / ${ret}` + (c.talent["Holy Shield"] ? " · Holy Shield" : "") +
+      (c.talent["Seal of Command"] ? " · Seal of Command" : "") + (c.talent["Light's Vigil"] ? " · Light's Vigil" : ""));
+    const setup = weaponSetup(c, L, spec === "ret" ? "2h" : "shield", ["shield", "2h"]);
+    weaponTalents(c, L, setup);
+    const A = c.res;
+    const unit = "mana";
+    const desc = (n) => (c.spell(n) || {}).desc || "";
+    if (spec === "holy" && !tank) L.facts.push("Holy is a healer: this list covers dealing damage. A healing priority isn't part of the planner yet.");
+
+    if (tank) {
+      L.facts.push("No taunt in the Paladin spellbook (game data): you hold threat with damage, so open strong.");
+      L.section("Keep up", null);
+      L.add("Righteous Fury", { tag: "Keep up", text: "Always on while you tank (lasts 30 min).",
+        facts: [`+${fmt(numberAfter(desc("Righteous Fury"), "Holy attacks by"))}% threat from your Holy damage (game data)`,
+          c.talent["Improved Righteous Fury"] ? `Improved Righteous Fury: ${fmt(talentNumber(c, "Improved Righteous Fury"))}% less damage taken` : null] });
+      L.add("Seal of Fury", { tag: "Keep up", text: "Your tanking Seal: Holy damage on every hit" + (c.hold.shield ? ", and with a shield each hit also gives you an absorb shield." : "."),
+        facts: [`+${fmt(numberAfter(desc("Seal of Fury"), "additional"))} Holy damage per hit (max rank)`,
+          c.talent["Improved Seal of Fury"] ? "Improved Seal of Fury: mana back when the shield is used up" : null] });
+      L.add("Devotion Aura", { tag: "Keep up", text: "Armor for you and your party.", facts: [`+${fmt(numberAfter(desc("Devotion Aura"), "Gives"))} armor (max rank)`] });
+      L.add("Blessing of Kings", { tag: "On yourself", text: "Or Might if another Paladin gives Kings." });
+      L.section("Threat priority", "Press the first one that's ready. Holy damage is boosted by Righteous Fury, so your Holy abilities lead.");
+      L.add("Holy Shield", { tag: "Keep up", text: "Refresh it as it runs out: more blocks, and every block hits back.",
+        facts: [`+${fmt(numberAfter(desc("Holy Shield"), "block by"))}% block chance for 10 sec, ${fmt(numberAfter(desc("Holy Shield"), "deals"))} Holy damage per block at max rank, +20% threat on that damage`,
+          c.talent["Redoubt"] ? "Redoubt: more blocks still" : null, c.talent["Reckoning"] ? "Reckoning: blocks can give you extra attacks" : null] });
+      L.add("Hammer of the Righteous", { tag: "On cooldown", text: "Holy damage to your target and nearby enemies. Needs a one-handed axe, mace or sword.",
+        facts: ["Holy damage = 3 × your main-hand weapon's damage per second (game data; the planner doesn't put a number on it yet)",
+          c.rank("Hammer of the Righteous") ? `${sec(c.rank("Hammer of the Righteous").cdMs)} cooldown, shared with Crusader Strike` : null] });
+      L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage.",
+        facts: [dmgLine(A["Holy Strike"], unit), c.talent["Iron Creed"] ? `Iron Creed: +${fmt(talentNumber(c, "Iron Creed"))}% threat, and with Righteous Fury 10% less damage taken for 6 sec` : null] });
+      L.add("Judgement", { tag: "On cooldown", text: "Judges your Seal on the target (the Seal stays).",
+        facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : "")] });
+      L.add("Consecration", { tag: "Packs", text: "Holy damage on the ground: best when you hold several enemies (mana heavy).",
+        facts: [c.rank("Consecration") ? `${fmt(c.rank("Consecration").cost)} mana, ${sec(c.rank("Consecration").cdMs)} cooldown` : null,
+          c.talent["Consecrated Ground"] ? "Consecrated Ground: +10% Holy damage against the first 4 enemies in it" : null] });
+      L.add("Exorcism", { tag: "Undead / Demons", text: "Only against Undead and Demons.", facts: [dmgLine(A["Exorcism"], unit)] });
+      L.add("Hammer of Wrath", { tag: "Below 20%", text: "Only when the target is at 20% health or less.", facts: [dmgLine(A["Hammer of Wrath"], unit)] });
+      L.section("Mana", "Paladin tanks run on mana: these keep it going.");
+      L.add("Blessing of Wisdom", { tag: "If no one else", text: "Mana every 5 sec." });
+      if (c.talent["Shield Specialization"] && c.hold.shield) L.add("Shield Specialization", { always: true, icon: talentIcon(c, "Shield Specialization"), tag: "Talent", text: "Your blocks give back 4% of your maximum mana." });
+      L.section("When things go wrong", null);
+      L.add("Templar's Bulwark", { tag: "Emergency", text: "An absorb shield as big as your health for 8 sec." });
+      L.add("Lay on Hands", { tag: "Emergency", text: "Heals you to full (uses all your mana)." });
+      L.add("Divine Protection", { tag: "Last resort", text: "Immune for 8 sec, but you can't attack: the boss may leave you." });
+      L.add("Divine Shield", { tag: "Last resort", text: "Immune for 12 sec but deal 50% less damage (game data): expect to lose threat." });
+      return L;
+    }
+
+    // dealing damage (Retribution, or a Protection Paladin off-tanking)
+    L.section("Keep up", null);
+    if (c.has("Seal of Command") && c.hold.twoHand) {
+      L.add("Seal of Command", { tag: "Keep up", text: "Your damage Seal with a slow two-hander: extra Holy hits worth 70% of your weapon damage.",
+        facts: [dmgLine(A["Seal of Command"], unit)] });
+    } else {
+      L.add("Seal of Righteousness", { tag: "Keep up", text: "Holy damage on every hit; slower weapons hit harder with it." });
+    }
+    if (c.talent["Twist of Light"]) {
+      L.add("Twist of Light", { always: true, icon: talentIcon(c, "Twist of Light"), tag: "Talent",
+        text: "Swapping between Command, Righteousness, Fury and Justice leaves an Echo of the old Seal: change Seals instead of only refreshing." });
+    }
+    L.add("Blessing of Might", { tag: "On yourself", text: "Melee attack power (or Kings if another Paladin gives Might).",
+      facts: [`+${fmt(buffNumber("Blessing of Might", c.level))} attack power at your level`] });
+    L.add("Retribution Aura", { tag: "Aura", text: "If no other Paladin runs an aura, otherwise Devotion." });
+    L.section("Attack priority", "Press the first one that's ready.");
+    L.add("Judgement", { tag: "On cooldown", text: "Judge your Seal, then keep the Seal up.",
+      facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : ""),
+        c.talent["Sanctified Judgement"] ? "Sanctified Judgement: 60% of the Seal's mana back" : null] });
+    L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage.",
+      facts: [dmgLine(A["Holy Strike"], unit), c.talent["Sacred Arbiter"] ? "Sacred Arbiter: +20% damage and it refreshes your Judgements" : null] });
+    L.add("Hammer of the Righteous", { tag: "On cooldown", text: "With a one-handed axe, mace or sword.",
+      facts: ["Holy damage = 3 × your main-hand weapon's damage per second (game data)"] });
+    L.add("Hammer of Wrath", { tag: "Below 20%", text: "Only when the target is at 20% health or less." +
+      (c.talent["Instrument of Law"] ? " Instrument of Law: 1 sec faster cast." : ""), facts: [dmgLine(A["Hammer of Wrath"], unit)] });
+    L.add("Exorcism", { tag: "Undead / Demons", text: "Only against Undead and Demons.", facts: [dmgLine(A["Exorcism"], unit)] });
+    L.add("Consecration", { tag: "Packs", text: "Several enemies only (mana heavy)." + (c.talent["Holy Conduit"] ? " Holy Conduit makes it 40% cheaper." : "") });
+    if (spec === "prot" || c.hold.shield) {
+      L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
+      L.add("Righteous Fury", { tag: "Before you tank", text: "Turn it on before you take the boss." +
+        (c.talent["Instrument of Law"] ? " Without it you make 20% less threat (Instrument of Law), so leave it off while you only deal damage." : ""), });
+      L.add("Seal of Fury", { tag: "Swap", text: "Swap to your tanking Seal." });
+      L.add("Holy Shield", { tag: "Then", text: "Up before the boss reaches you." });
+    }
+    return L;
+  }
+
+  // ------------------------------------------------------------ Druid
+
+  function druid(c) {
+    const L = list(c);
+    const [bal, feral, resto] = c.treePts;
+    const isFeral = feral > Math.max(bal, resto);
+    const tank = state.prio.tank != null ? state.prio.tank : isFeral && !!(c.talent["Natural Reaction"] || c.talent["Thick Hide"]);
+    L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
+      help: "On: Bear Form tank (threat first). Off: Cat Form damage, e.g. an off-tank between pulls." });
+    if (!isFeral && !tank) return generic(c);
+    L.title = `Feral Druid, ${tank ? "Bear Form tank" : "Cat Form damage"}`;
+    L.facts.push(`Talents: ${bal} / ${feral} / ${resto}`);
+    L.facts.push("Cat and Bear Form damage numbers aren't worked out yet: this list uses the game's costs, cooldowns, threat and talent data.");
+    const desc = (n) => (c.spell(n) || {}).desc || "";
+    const cost = (n, unit) => { const r = c.rank(n); return r ? `${fmt(r.cost / (unit === "rage" ? 10 : 1))} ${unit}` + (r.cdMs ? `, ${sec(r.cdMs)} cooldown` : "") : null; };
+    const ff = c.spell("Faerie Fire");
+    const ffInForm = ff && ff.stances && (ff.stances & (tank ? (1 << 4) | (1 << 7) : 1));
+    if (tank) {
+      const form = c.has("Dire Bear Form") ? "Dire Bear Form" : "Bear Form";
+      L.section("Keep up", null);
+      L.add(form, { tag: "Form", text: "Your tanking form.", facts: [desc(form).split(".")[0]] });
+      L.add("Faerie Fire", { tag: "Keep up", text: (ffInForm ? "Castable in Bear Form in Forever (game data). " : "") + "Less armor on the boss for everyone.",
+        facts: [`−${fmt(buffNumber("Faerie Fire", c.level))} armor at your level`] });
+      L.add("Demoralizing Roar", { tag: "Keep up", text: "Lowers the boss's attack power.",
+        facts: [cost("Demoralizing Roar", "rage"), c.rank("Demoralizing Roar") && c.rank("Demoralizing Roar").threat ? `Bonus threat: ${fmt(c.rank("Demoralizing Roar").threat)} (game data)` : null] });
+      L.section("Threat priority", "Press the first one that's ready.");
+      L.add("Primal Bite", { tag: "On cooldown", text: "Weapon damage plus a high amount of threat." + (c.talent["Berserk"] ? " Berserk: no cooldown and it hits 3 targets while active." : ""),
+        facts: [cost("Primal Bite", "rage"), c.talent["Ferocity"] ? `Ferocity: −${fmt(talentNumber(c, "Ferocity"))} rage` : null] });
+      L.add("Lacerate", { tag: "Stack to 5", text: "Build 5 stacks, then refresh before it runs out. Causes a high amount of threat.",
+        facts: [cost("Lacerate", "rage"), c.talent["Shredding Attacks"] ? `Shredding Attacks: −${fmt(numberAfter(c.flat.find((t) => t.name === "Shredding Attacks").desc[(c.talent["Shredding Attacks"] || 1) - 1], "Lacerate ability by"))} rage` : null] });
+      L.add("Maul", { tag: "Rage dump", text: "On your next swing, whenever you have spare rage.",
+        facts: [cost("Maul", "rage"), c.talent["Ferocity"] ? `Ferocity: −${fmt(talentNumber(c, "Ferocity"))} rage` : null] });
+      L.add("Swipe", { tag: "2+ enemies", text: "Hits nearby enemies." + (c.talent["Feral Instinct"] ? ` Feral Instinct: +${fmt(talentNumber(c, "Feral Instinct"))}% damage.` : ""), facts: [cost("Swipe", "rage")] });
+      L.section("Rage", "Where your rage comes from besides getting hit.");
+      L.add("Enrage", { tag: "On cooldown", text: "Rage now and over 10 sec, but lowers your armor for the duration (game data).", facts: [desc("Enrage").split(".").slice(0, 2).join(".") + "."] });
+      for (const n of ["Furor", "Natural Reaction", "Blood Frenzy"]) {
+        if (c.talent[n]) L.add(n, { always: true, icon: talentIcon(c, n), tag: "Talent", text: c.flat.find((t) => t.name === n).desc[c.talent[n] - 1].split(".")[0] + "." });
+      }
+      L.section("When things go wrong", null);
+      L.add("Growl", { tag: "Lost aggro", text: "Taunts the target back." });
+      L.add("Challenging Roar", { tag: "Many loose", text: "Every enemy nearby attacks you for 6 sec." });
+      L.add("Frenzied Regeneration", { tag: "Emergency", text: "Turns rage into health for 10 sec." });
+      L.add("Bash", { tag: "Interrupt", text: "Stuns the target for 4 sec." + (c.talent["Brutal Impact"] ? " Brutal Impact: longer stun, shorter cooldown." : "") });
+      return L;
+    }
+    L.section("Keep up", null);
+    L.add("Cat Form", { tag: "Form", text: "Your damage form.", facts: [desc("Cat Form").split(".")[0]] });
+    L.add("Faerie Fire", { tag: "If no other Druid", text: (ffInForm ? "Castable in Cat Form in Forever (game data). " : "") + "Less armor on the boss.",
+      facts: [`−${fmt(buffNumber("Faerie Fire", c.level))} armor at your level`] });
+    L.add("Rake", { tag: "Keep up", text: "Bleed: armor doesn't reduce it." + (c.talent["Rend and Tear"] ? ` Rend and Tear: +${fmt(talentNumber(c, "Rend and Tear"))}% damage on bleeding targets, so keep one up.` : ""),
+      facts: [cost("Rake", "energy")] });
+    L.section("Opener", null);
+    L.add("Ravage", { tag: "From Prowl", text: "Prowl, get behind the target, open with Ravage." });
+    L.section("Combo points", "Build to 5 points, then spend.");
+    L.add("Shred", { tag: "Builder", text: "Your builder from behind." + (c.talent["Shredding Attacks"] ? ` Shredding Attacks: −${fmt(talentNumber(c, "Shredding Attacks"))} energy.` : ""), facts: [cost("Shred", "energy")] });
+    L.add("Claw", { tag: "Builder", text: "When you can't get behind the target.", facts: [cost("Claw", "energy")] });
+    L.add("Rip", { tag: "Finisher", text: "At 5 points when it isn't on the target: a bleed that scales with attack power.", facts: [cost("Rip", "energy")] });
+    L.add("Ferocious Bite", { tag: "Finisher", text: "At 5 points while Rip is up.",
+      facts: [cost("Ferocious Bite", "energy"), `Each extra point of energy adds ${fmt(numberAfter(desc("Ferocious Bite"), "energy into"), 1)} damage (game data)`] });
+    L.section("Cooldowns", null);
+    if (c.talent["Shifting Power"]) {
+      L.add("Shifting Power", { always: true, icon: talentIcon(c, "Shifting Power"), tag: "Out of energy",
+        text: "Turns mana into energy." + (c.talent["Improved Shifting Power"] ? " Improved Shifting Power: shorter cooldown." : "") });
+    }
+    if (isFeral) {
+      L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
+      L.add(c.has("Dire Bear Form") ? "Dire Bear Form" : "Bear Form", { tag: "Swap", text: "Shift to Bear Form." + (c.talent["Furor"] ? " Furor gives you 10 rage when you do." : "") });
+      L.add("Growl", { tag: "Then", text: "Taunt the boss." });
+    }
+    return L;
+  }
+
+  function talentIcon(c, name) {
+    const t = c.flat.find((x) => x.name === name);
+    return t && t.icon;
   }
 
   // learned talents that only work with one weapon setup: say whether they count with this one
@@ -673,7 +855,8 @@
   function render() {
     if (!app.view || app.view() !== "priority" || !state.cls || !KP.spellbook) return;
     const c = character();
-    const L = c.token === "WARRIOR" ? warrior(c) : c.token === "HUNTER" ? hunter(c) : generic(c);
+    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid };
+    const L = (rules[c.token] || generic)(c);
     draw(L);
   }
 
