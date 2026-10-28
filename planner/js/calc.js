@@ -226,9 +226,15 @@
       if (ctx.base && ctx.base[k]) base[k] = ctx.base[k];
       else { base[k] = est[k]; estimated.push(k); }
     }
+    // group stat buffs count like gear (on top of typed-in base values); Blessing of Kings multiplies everything
+    const statBuffs = { strength: buffValue(ctx, "Strength of Earth"), agility: buffValue(ctx, "Grace of Air"),
+      intellect: buffValue(ctx, "Arcane Intellect") };
+    const motw = buffValue(ctx, "Mark of the Wild");
+    for (const k of STATS) gear[k] = (gear[k] || 0) + (statBuffs[k] || 0) + motw;
+    const kings = buffValue(ctx, "Blessing of Kings");
     const attr = {}, attrBase = {};
     for (const k of STATS) {
-      attr[k] = Math.round((base[k] + g(k)) * (1 + tal.statPct[k] / 100));
+      attr[k] = Math.round((base[k] + g(k)) * (1 + (tal.statPct[k] + kings) / 100));
       attrBase[k] = Math.round(base[k] * (1 + tal.statPct[k] / 100));
     }
     // crit from Agility (and spell crit from Intellect). A typed-in crit % already includes the base part,
@@ -254,11 +260,11 @@
     const S = {
       gear, tal, attr, baseAp,
       ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
-        buffValue(ctx, "Battle Shout"),
+        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might"),
       rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
-        sum(hunterSelfBuffs(ctx).map((b) => b.value)),
+        sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura"),
       hit: g("hit") / per("meleeHit") + tal.hit,
-      crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit,
+      crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + buffValue(ctx, "Leader of the Pack"),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
       spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit,
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
@@ -302,9 +308,11 @@
   function buffValue(ctx, name) {
     return (ctx.buffs || {})[name] ? rankValue(name, ctx.level) : 0;
   }
+  // the strongest rank known at this level (you'd cast your best one; a few ranks in the files are odd,
+  // e.g. Trueshot Aura's level 60 rank is weaker than its level 50 one)
   function rankValue(name, level) {
     let v = 0;
-    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = r.value;
+    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = Math.max(v, r.value);
     return v;
   }
   // a ranged Hunter always has Aspect of the Hawk up and Hunter's Mark on the target (rank for the level)
@@ -324,7 +332,9 @@
   const SUNDER_STACKS = 5;
 
   function mitigation(ctx, S) {
-    const sundered = Math.max(0, (ctx.target.armor || 0) - buffValue(ctx, "Sunder Armor") * SUNDER_STACKS);
+    // armor debuffs on the target: 5 Sunders, Faerie Fire, Curse of Recklessness
+    const sundered = Math.max(0, (ctx.target.armor || 0) - buffValue(ctx, "Sunder Armor") * SUNDER_STACKS -
+      buffValue(ctx, "Faerie Fire") - buffValue(ctx, "Curse of Recklessness"));
     const armor = sundered * (1 - S.tal.armorIgnore / 100);
     const dr = armor / (armor + 400 + 85 * ctx.level);
     return Math.min(0.75, dr);

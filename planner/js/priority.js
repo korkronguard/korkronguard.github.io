@@ -571,7 +571,7 @@
 
   function buffNumber(name, level) {
     let v = 0;
-    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = r.value;
+    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = Math.max(v, r.value);
     return v;
   }
   // a talent's first number at the learned rank (from its own tooltip text, which uses the game's rank values)

@@ -28,8 +28,35 @@
   state.base = state.base || {};
   state.target = state.target || { mode: "boss", armor: null };
   // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
-  const BUFF_KEYS = { b: "Battle Shout", s: "Sunder Armor" };
+  const BUFF_KEYS = { b: "Battle Shout", m: "Blessing of Might", k: "Blessing of Kings", w: "Mark of the Wild",
+    e: "Strength of Earth", g: "Grace of Air", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
+    s: "Sunder Armor", f: "Faerie Fire", r: "Curse of Recklessness" };
+  // [name, label, who brings it, what it does ({v} = the number at your level)]
+  const BUFF_LIST = [
+    ["Group buffs", [
+      ["Battle Shout", "Battle Shout", "Warrior", "+{v} melee attack power"],
+      ["Blessing of Might", "Blessing of Might", "Paladin", "+{v} melee attack power"],
+      ["Blessing of Kings", "Blessing of Kings", "Paladin", "+{v}% all stats"],
+      ["Mark of the Wild", "Mark of the Wild", "Druid", "+{v} all stats"],
+      ["Strength of Earth", "Strength of Earth Totem", "Shaman", "+{v} Strength"],
+      ["Grace of Air", "Grace of Air Totem", "Shaman", "+{v} Agility"],
+      ["Leader of the Pack", "Leader of the Pack", "Feral Druid (talent)", "+{v}% crit"],
+      ["Trueshot Aura", "Trueshot Aura", "Hunter (talent)", "+{v} ranged attack power"],
+      ["Arcane Intellect", "Arcane Intellect", "Mage", "+{v} Intellect"],
+    ]],
+    ["Target debuffs", [
+      ["Sunder Armor", "Sunder Armor ×5", "Warrior", "−{v} armor per stack, 5 stacks"],
+      ["Faerie Fire", "Faerie Fire", "Druid", "−{v} armor"],
+      ["Curse of Recklessness", "Curse of Recklessness", "Warlock", "−{v} armor"],
+    ]],
+  ];
+  const buffNumber = (name) => {
+    let v = 0;
+    for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= state.level) v = Math.max(v, r.value);
+    return v;
+  };
   state.buffs = state.buffs || {};
+  let buffsOpen = false; // remember whether the buff list is open between redraws
 
   function defaultArmor(level, mode) {
     // a raid boss at 60 is usually given 3731 armor; scaled down for lower levels (estimate)
@@ -164,21 +191,38 @@
     l2.append(el("span", null, "Armor"), armor);
     box.append(l1, l2);
 
-    const buffs = el("div", "pbuffs");
-    for (const [name, label, tip] of [
-      ["Battle Shout", "Battle Shout", "A Warrior's shout: more melee attack power for the group (rank for your level)."],
-      ["Sunder Armor", "Sunder Armor ×5", "Five stacks on the target: less armor, so more physical damage (rank for your level)."],
-    ]) {
-      const l = el("label", "pcheck");
-      const cb = el("input");
-      cb.type = "checkbox";
-      cb.checked = !!state.buffs[name];
-      cb.addEventListener("change", () => { state.buffs[name] = cb.checked; app.changed(); });
-      l.title = tip;
-      l.append(cb, el("span", null, label));
-      buffs.append(l);
+    // group buffs and target debuffs: off by default (just you); switch on what your group brings
+    const on = Object.values(BUFF_KEYS).filter((n) => state.buffs[n]).length;
+    const bdet = el("details", "pbuffs-box");
+    bdet.open = buffsOpen;
+    bdet.addEventListener("toggle", () => { buffsOpen = bdet.open; });
+    bdet.append(el("summary", null, `Buffs & debuffs: ${on ? on + " on" : "none (just you)"}`));
+    const tools = el("div", "pbuff-tools");
+    for (const [label, val] of [["All on", true], ["All off", false]]) {
+      const btn = el("button", "btn small", label);
+      btn.type = "button";
+      btn.addEventListener("click", () => { for (const n of Object.values(BUFF_KEYS)) state.buffs[n] = val; app.changed(); });
+      tools.append(btn);
     }
-    box.append(buffs);
+    bdet.append(tools);
+    for (const [group, items] of BUFF_LIST) {
+      bdet.append(el("div", "pbuff-group", group));
+      const wrap = el("div", "pbuffs");
+      for (const [name, label, who, what] of items) {
+        const v = buffNumber(name);
+        const l = el("label", "pcheck");
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.checked = !!state.buffs[name];
+        cb.disabled = !v;
+        cb.addEventListener("change", () => { state.buffs[name] = cb.checked; app.changed(); });
+        l.title = v ? `${who}: ${what.replace("{v}", v)} (best rank at level ${state.level}, from the game data)` : `${who}: not available at level ${state.level}`;
+        l.append(cb, el("span", null, label), el("span", "muted small", v ? " " + what.replace("{v}", v) : " (higher level)"));
+        wrap.append(l);
+      }
+      bdet.append(wrap);
+    }
+    box.append(bdet);
 
     const det = el("details", "pbase");
     det.open = Object.keys(state.base).length > 0;
