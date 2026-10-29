@@ -142,28 +142,10 @@ window.KG_PLAYERS = [
     "rank": "Quartermaster",
     "name": "Anathema Hallowfall",
     "race": "Undead",
-    "class": "Priest",
-    "portrait": "mindtrip-anathema-hallowfall.png",
-    "story": [
-      "Anathema Hallowfall-once Alanna D’Vryce—was a zealous priest of the Argent Dawn who fell defending Light’s Hope Chapel from the Scourge. Raised by a necromancer, her indomitable connection to the Light immediately shattered his control in a blinding flash of radiance, allowing her to escape. Though the Argent Dawn officially tolerated her undead state, the agonizing pain of her holy magic drew cruel whispers of \"heretic\" and \"anathema\" from her former peers; embracing the insult, she took it as her new name and vowed to endure the burning torment of the Light so others wouldn't have to. Wandering Azeroth to find where a holy monster could best serve, she now tracks rumors of the Kor’kron Guard seeking to pledge her scarred soul to their brutal frontline."
-    ]
-  },
-  {
-    "id": "mindtrip-paladin",
-    "player": "Mindtrip",
-    "rank": "Quartermaster",
-    "alt": true,
-    "name": "Alanna Hallowfall",
-    "race": "Undead",
     "class": "Paladin",
-    "portrait": "mindtrip-alanna-hallowfall.jpg",
+    "portrait": "mindtrip-anathema-hallowfall.jpg",
     "story": [
-      "From the fields of Lordaeron to the frozen grip of the Scourge, Alanna Hallowfall lived her life striving for an ideal. She spent her youth in wide-eyed reverence of the Knights of the Silver Hand, pushing her body to its absolute limits to earn a place among them. She volunteered for every backbreaking chore, pulling plows and hauling hay until her muscles were like corded steel. She memorized every line of the chivalric code and studied the tenets of the Holy Light until they were written on her soul. In her twenty-six season, she finally achieved her dream, earning her place on the front lines as a Shieldbearer.",
-      "But dreams rarely survive the reality of war. Dispatched to purge the plagued remnants of Lordaeron, Alanna encountered undead who possessed free will—sentient beings who refused to succumb to the mindless hunger of the Scourge. When she refused to execute them, her xenophobic commanders labeled it treason. Disillusioned by the hypocrisy of the order she had worshiped, Alanna threw down her tabard and walked away. She never made it out of the plaguelands. Ambushed by the Scourge, she was cut down in the fog.",
-      "When she woke, the world had lost its flavor. Her senses were muted, the smell of life was gone, and a cold numbness gripped her form. Looking down, she saw a shattered femur jutting through putrid, gray flesh. In panic, she called upon the Light to mend her—only to be met with a searing, agonizing burn that confirmed her worst nightmare. She had died. She was Forsaken.",
-      "Despite the horror of her condition, Alanna refuses to let death hollow out her humanity. She strives everyday to be the woman she always was: unfailingly helpful, remarkably polite, and the first to offer a hand to a fallen ally. However, undeath has left an undeniable mark on her disposition. Her once-bright joy has sharpened into a dry, gallows humor. She cracks bleak jokes about her own cracking joints and shrugs off mortal peril with a smirk—after all, she’s already died once and found the experience vastly overrated.",
-      "She walks a paradoxical path. The Holy Light still answers her call, but it offers no comfort; it scores her dead flesh like white-hot iron, a brutal reminder of a grace she feels abandoned her. She no longer prays to it, nor does she expect it to save her soul. Instead, she treats the Light—and the shadow, and the steel—simply as tools to protect those who cannot protect themselves.",
-      "Her heart no longer beats, but Alanna remains a good woman doing her best in a very dark world. Now, she looks toward the future and a new beginning. Seeking an organization defined by true strength and honor, she has set her sights on the Horde's elite: the Kor'kron Guard. Her hammer is pledged to the Horde, her forge is open to any who stand beneath its banner, and she will prove that honor does not die when the heart stops beating."
+      "Anathema Hallowfall-once Leila D’Vryce—was a zealous paladin of the Argent Dawn who fell defending Light’s Hope Chapel from the Scourge. Raised by a necromancer, her indomitable connection to the Light immediately shattered his control in a blinding flash of radiance, allowing her to escape. Though the Argent Dawn officially tolerated her undead state, the agonizing pain of her holy magic drew cruel whispers of \"heretic\" and \"anathema\" from her former peers; embracing the insult, she took it as her new name and vowed to endure the burning torment of the Light so others wouldn't have to. Wandering Azeroth to find where a holy monster could best serve, she now tracks rumors of the Kor’kron Guard seeking to pledge her scarred soul, mace and shield to their brutal frontline."
     ]
   },
   {
