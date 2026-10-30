@@ -199,6 +199,29 @@ window.KG_PLAYERS = [
     "rank": "Kor'kron Vanguard"
   },
   {
+    "id": "silver",
+    "player": "Silver",
+    "rank": "Oathbound",
+    "name": "Sliver Skylance",
+    "race": "Skyborn",
+    "class": "Rogue",
+    "portrait": "silver-sliver-skylance.jpg",
+    "story": [
+      "Sliver has devoted his life to one purpose: the destruction of elemental beings wherever they threaten Azeroth.",
+      "He was once a devoted son of the Skyborne, raised to revere air elementals as ancient allies. That faith died the day reckless leaders unleashed the elemental lord Vael’Shur, the Broken Gale. The resulting tempest shattered floating settlements and killed thousands—including the woman he loved, Aeryn Dawnfeather. Clinging to debris above the clouds, Sliver watched everything he knew torn apart.",
+      "While the Skyborne mourned, forgave, and spoke of balance and reconciliation, Sliver rejected it all. The elemental had chosen to kill and had enjoyed its freedom. From that day he believed a simple truth: elementals are not spirits or guardians. They are predators.",
+      "He abandoned his people and began hunting every kind of elemental across Azeroth—fire, water, earth, and air—studying their weaknesses with obsessive focus. Years of battle left him scarred by frost, flame, stone, and lightning. Where shamans seek communion, Sliver seeks extinction.",
+      "The Horde never asked him to forgive. That suited him. Orcs respect his conviction, Forsaken understand his obsession, and even shadow hunters admire his relentless pursuit. Though shamans clash with him, they cannot deny his results. The arrangement is simple: the Horde gives him purpose; he gives them dead elementals.",
+      "Sliver is no hero. He is not merciful. He destroys elemental cults, sabotages summoning rituals, and plans the downfall of rising elemental lords—even when it means undermining allies. Commanders distrust him. Shamans argue with him. Spirits despise him. Civilians live because of him. That is enough.",
+      "The deepest irony is the fragment of Vael’Shur’s essence lodged in his soul when the prison shattered. It grants him unnatural speed and swirling winds in battle. He sees the power as a curse and fears becoming the very thing he hunts.",
+      "His creed is simple:",
+      "“The world calls them spirits. The world calls them guardians. I watched them murder everyone I loved.",
+      "Let the shamans pray. Let the druids bargain.",
+      "I will bury every elemental lord I find. When the last storm finally dies, perhaps then I’ll know peace.”",
+      "Sliver Skylance walks Azeroth not as a hero, but as a warning—a man kept alive by vengeance, whose war against the elements may never end."
+    ]
+  },
+  {
     "id": "xsylas",
     "player": "Xsylas",
     "rank": "Hearthguard"
