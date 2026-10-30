@@ -199,13 +199,13 @@ window.KG_PLAYERS = [
     "rank": "Kor'kron Vanguard"
   },
   {
-    "id": "silver",
-    "player": "Silver",
+    "id": "sliver",
+    "player": "Sliver",
     "rank": "Oathbound",
     "name": "Sliver Skylance",
     "race": "Skyborn",
     "class": "Rogue",
-    "portrait": "silver-sliver-skylance.jpg",
+    "portrait": "sliver-sliver-skylance.jpg",
     "story": [
       "Sliver has devoted his life to one purpose: the destruction of elemental beings wherever they threaten Azeroth.",
       "He was once a devoted son of the Skyborne, raised to revere air elementals as ancient allies. That faith died the day reckless leaders unleashed the elemental lord Vael’Shur, the Broken Gale. The resulting tempest shattered floating settlements and killed thousands—including the woman he loved, Aeryn Dawnfeather. Clinging to debris above the clouds, Sliver watched everything he knew torn apart.",
