@@ -362,7 +362,7 @@
     const L = list(c);
     const [holy, prot, ret] = c.treePts;
     const spec = c.talent["Holy Shield"] || (prot > holy && prot > ret) ? "prot"
-      : c.talent["Seal of Command"] || c.talent["Twist of Light"] || (ret >= holy && ret > 0) ? "ret" : "holy";
+      : c.talent["Seal of Command"] || c.talent["Unsealed Wrath"] || (ret >= holy && ret > 0) ? "ret" : "holy";
     const tank = state.prio.tank != null ? state.prio.tank : spec === "prot";
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: you hold the boss (Righteous Fury, threat first). Off: you're free to deal damage." });
@@ -383,8 +383,7 @@
         facts: [`+${fmt(numberAfter(desc("Righteous Fury"), "Holy attacks by"))}% threat from your Holy damage (game data)`,
           c.talent["Improved Righteous Fury"] ? `Improved Righteous Fury: ${fmt(talentNumber(c, "Improved Righteous Fury"))}% less damage taken` : null] });
       L.add("Seal of Fury", { tag: "Keep up", text: "Your tanking Seal: Holy damage on every hit" + (c.hold.shield ? ", and with a shield each hit also gives you an absorb shield." : "."),
-        facts: [`+${fmt(numberAfter(desc("Seal of Fury"), "additional"))} Holy damage per hit (max rank)`,
-          c.talent["Improved Seal of Fury"] ? "Improved Seal of Fury: mana back when the shield is used up" : null] });
+        facts: [`+${fmt(numberAfter(desc("Seal of Fury"), "additional"))} Holy damage per hit (max rank)`] });
       L.add("Devotion Aura", { tag: "Keep up", text: "Armor for you and your party.", facts: [`+${fmt(numberAfter(desc("Devotion Aura"), "Gives"))} armor (max rank)`] });
       L.add("Blessing of Kings", { tag: "On yourself", text: "Or Might if another Paladin gives Kings." });
       L.section("Threat priority", "Press the first one that's ready. Holy damage is boosted by Righteous Fury, so your Holy abilities lead.");
@@ -392,12 +391,18 @@
         facts: [`+${fmt(numberAfter(desc("Holy Shield"), "block by"))}% block chance for 10 sec, ${fmt(numberAfter(desc("Holy Shield"), "deals"))} Holy damage per block at max rank, +20% threat on that damage`,
           c.talent["Redoubt"] ? "Redoubt: more blocks still" : null, c.talent["Reckoning"] ? "Reckoning: blocks can give you extra attacks" : null] });
       L.add("Hammer of the Righteous", { tag: "On cooldown", text: "Holy damage to your target and nearby enemies. Needs a one-handed axe, mace or sword.",
-        facts: ["Holy damage = 3 × your main-hand weapon's damage per second (game data; the planner doesn't put a number on it yet)",
+        facts: [A["Hammer of the Righteous"] && A["Hammer of the Righteous"].expected ? dmgLine(A["Hammer of the Righteous"], unit)
+          : "Holy damage = 3 × your main-hand weapon's damage per second (game data)",
           c.rank("Hammer of the Righteous") ? `${sec(c.rank("Hammer of the Righteous").cdMs)} cooldown, shared with Crusader Strike` : null] });
-      L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage.",
-        facts: [dmgLine(A["Holy Strike"], unit), c.talent["Iron Creed"] ? `Iron Creed: +${fmt(talentNumber(c, "Iron Creed"))}% threat, and with Righteous Fury 10% less damage taken for 6 sec` : null] });
+      L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage." +
+        (c.talent["Shieldsworn"] && c.hold.shield ? " Shieldsworn: it strikes with your shield, setting off Holy Shield and Shield Specialization without using their charges, and lets you block spells for 6 sec." : ""),
+        facts: [dmgLine(A["Holy Strike"], unit),
+          c.talent["Iron Creed"] ? `Iron Creed: +${fmt(talentNumber(c, "Iron Creed"))}% threat, and with Righteous Fury ${fmt(numberAfter(talentText(c, "Iron Creed"), "damage taken by"))}% less damage taken for 6 sec` : null,
+          c.talent["Shieldsworn"] ? `Shieldsworn: ${fmt(Math.abs(numberAfter(talentText(c, "Shieldsworn"), "ability by")))} sec shorter cooldown` : null] });
       L.add("Judgement", { tag: "On cooldown", text: "Judges your Seal on the target (the Seal stays).",
         facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : "")] });
+      L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement with its own cooldown: it doesn't wait for Judgement and costs no mana (game data).",
+        facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
       L.add("Consecration", { tag: "Packs", text: "Holy damage on the ground: best when you hold several enemies (mana heavy).",
         facts: [c.rank("Consecration") ? `${fmt(c.rank("Consecration").cost)} mana, ${sec(c.rank("Consecration").cdMs)} cooldown` : null,
           c.talent["Consecrated Ground"] ? "Consecrated Ground: +10% Holy damage against the first 4 enemies in it" : null] });
@@ -422,9 +427,10 @@
     } else {
       L.add("Seal of Righteousness", { tag: "Keep up", text: "Holy damage on every hit; slower weapons hit harder with it." });
     }
-    if (c.talent["Twist of Light"]) {
-      L.add("Twist of Light", { always: true, icon: talentIcon(c, "Twist of Light"), tag: "Talent",
-        text: "Swapping between Command, Righteousness, Fury and Justice leaves an Echo of the old Seal: change Seals instead of only refreshing." });
+    if (c.talent["Unsealed Wrath"]) {
+      L.add("Unsealed Wrath", { always: true, icon: talentIcon(c, "Unsealed Wrath"), tag: "Talent", source: "theory",
+        text: "Your hits store copies of your active Seal (up to 3, for 15 sec). Hitting with a different Seal releases them, each with the stored Seal's normal chance to go off: " +
+          "build stacks with one Seal, then switch (e.g. Command to Righteousness and back). The planner doesn't count the stored Seals." });
     }
     L.add("Blessing of Might", { tag: "On yourself", text: "Melee attack power (or Kings if another Paladin gives Might).",
       facts: [`+${fmt(buffNumber("Blessing of Might", c.level))} attack power at your level`] });
@@ -432,19 +438,22 @@
     L.section("Attack priority", "Press the first one that's ready.");
     L.add("Judgement", { tag: "On cooldown", text: "Judge your Seal, then keep the Seal up.",
       facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : ""),
-        c.talent["Sanctified Judgement"] ? "Sanctified Judgement: 60% of the Seal's mana back" : null] });
+        c.talent["Sanctified Judgement"] ? `Sanctified Judgement: ${fmt(numberAfter(talentText(c, "Sanctified Judgement"), "chance to return"))}% of the Seal's mana back` : null] });
+    L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement on its own cooldown, free (game data).",
+      facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
     L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage.",
       facts: [dmgLine(A["Holy Strike"], unit), c.talent["Sacred Arbiter"] ? "Sacred Arbiter: +20% damage and it refreshes your Judgements" : null] });
     L.add("Hammer of the Righteous", { tag: "On cooldown", text: "With a one-handed axe, mace or sword.",
       facts: ["Holy damage = 3 × your main-hand weapon's damage per second (game data)"] });
     L.add("Hammer of Wrath", { tag: "Below 20%", text: "Only when the target is at 20% health or less." +
-      (c.talent["Instrument of Law"] ? " Instrument of Law: 1 sec faster cast." : ""), facts: [dmgLine(A["Hammer of Wrath"], unit)] });
+      (c.talent["Champion of the Light"] ? ` Champion of the Light: ${fmt(numberAfter(talentText(c, "Champion of the Light"), "Hammer of Wrath by"), 1)} sec faster cast.` : ""),
+      facts: [dmgLine(A["Hammer of Wrath"], unit)] });
     L.add("Exorcism", { tag: "Undead / Demons", text: "Only against Undead and Demons.", facts: [dmgLine(A["Exorcism"], unit)] });
     L.add("Consecration", { tag: "Packs", text: "Several enemies only (mana heavy)." + (c.talent["Holy Conduit"] ? " Holy Conduit makes it 40% cheaper." : "") });
     if (spec === "prot" || c.hold.shield) {
       L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
       L.add("Righteous Fury", { tag: "Before you tank", text: "Turn it on before you take the boss." +
-        (c.talent["Instrument of Law"] ? " Without it you make 20% less threat (Instrument of Law), so leave it off while you only deal damage." : ""), });
+        (c.talent["Two-Handed Weapon Specialization"] && c.hold.twoHand ? " Swap to your shield too: Two-Handed Weapon Specialization lowers your threat while you hold a two-hander." : ""), });
       L.add("Seal of Fury", { tag: "Swap", text: "Swap to your tanking Seal." });
       L.add("Holy Shield", { tag: "Then", text: "Up before the boss reaches you." });
     }
@@ -482,9 +491,9 @@
       L.add("Demoralizing Roar", { tag: "Keep up", text: "Lowers the boss's attack power.",
         facts: [cost("Demoralizing Roar", "rage"), c.rank("Demoralizing Roar") && c.rank("Demoralizing Roar").threat ? `Bonus threat: ${fmt(c.rank("Demoralizing Roar").threat)} (game data)` : null] });
       L.section("Threat priority", "Press the first one that's ready.");
-      L.add("Primal Bite", { tag: "On cooldown", text: "Weapon damage plus a high amount of threat." + (c.talent["Berserk"] ? " Berserk: no cooldown and it hits 3 targets while active." : ""),
+      L.add("Primal Bite", { tag: "On cooldown", text: "Weapon damage plus a high amount of threat (Feral's 31-point talent in Forever).",
         facts: [cost("Primal Bite", "rage"), c.talent["Ferocity"] ? `Ferocity: −${fmt(talentNumber(c, "Ferocity"))} rage` : null] });
-      L.add("Lacerate", { tag: "Stack to 5", text: "Build 5 stacks, then refresh before it runs out. Causes a high amount of threat.",
+      L.add("Lacerate", { tag: "Stack to 5", text: "Build 5 stacks, then refresh before it runs out. Causes a high amount of threat (a Feral talent in Forever).",
         facts: [cost("Lacerate", "rage"), c.talent["Shredding Attacks"] ? `Shredding Attacks: −${fmt(numberAfter(c.flat.find((t) => t.name === "Shredding Attacks").desc[(c.talent["Shredding Attacks"] || 1) - 1], "Lacerate ability by"))} rage` : null] });
       L.add("Maul", { tag: "Rage dump", text: "On your next swing, whenever you have spare rage.",
         facts: [cost("Maul", "rage"), c.talent["Ferocity"] ? `Ferocity: −${fmt(talentNumber(c, "Ferocity"))} rage` : null] });
@@ -513,12 +522,15 @@
     L.add("Shred", { tag: "Builder", text: "Your builder from behind." + (c.talent["Shredding Attacks"] ? ` Shredding Attacks: −${fmt(talentNumber(c, "Shredding Attacks"))} energy.` : ""), facts: [cost("Shred", "energy")] });
     L.add("Claw", { tag: "Builder", text: "When you can't get behind the target.", facts: [cost("Claw", "energy")] });
     L.add("Rip", { tag: "Finisher", text: "At 5 points when it isn't on the target: a bleed that scales with attack power.", facts: [cost("Rip", "energy")] });
-    L.add("Ferocious Bite", { tag: "Finisher", text: "At 5 points while Rip is up.",
-      facts: [cost("Ferocious Bite", "energy"), `Each extra point of energy adds ${fmt(numberAfter(desc("Ferocious Bite"), "energy into"), 1)} damage (game data)`] });
+    L.add("Ferocious Bite", { tag: "Finisher", text: "At 5 points while Rip is up." +
+      (c.talent["Predatory Discipline"] ? " Predatory Discipline: it no longer spends your extra energy but still adds damage for it, so bite as soon as you have 5 points." : ""),
+      facts: [cost("Ferocious Bite", "energy"), c.talent["Predatory Discipline"] ? null
+        : `Each extra point of energy adds ${fmt(numberAfter(desc("Ferocious Bite"), "energy into"), 1)} damage (game data)`] });
     L.section("Cooldowns", null);
     if (c.talent["Shifting Power"]) {
+      const pct = numberAfter(talentText(c, "Shifting Power"), "convert");
       L.add("Shifting Power", { always: true, icon: talentIcon(c, "Shifting Power"), tag: "Out of energy",
-        text: "Turns mana into energy." + (c.talent["Improved Shifting Power"] ? " Improved Shifting Power: shorter cooldown." : "") });
+        text: `Turns ${pct ? fmt(pct) + "% of your base " : ""}mana into energy at once: use it when you're out of energy and the next builder or finisher can't wait.` });
     }
     if (isFeral) {
       L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
@@ -542,7 +554,7 @@
     const auto = fromGear || guess;
     const chosen = ["dagger", "other"].includes(state.prio.weapons) ? state.prio.weapons : "auto";
     const setup = chosen === "auto" ? auto : chosen;
-    const NAMES = { dagger: "Daggers", other: "Swords, maces or fists" };
+    const NAMES = { dagger: "Daggers", other: "Swords, axes, maces or fists" };
     c.hold = { known: true, dagger: setup === "dagger", oneHand: true, dual: !!c.dualWield || !c.gearKnown };
     L.toggles.push({ key: "weapons", label: "Main hand", value: chosen,
       options: [["auto", `Auto (${NAMES[auto]}${fromGear ? "" : ", guessed"})`], ["dagger", NAMES.dagger], ["other", NAMES.other]],
@@ -691,8 +703,9 @@
   // ------------------------------------------------------------ healers (any class)
 
   const HEALER_TOOLS = {
-    PALADIN: { emergency: ["Holy Shock", "Divine Favor", "Lay on Hands", "Divine Shield"], mana: ["Blessing of Wisdom", "Light's Vigil"],
-      group: [] },
+    // Light's Vigil lost its mana refund on 30 Oct 2026: it now heals the target's party
+    PALADIN: { emergency: ["Holy Shock", "Divine Favor", "Lay on Hands", "Divine Shield"], mana: ["Blessing of Wisdom"],
+      group: ["Light's Vigil"] },
     DRUID: { emergency: ["Swiftmend", "Nature's Swiftness", "Barkskin"], mana: ["Innervate"], group: ["Wild Growth", "Tranquility"] },
     SHAMAN: { emergency: ["Nature's Swiftness", "Riptide"], mana: ["Mana Tide Totem", "Water Shield", "Mana Spring Totem"],
       group: ["Chain Heal", "Healing Stream Totem"] },
@@ -713,8 +726,17 @@
     const tools = HEALER_TOOLS[c.token] || { emergency: [], mana: [], group: [] };
     // what the estimate keeps up or uses on cooldown
     const steady = (H ? H.parts : []).filter((p) => /kept up|on cooldown|absorb/.test(p.name));
-    if (steady.length) {
+    const oath = c.token === "PALADIN" && c.talent["Oath of Light"];
+    if (steady.length || oath) {
       L.section("Keep up and use on cooldown", "From the healing estimate: worth their time and mana for you.");
+      if (oath) {
+        const m = /Holy Light on them by up to (\d+), your Flash of Light by up to (\d+), and your Holy Shock by up to (\d+)/.exec(talentText(c, "Oath of Light"));
+        const at = (v) => fmt(v * c.level / 60);
+        L.add("Oath of Light", { always: true, icon: talentIcon(c, "Oath of Light"), tag: "Keep up",
+          text: "On your main target (the tank) all fight: your heals on them heal for more. One Oath at a time, 5 min." +
+            (c.talent["Boundless Light"] ? " Boundless Light's extra Holy Shock crit works only on allies without your Oath, so it's for everyone else." : ""),
+          facts: [m ? `+${at(m[1])} Holy Light, +${at(m[2])} Flash of Light, +${at(m[3])} Holy Shock on them at your level (game data)` : null] });
+      }
       for (const p of steady) {
         const name = p.name.replace(/ \(.*$/, "");
         L.add(name, { tag: /kept up/.test(p.name) ? "Keep up" : /absorb/.test(p.name) ? "Shield" : "On cooldown",
@@ -726,7 +748,9 @@
     const main = H && H.parts.find((p) => /main heal|% of casts/.test(p.name));
     L.section("Your heals by the numbers", "Most efficient first. When mana is tight, lean on the top of this list; when someone is dropping fast, the biggest heal wins.");
     for (const a of heals) {
-      const amount = a.heal * (a.name === "Binding Heal" ? 0.5 : 1) * (1 + crit * 0.5); // Binding Heal: the target's half
+      // Binding Heal: the target's half; each heal's own crit chance and crit size (Holy Power)
+      const amount = a.heal * (a.name === "Binding Heal" ? 0.5 : 1) *
+        (1 + Math.min(100, a.critChance != null ? a.critChance : crit * 100) / 100 * ((a.healCritMult || 1.5) - 1));
       const mana = manaOf(a);
       const cast = Math.max(1.5, (a.channelMs || a.castMs) / 1000);
       L.add(a.name, { tag: main && main.name.startsWith(a.name) ? "Main heal" : a.cdMs ? "Cooldown" : "Heal", score: mana ? amount / mana : 0,
@@ -899,10 +923,14 @@
         facts: [dmgLine(A["Sniper Shot"], unit)] });
       // Arcane Shot and Summon Hawk share a cooldown
       const hawkTalents = ["Unleashed Fury", "Ferocity"].filter((n) => c.talent[n]);
-      if (c.has("Summon Hawk") && hawkTalents.length) {
+      // only the hawk's dive is in the game files (base + 5% of ranged attack power); its 18 sec of attacks after aren't
+      const diveBeats = A["Summon Hawk"] && A["Arcane Shot"] && perUse(A["Summon Hawk"]) > perUse(A["Arcane Shot"]);
+      if (c.has("Summon Hawk") && (hawkTalents.length || diveBeats)) {
         L.add("Summon Hawk", { tag: "On cooldown", score: 400, source: "theory",
-          text: `Shares its cooldown with Arcane Shot. Your ${hawkTalents.join(" and ")} make hawks stronger, so favour the hawk (2 at a time).`,
-          facts: ["The hawk's damage isn't in the game files (it's a summoned creature), so this one is theory"] });
+          text: "Shares its cooldown with Arcane Shot. " + (hawkTalents.length ? `Your ${hawkTalents.join(" and ")} make hawks stronger, so favour the hawk (2 at a time).`
+            : "Its dive alone already beats Arcane Shot for you."),
+          facts: [A["Summon Hawk"] ? `${dmgLine(A["Summon Hawk"], unit)} (the dive only, game data)` : null,
+            "The hawk keeps attacking for 18 sec after the dive; that part isn't in the game files, so the order is theory"] });
       }
       L.add("Arcane Shot", { tag: "On cooldown", score: 300 + perUse(A["Arcane Shot"]),
         text: "Instant." + (c.talent["Improved Arcane Shot"] ? ` Improved Arcane Shot: ${fmt(talentNumber(c, "Improved Arcane Shot"), 1)} sec shorter cooldown.` : ""),
@@ -994,6 +1022,12 @@
     const i = c.flat.findIndex((t) => t.name === name);
     const r = i >= 0 ? app.liveRanks()[i] : 0;
     return r ? firstNumber(c.flat[i].desc[r - 1]) : null;
+  }
+  // a learned talent's tooltip at its rank ("" if not learned), for reading a number after a phrase
+  function talentText(c, name) {
+    const i = c.flat.findIndex((t) => t.name === name);
+    const r = i >= 0 ? app.liveRanks()[i] : 0;
+    return r ? c.flat[i].desc[r - 1] || "" : "";
   }
 
   // ------------------------------------------------------------ drawing
@@ -1103,7 +1137,7 @@
     else if (mine) {
       // compare with the nearest line in this group that has comparable numbers
       const unit = it.res.heal && !it.res.expected ? "healing" : "damage";
-      const per = POWER_UNIT[state.cls.power] || "point";
+      const per = POWER_UNIT[it.res.powerType != null ? it.res.powerType : state.cls.power] || "point"; // the ability's own resource (a Cat uses energy)
       const same = (x) => { const r = rateOf(x); return r && r.per === mine.per && x.tag === it.tag && !(x.score >= 900); };
       const next = s.items.slice(idx + 1).find(same);
       const prev = s.items.slice(0, idx).reverse().find(same);

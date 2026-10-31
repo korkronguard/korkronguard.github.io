@@ -152,7 +152,7 @@
 
   function encode() {
     const seq = state.seq.map((i) => LINK_CHARS[i]).join("");
-    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t2=${seq}` +
+    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t3=${seq}` +
       app.encoders.map((f) => f()).join("");
   }
 
@@ -164,8 +164,20 @@
     loadClass(token);
     const lvl = parseInt(p.get("l"), 10);
     state.level = lvl >= 1 && lvl <= 60 ? lvl : 60;
-    // "t2": the trait-table trees (2026-10-27). Older "t" links pointed into the old layout, so their picks are dropped.
-    const seq = [...(p.get("t2") || "")].map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
+    // "t3": the trees since the 30 Oct 2026 hotfixes. "t2" (2026-10-27): the same for classes whose trees didn't change;
+    // for the others the old order is kept in data/links.js and picks are matched by talent name (points in a removed
+    // talent are dropped). Older "t" links pointed into the pre-trait layout, so their picks are dropped.
+    let seq;
+    const old = p.get("t3") == null && DATA.oldLinks && DATA.oldLinks.t2[token];
+    if (old) {
+      const renamed = DATA.oldLinks.renamed || {};
+      seq = [...(p.get("t2") || "")].map((ch) => {
+        const name = old[LINK_CHARS.indexOf(ch)];
+        return flat.findIndex((t) => t.name === (renamed[name] || name));
+      }).filter((i) => i >= 0);
+    } else {
+      seq = [...(p.get("t3") || p.get("t2") || "")].map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
+    }
     state.seq = reorder(seq.slice(0, MAX_POINTS)) || keepValid(seq);
     return true;
   }

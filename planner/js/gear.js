@@ -38,24 +38,28 @@
     { key: "ranged", name: "Ranged / Relic", inv: [15, 25, 26, 28] },
   ];
 
-  // Weapon types (item subclass) each class can learn, from Classic's trainers. To check in game.
+  // Weapon types (item subclass) each class can learn: the client's own skill table (SkillRaceClassInfo, checked on
+  // build 1.60.1.70707). Forever adds one-handed axes for Rogues. The client also lists Shaman Dual Wield and Druid
+  // polearms, but Classic Era has the same Season of Discovery rows and never allowed them, so they're left out.
   const AXE1 = 0, AXE2 = 1, BOW = 2, GUN = 3, MACE1 = 4, MACE2 = 5, POLE = 6, SWORD1 = 7, SWORD2 = 8,
     STAFF = 10, FIST = 13, MISC = 14, DAGGER = 15, THROWN = 16, XBOW = 18, WAND = 19;
   const WEAPONS = {
     WARRIOR: [AXE1, AXE2, BOW, GUN, MACE1, MACE2, POLE, SWORD1, SWORD2, STAFF, FIST, DAGGER, THROWN, XBOW, MISC],
     PALADIN: [AXE1, AXE2, MACE1, MACE2, POLE, SWORD1, SWORD2, MISC],
     HUNTER: [AXE1, AXE2, BOW, GUN, POLE, SWORD1, SWORD2, STAFF, FIST, DAGGER, THROWN, XBOW, MISC],
-    ROGUE: [BOW, GUN, MACE1, SWORD1, FIST, DAGGER, THROWN, XBOW, MISC],
+    ROGUE: [AXE1, BOW, GUN, MACE1, SWORD1, FIST, DAGGER, THROWN, XBOW, MISC],
     PRIEST: [MACE1, STAFF, DAGGER, WAND, MISC],
     SHAMAN: [AXE1, AXE2, MACE1, MACE2, STAFF, FIST, DAGGER, MISC],
     MAGE: [SWORD1, STAFF, DAGGER, WAND, MISC],
     WARLOCK: [SWORD1, STAFF, DAGGER, WAND, MISC],
     DRUID: [MACE1, MACE2, STAFF, FIST, DAGGER, MISC],
   };
-  // Dual wield (one-handers in the off hand) and the level it's learned, from Classic.
+  // Dual wield (one-handers in the off hand) and the level it's learned (client skill table; same as Classic).
   const DUAL_WIELD = { WARRIOR: 20, ROGUE: 10, HUNTER: 20 };
-  // Classic: Warriors and Paladins learn Plate at 40; Hunters and Shamans learn Mail at 40.
+  // Warriors and Paladins learn Plate at 40; Hunters and Shamans learn Mail at 40 (client skill table; same as Classic).
   const ARMOR_AT_40 = { WARRIOR: 4, PALADIN: 4, HUNTER: 3, SHAMAN: 3 };
+  // weapon skills learned later (client skill table): Warriors, Paladins and Hunters learn Polearms at 20
+  const WEAPON_LEVEL = { WARRIOR: { [POLE]: 20 }, PALADIN: { [POLE]: 20 }, HUNTER: { [POLE]: 20 } };
 
   const WEAPON_NAMES = {
     0: "Axe", 1: "Axe", 2: "Bow", 3: "Gun", 4: "Mace", 5: "Mace", 6: "Polearm", 7: "Sword", 8: "Sword",
@@ -139,6 +143,8 @@
     if (!slot.inv.includes(it.inv)) return "Wrong slot.";
     if (it.classMask && !(it.classMask & (1 << (cls.id - 1)))) return `${cls.name}s can't use this.`;
     if (it.class === 2 && !(WEAPONS[cls.token] || []).includes(it.subclass)) return `${cls.name}s can't use ${WEAPON_NAMES[it.subclass] || "this weapon"}s.`;
+    const wl = it.class === 2 && (WEAPON_LEVEL[cls.token] || {})[it.subclass];
+    if (wl && state.level < wl) return `${cls.name}s learn ${WEAPON_NAMES[it.subclass]}s at level ${wl}.`;
     if (it.class === 4 && !armorAllowed(it)) {
       const late = ARMOR_AT_40[cls.token];
       return late === it.subclass ? `${cls.name}s learn ${ARMOR_NAMES[late]} at level 40.` : `${cls.name}s can't wear this.`;
@@ -443,7 +449,7 @@
     const wline = (it) => it ? `${it.weapon.min}-${it.weapon.max} (${it.weapon.speed.toFixed(2)})` : null;
 
     section("Attributes", ["strength", "agility", "stamina", "intellect", "spirit"].map((k) => [
-      STAT_TEXT[k], S.attr[k] + (tal.statPct[k] ? ` (talents +${tal.statPct[k]}%)` : ""),
+      STAT_TEXT[k], S.attr[k] + (tal.statPct[k] ? ` (+${tal.statPct[k]}% talents, racials)` : ""),
     ]));
     section("Melee", [
       ["Attack power", S.ap, `${S.baseAp} from your level (Classic rule), ${cls.apPerStr} per Strength` +
@@ -478,6 +484,20 @@
     ]);
     const res = ["fire", "frost", "nature", "shadow", "arcane"].filter((r) => g(r + "Resist"));
     if (res.length) section("Resistances", res.map((r) => [r[0].toUpperCase() + r.slice(1), g(r + "Resist")]));
+
+    if (tal.racials.length) {
+      const s = el("div", "sheet-sec");
+      s.append(el("h3", null, `Racials (${app.ctx().race})`));
+      const ul = el("ul", "plain");
+      for (const r of tal.racials) {
+        const li = el("li", r.off ? "muted" : null);
+        li.append(el("strong", null, r.name + ": "), r.text);
+        li.title = r.desc || "";
+        ul.append(li);
+      }
+      s.append(ul);
+      box.append(s);
+    }
 
     if (tal.lines.length) {
       const s = el("div", "sheet-sec");

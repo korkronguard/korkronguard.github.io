@@ -65,6 +65,8 @@
 
   // Abilities whose damage includes a share of attack power kept in a "dummy" effect: [effect index]
   const AP_DUMMY = { Bloodthirst: 1, "Victory Rush": 2 };
+  // Abilities whose damage is "N times your main hand's damage per second", N kept in a "dummy" effect: [effect index]
+  const WEAPON_DPS_DUMMY = { "Hammer of the Righteous": 2 };
   // Finishing moves are shown at 5 combo points. Rupture also lasts 2 sec longer per point (Classic).
   const COMBO_POINTS = 5;
   // effect target types that hit just your target (others hit an area, or you)
@@ -115,8 +117,11 @@
       statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 },
       mods: [],       // ability modifiers: { op, pct, value, mask, name }
       dmgPct: [],     // damage done %: { school, value, name }
+      healCrit: [],   // critical healing bonus %: { school, value } (Holy Power)
       offhandPct: 0, armorIgnore: 0, extraAttack: 0,
+      healthPct: 0, powerPct: 0, apPct: 0, rapPct: 0, spPct: 0, meleeHaste: 0, rangedHaste: 0, castHaste: 0,
       lines: [],      // for the sheet: what each talent added
+      racials: [],    // for the sheet: each racial and what it added (or why it isn't counted)
     };
     const weapons = ctx.worn.filter((w) => w.item.class === 2);
     const weaponMask = weapons.reduce((m, w) => m | (1 << w.item.subclass), 0);
@@ -155,6 +160,7 @@
             }
             break;
           case 79: out.dmgPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`+${v}% damage`); break;
+          case 50: out.healCrit.push({ school: e.misc, value: v }); parts.push(`+${v}% critical healing bonus`); break;
           case 122: out.offhandPct += v; parts.push(`+${v}% off-hand damage`); break;
           case 280: out.armorIgnore += v; parts.push(`ignores ${v}% armor`); break;
           case 107: case 108:
@@ -202,7 +208,49 @@
           break;
       }
     }
+    racialEffects(ctx, out);
     return out;
+  }
+
+  // Racials (game data). Always-on ones count fully; cooldowns (Blood Fury, Berserking, Elune's Light, Eureka!) are
+  // averaged over their cooldown, as if used whenever ready. Damage against one creature type isn't counted.
+  function racialEffects(ctx, out) {
+    const race = ((KP.classes && KP.classes.races) || []).find((r) => r.name === ctx.race);
+    const r1 = (v) => Math.round(v * 100) / 100;
+    for (const rc of (race && race.racials) || []) {
+      if (rc.classMask && !(rc.classMask & (1 << (ctx.cls.id - 1)))) continue; // the other classes' version
+      const share = rc.passive ? 1 : rc.cdMs > 0 && rc.durMs > 0 ? Math.min(1, rc.durMs / rc.cdMs) : 0;
+      const parts = [];
+      for (const a of rc.auras || []) {
+        const v = a.value * share;
+        if (!share) break;
+        switch (a.aura) {
+          case 290: out.crit += v; out.spellCrit += v; parts.push(`+${r1(v)}% crit`); break;
+          case 52: out.crit += v; parts.push(`+${r1(v)}% crit`); break;
+          case 54: out.hit += v; parts.push(`+${r1(v)}% hit`); break;
+          case 55: out.spellHit += v; parts.push(`+${r1(v)}% spell hit`); break;
+          case 49: out.dodge += v; parts.push(`+${r1(v)}% dodge`); break;
+          case 137:
+            for (const [stat, bit] of STAT_BITS) if (a.misc === -1 || a.misc2 & bit) { out.statPct[stat] += v; parts.push(`+${r1(v)}% ${stat}`); }
+            break;
+          case 133: out.healthPct += v; parts.push(`+${r1(v)}% health`); break;
+          case 178: if (a.misc === ctx.cls.power) { out.powerPct += v; parts.push(`+${r1(v)}% maximum ${["mana", "rage", "", "energy"][a.misc]}`); } break;
+          case 319: out.meleeHaste += v; parts.push(`+${r1(v)}% attack speed`); break;
+          case 140: out.rangedHaste += v; parts.push(`+${r1(v)}% ranged attack speed`); break;
+          case 342: out.meleeHaste += v; out.rangedHaste += v; parts.push(`+${r1(v)}% attack speed`); break;
+          case 65: out.castHaste += v; parts.push(`+${r1(v)}% casting speed`); break;
+          case 166: out.apPct += v; parts.push(`+${r1(v)}% attack power`); break;
+          case 167: out.rapPct += v; break;
+          case 317: out.spPct += v; parts.push(`+${r1(v)}% spell power`); break;
+          case 107: case 108:
+            if (a.mask && a.mask.some((m) => m)) out.mods.push({ op: a.misc, pct: a.aura === 108, value: v, mask: a.mask, name: rc.name });
+            if (a.misc === 0) parts.push(`+${r1(v)}% damage`);
+            break;
+        }
+      }
+      const how = rc.passive ? "" : ` (averaged: ${Math.round(rc.durMs / 1000)} sec every ${Math.round(rc.cdMs / 60000 * 10) / 10} min)`;
+      out.racials.push({ name: rc.name, desc: rc.desc, text: parts.length ? [...new Set(parts)].join(", ") + how : "not part of the damage or healing math", off: !parts.length });
+    }
   }
 
   // ------------------------------------------------------------ stats
@@ -284,17 +332,21 @@
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
     const S = {
       gear, tal, attr, baseAp, form: formKey,
-      ap: Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
-        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp + fromStats.ap,
-      rap: Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
-        sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap,
+      ap: (Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
+        buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp + fromStats.ap) * (1 + tal.apPct / 100),
+      rap: (Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
+        sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
+      // haste from racials (Wind Blessed, Berserking averaged): melee and ranged attack speed, casting speed
+      meleeHaste: tal.meleeHaste, rangedHaste: tal.rangedHaste, castHaste: tal.castHaste,
       hit: g("hit") / per("meleeHit") + tal.hit,
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + buffValue(ctx, "Leader of the Pack"),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
-      spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit,
+      // Leader of the Pack: all crit since the 30 Oct 2026 hotfix (it was melee and ranged only)
+      spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit + buffValue(ctx, "Leader of the Pack"),
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
         spellCrit: intRatio ? (BASE_SPELL_CRIT[cls.token] || 0) + attrBase.intellect / intRatio : 0 },
-      sp: sp + fromStats.sp, school, healing: g("healing") + g("spellPower") + fromStats.sp + fromStats.healing,
+      sp: (sp + fromStats.sp) * (1 + tal.spPct / 100), school,
+      healing: (g("healing") + g("spellPower") + fromStats.sp + fromStats.healing) * (1 + tal.spPct / 100),
       armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
         (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
       defense: g("defense") / per("defense") + tal.defense,
@@ -302,8 +354,9 @@
       parry: g("parry") / per("parry") + tal.parry,
       block: g("block") / per("block") + tal.block,
       blockValue: g("blockValue"),
-      health: rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health") + (form ? form.health : 0),
-      mana: cls.power === 0 ? rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana") : 0,
+      health: Math.round((rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health") +
+        (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
+      mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen"),
       // in a Druid form the form's own attack replaces the weapon
       mh: form ? formWeapon(form, lvl) : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
@@ -620,9 +673,34 @@
     return m ? parseFloat(m[1]) : 0;
   }));
 
+  // Warlock Life Tap: mana per cast from its tooltip ("(424 + 100% of Spirit) Mana"), plus Improved Life Tap
+  function lifeTapMana(ctx, S) {
+    if (ctx.cls.token !== "WARLOCK" || !bookRank("WARLOCK", "Life Tap", ctx.level)) return 0;
+    const m = /into \(?(\d+)(?: \+ (\d+)% of Spirit\))? Mana/.exec(bookDesc("WARLOCK", "Life Tap"));
+    if (!m) return 0;
+    // the tooltip shows the top rank: scale its base by the rank known at this level
+    const book = KP.spellbook.WARLOCK.find((b) => b.name === "Life Tap");
+    const known = bookRank("WARLOCK", "Life Tap", ctx.level);
+    const scale = book.ranks.length > 1 ? (book.ranks.indexOf(known) + 1) / book.ranks.length : 1;
+    const base = parseFloat(m[1]) * scale + (m[2] ? S.attr.spirit * parseFloat(m[2]) / 100 : 0);
+    return base * (1 + talentNumber(ctx, "Improved Life Tap", /by (\d+)%/) / 100);
+  }
+
   // Damage-over-time spells worth keeping up, then the best filler you can afford over a fight: the strongest
   // spell, or a mix of a strong one and an efficient one when the strong one would run you out of mana.
+  // A Warlock also tries spending some of the fight on Life Tap (one global cooldown each) and keeps the best.
   function casterRotation(ctx, S, abilities) {
+    const tap = lifeTapMana(ctx, S);
+    let best = casterRotationWith(ctx, S, abilities, 0, tap);
+    if (!best || !tap) return best;
+    for (let share = 0.02; share <= 0.4; share += 0.02) {
+      const r = casterRotationWith(ctx, S, abilities, share, tap);
+      if (r && r.dps > best.dps + 0.01) best = r;
+    }
+    return best;
+  }
+
+  function casterRotationWith(ctx, S, abilities, tapShare, tapMana) {
     const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
     const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
     const baseMana = (rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0;
@@ -639,7 +717,8 @@
       .sort((x, y) => y.dps - x.dps);
     if (!fillers.length) return null;
     const budget = manaBudget(ctx, S, keepWhileCasting);
-    let mana = budget.perSec, busy = budget.busy, dps = 0;
+    // Life Tap: tapShare of the time spent tapping, 1.5 sec each
+    let mana = budget.perSec + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0;
     const parts = [];
     const best = fillers[0];
     const dots = usable.filter((a) => !a.channeled && a.dotExpected > 0 && a.durMs > 0 && !a.cdMs)
@@ -698,6 +777,8 @@
         { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free });
       note += `; mixes ${pick.A.a.name} with the cheaper ${pick.B.a.name} so the mana lasts`;
     }
+    if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
+    else if (tapMana) note += "; Life Tap isn't needed: the mana lasts";
     note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
@@ -749,8 +830,19 @@
     // Illumination-style talents: a heal crit gives back part of its base cost
     const back = (talentNumber(ctx, "Illumination", /Mana equal to (\d+)% of the base cost/) / 100) * crit;
     const manaOf = (a) => (a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0)) * (1 - back);
+    // Paladin: Oath of Light on the target adds healing to Holy Light, Flash of Light and Holy Shock (its tooltip
+    // gives the level 60 numbers; they grow with level from 0). Boundless Light's extra Holy Shock crit is only for
+    // allies without the Oath, so with Oath of Light learned the target is the Oath's and Boundless Light doesn't count.
+    const oathText = learnedTalent(ctx, "Oath of Light") &&
+      /Holy Light on them by up to (\d+), your Flash of Light by up to (\d+), and your Holy Shock by up to (\d+)/
+        .exec((ctx.flat.find((t) => t.name === "Oath of Light") || { desc: [""] }).desc[0]);
+    const oath = oathText ? { "Holy Light": +oathText[1], "Flash of Light": +oathText[2], "Holy Shock": +oathText[3] } : {};
+    const boundless = oathText ? 0 : talentNumber(ctx, "Boundless Light", /Holy Shock spell by (\d+)%/);
+    // each heal's own crit chance (talents that raise one spell's crit) and crit size (Holy Power)
+    const critOf = (a) => Math.min(100, (a.critChance != null ? a.critChance : S.spellCrit) + (a.name === "Holy Shock" ? boundless : 0)) / 100;
     // Binding Heal heals you and the target for the same amount: only the target's half counts here
-    const per = (a) => a.heal * (a.name === "Binding Heal" ? 0.5 : 1) * (1 + crit * 0.5);
+    const per = (a) => (a.heal * (a.name === "Binding Heal" ? 0.5 : 1) + (oath[a.name] || 0) * ctx.level / 60) *
+      (1 + critOf(a) * ((a.healCritMult || 1.5) - 1));
     const isHot = (a) => (a.rank.effects || []).some((e) => e.effect === 6 && e.aura === 8) && !(a.rank.effects || []).some((e) => e.effect === 10);
     const isShield = (a) => (a.rank.effects || []).some((e) => e.aura === 69);
     const fillers = heals.filter((a) => !a.cdMs && !isHot(a) && !isShield(a))
@@ -790,7 +882,10 @@
       hps += pick.d * free;
       if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time`;
     }
-    note += `. Crits heal 150%${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
+    if (oathText) note += "; the target has your Oath of Light";
+    else if (boundless) note += `; Boundless Light +${boundless}% Holy Shock crit (no Oath of Light)`;
+    const hc = heals.find((a) => a.healCritMult > 1.5);
+    note += `. Crits heal ${hc ? `${Math.round(hc.healCritMult * 100)}% (Holy Power)` : "150%"}${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
       `Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
       "Group heals (Chain Heal, Prayer of Healing, Wild Growth...) aren't counted.";
     return { hps, parts: parts.filter((p) => p.dps > 0.05), note };
@@ -950,6 +1045,12 @@
         // Sanctified Judgement gives back part of the judged Seal's cost
         mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
         busy: 1.5, cast: 0 });
+      // Swift Judgement (Protection talent): another Judgement on its own cooldown, free (game data)
+      const sj = learnedTalent(ctx, "Swift Judgement") && bookRank("PALADIN", "Swift Judgement", level);
+      if (sj && sj.cdMs) {
+        shots.push({ name: "Swift Judgement", perUse: per, rate: 1000 / sj.cdMs,
+          mana: (sj.costPct || 0) * baseMana / 100 + (sj.cost || 0), busy: 1.5, cast: 0 });
+      }
     }
     const hs = byName["Holy Strike"];
     if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: 1 / Math.max(1.5, hs.cdMs / 1000), mana: hs.cost, busy: 1.5, cast: 0 });
@@ -972,6 +1073,7 @@
     }
     if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
     if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
+    if (learnedTalent(ctx, "Unsealed Wrath")) notes.push("Unsealed Wrath's stored Seals (switching Seals mid-fight) aren't counted");
     notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
@@ -1192,13 +1294,18 @@
     let dps = 0;
     const notes = [];
     const starved = [];
+    // Summon Hawk shares Arcane Shot's cooldown: the bigger hit is used. Only the hawk's dive is in the game files
+    // (its tooltip: base + 5% of ranged attack power); its 18 sec of attacks after that aren't counted.
+    const arcane = byName["Arcane Shot"], hawk = byName["Summon Hawk"];
+    const hawkUp = hawk && !hawk.locked && hawk.expected > 0 && (!arcane || hawk.expected > arcane.expected);
+    if (hawk && !hawk.locked) notes.push(`Summon Hawk's dive ${hawkUp ? "beats" : "is smaller than"} Arcane Shot (shared cooldown); the hawk's attacks after the dive aren't counted`);
 
     if (style === "ranged") {
       const auto = white.find((w) => w.label === "Ranged");
       if (!auto) return null;
       const aimed = byName["Aimed Shot"], multi = byName["Multi-Shot"];
       const big = aimed && (!multi || aimed.expected >= multi.expected) ? aimed : multi; // they share a cooldown
-      const shots = [shot(big), shot(byName["Arcane Shot"]), shot(byName["Sniper Shot"]),
+      const shots = [shot(big), shot(hawkUp ? hawk : arcane), shot(byName["Sniper Shot"]),
         shot(byName["Serpent Sting"], { every: byName["Serpent Sting"] && byName["Serpent Sting"].durMs })].filter(Boolean);
       const fitted = fitShots(shots, manaPerSec(shots.some((s) => s.name === "Serpent Sting")));
       starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
@@ -1228,6 +1335,7 @@
       if (raptor && !raptor.locked) shots.push(shot(raptor, { perUse: Math.max(0, raptor.expected - mh.perSwing),
         rate: 1 / Math.max(raptor.cdMs / 1000, mh.effSpeed), busy: 0 }));
       shots.push(shot(byName["Strider Kick"]));
+      if (hawk && !hawk.locked) shots.push(shot(hawk)); // a summon: usable from melee too
       const mb = byName["Mongoose Bite"];
       const expose = talentEffect("Expose Prey", (e) => e.aura === 42);
       if (mb && expose) { // with Hunter's Mark up, every melee hit can allow Mongoose Bite
@@ -1250,7 +1358,7 @@
     }
     if (haste) notes.push(`Rapid Fire averages +${haste.toFixed(1)}% attack speed`);
     if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
-    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula); pet and hawks not counted; Aspect of the Viper not used`);
+    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula); pet not counted; Aspect of the Viper not used`);
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved };
   }
@@ -1280,7 +1388,8 @@
       const critMult = isWand ? 1.5 : 2;
       const perSwing = avg * (hit + crit * critMult + glance * GLANCE_DAMAGE[d]) / 100;
       // melee procs: Flurry's attack speed, extra swings; Deep Wounds bleeds on crits (ignores armor)
-      const effSpeed = ranged ? w.speed : w.speed / (1 + pr.haste / 100);
+      const effSpeed = ranged ? w.speed / (1 + (isWand ? S.castHaste : S.rangedHaste) / 100)
+        : w.speed / ((1 + pr.haste / 100) * (1 + S.meleeHaste / 100));
       const swings = ranged || label !== "Main hand" ? 1 : 1 + pr.extraAttack;
       let deepWounds = 0;
       if (pr.deepWounds && label === "Main hand") {
@@ -1332,6 +1441,10 @@
     const coefMult = 1 + mods.pct(24) / 100;
     const spellPower = physical ? 0 : spellPowerFor(S, src.school);
     let combo = false, single = false, area = false;
+    // a share of attack power only the tooltip formula holds (Revenge 22.5%, Summon Hawk's dive 5% of ranged AP);
+    // added once, to the first damage effect, when the effect itself has none
+    let textBonus = src.textShares && !AP_DUMMY[src.familyName]
+      ? (src.textShares.AP || 0) * S.ap + (src.textShares.RAP || 0) * S.rap : 0;
     for (const e of effects) {
       const hitsTarget = e.target !== 1;
       const isDamage = [2, 17, 31, 58, 121].includes(e.effect) || (e.effect === 6 && (e.aura === 3 || e.aura === 53));
@@ -1361,7 +1474,8 @@
           break;
         case 2: {
           const bonus = (physical ? 0 : e.coef * spellPower * coefMult) + (e.apCoef || 0) * ap +
-            (src.familyName === "Eviscerate" ? ap * EVISCERATE_AP_PER_POINT * COMBO_POINTS : 0);
+            (src.familyName === "Eviscerate" ? ap * EVISCERATE_AP_PER_POINT * COMBO_POINTS : 0) + (e.apCoef ? 0 : textBonus);
+          textBonus = 0;
           dmin += v * (1 - spread) + perCombo + bonus;
           dmax += v * (1 + spread) + perCombo + bonus;
           hasDirect = true;
@@ -1370,6 +1484,12 @@
         case 3:
           if (AP_DUMMY[src.familyName] === e.i) { dmin += (ap * v) / 100; dmax += (ap * v) / 100; hasDirect = true; }
           else if (src.familyName === "Execute" && e.i === 0) { dmin += v; dmax += v; hasDirect = true; }
+          else if (WEAPON_DPS_DUMMY[src.familyName] === e.i) {
+            if (!weaponItem) { needsWeapon = true; break; }
+            const w = weaponItem.weapon;
+            const dps = ((w.min + w.max) / 2 + (ap / 14) * w.speed) / w.speed;
+            dmin += v * dps; dmax += v * dps; hasDirect = true;
+          }
           break;
         case 10:
           heal += v + e.coef * S.healing * coefMult;
@@ -1435,7 +1555,7 @@
       .map((e) => String(e.trigger)));
     const tlist = Object.entries(rank.triggers || {}).filter(([id]) => fired.has(id));
     tlist.forEach(([id, t], n) => {
-      const sub = effectDamage(t.effects, { ...rank, ...t, familyName: ab.name, school: t.school || rank.school,
+      const sub = effectDamage(t.effects, { ...rank, ...t, textShares: null, familyName: ab.name, school: t.school || rank.school,
         defense: t.defense || rank.defense, durMs: t.durMs }, S, ctx, n === 1 && S.oh ? "offHand" : "mainHand", mods);
       let times = 1;
       if (periodicTrigger && String(periodicTrigger.trigger) === id) {
@@ -1446,7 +1566,7 @@
         hasDirect: r.hasDirect || sub.hasDirect, physical: r.physical && sub.physical, kind: sub.kind || r.kind,
         combo: r.combo || sub.combo, single: r.single || sub.single, area: r.area || sub.area };
     });
-    if (r.needsWeapon && !r.hasDirect) return { ...base, rank, locked: "Needs a weapon" };
+    if (r.needsWeapon && (!r.hasDirect || WEAPON_DPS_DUMMY[ab.name] != null)) return { ...base, rank, locked: "Needs a weapon" };
     if (!r.hasDirect && !r.dot && !r.heal) return null; // nothing we can put a number on
 
     // talents: damage %, damage over time %, crit chance, crit damage, cast time, cost, cooldown
@@ -1473,18 +1593,20 @@
     const dotExpected = land * dot * (rank.dotCrit ? 1 + Math.min(100, critChance) / 100 * (critMult - 1) : 1);
     const expected = directExpected + dotExpected;
     const channelMs = rank.channeled ? rank.durMs : 0;
-    const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100));
+    const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100)) / (1 + (S.castHaste || 0) / 100);
     const cdMs = Math.max(0, (rank.cdMs + mods.flat(11)) * (1 + mods.pct(11) / 100));
     const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100));
     const cost = rank.powerType === 1 ? costRaw / 10 : costRaw; // rage is stored x10
     const heal = r.heal * dmgMult;
+    // a heal crit heals 150%; talents like Holy Power raise the bonus part
+    const healCritMult = 1 + 0.5 * (1 + sum(S.tal.healCrit.filter((h) => h.school & (rank.school || 1)).map((h) => h.value)) / 100);
     // Execute: each leftover rage point adds amp x 10 damage, with the same talents, armor, hit and crit
     const amp = (rank.effects.find((e) => e.amp) || {}).amp;
     const perRage = amp && avg ? amp * 10 * dmgMult * mit * (expected / avg) : 0;
     return {
       perRage,
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
-      heal, healCrit: heal * 1.5, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
+      heal, healCrit: heal * healCritMult, healCritMult, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
       castMs, channelMs, cdMs, cost, costPct: rank.cost ? 0 : rank.costPct, powerType: rank.powerType,
       combo: r.combo, aoe: r.area && !r.single,
       // crowd control (root, stun, fear, sleep): not part of a damage rotation
