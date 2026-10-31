@@ -107,7 +107,7 @@ window.KG_PLAYERS = [
     "title": "Pathfinder of the Kor'kron Guard",
     "page": "grimscar-tauren.html",
     "portrait": "grimscar-greystone-tauren.jpg",
-    "blurb": "Last son of the Greystone stone-keepers, saved from the centaur by Thrall's orcs. Walks ahead of the Guard with his lion, Dustmane."
+    "blurb": "Last son of the Greystone stone-keepers, saved from the centaur by Thrall's orcs. Walks ahead of the Guard with Dustmane, the wolf who came back from death to hunt beside him."
   },
   {
     "id": "quint",
