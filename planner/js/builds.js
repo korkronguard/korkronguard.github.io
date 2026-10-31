@@ -1,5 +1,6 @@
-// Kor'kron Planner: the Builds tab. Three suggested builds per class (data/builds.js, made by tools/make_builds.js)
-// with the order to take each point while leveling. "Load" puts a build into the Talents tab, leveling path included.
+// Kor'kron Planner: the Builds tab. Suggested builds per class (data/builds.js, made by tools/make_builds.js), two per
+// spec: a leveling build (solo, 10-60) and a level 60 build (groups and raids), each with the order to take every
+// point. "Load" puts a build into the Talents tab, leveling path included.
 (function () {
   "use strict";
 
@@ -15,6 +16,7 @@
     return e;
   };
   const ROLE = { dps: "Damage", tank: "Tank", heal: "Healer" };
+  const KINDS = [["leveling", "Leveling (solo, 10-60)"], ["group", "Level 60 (groups and raids)"]];
 
   // the loaded build goes in the link (&bd=key) so a shared link keeps its explanations; it only counts while the
   // picks still match the build
@@ -74,7 +76,19 @@
     head.append(ic, titles);
     box.append(head, el("p", "build-summary", build.summary));
     if (capstone) box.append(el("p", "muted small", `${capstone.name} at level ${capstone.level}.`));
-    box.append(el("p", "muted small", build.hps60 != null
+    if (build.kind === "leveling") {
+      box.append(el("p", "muted small", `Solo at 60: about ${build.kill60} sec per same-level mob and ${build.rest60}% of your time ` +
+        `eating and drinking (${build.dps60} damage per second while fighting). Measured with the best green or blue gear you ` +
+        `can use at each level (at 60: ${build.reference.join(" + ")} and ${build.armorPieces} armor pieces), no group buffs. ` +
+        "Use it to compare builds, not as a promise."));
+      const pair = ((KP.builds || {})[state.cls.token] || []).find((x) => x.kind !== "leveling" && x.key === build.pair);
+      if (pair) {
+        const go = el("button", "btn small", `At 60, for groups: ${pair.name}`);
+        go.type = "button";
+        go.addEventListener("click", () => { state.buildKind = "group"; render(); });
+        box.append(go);
+      }
+    } else box.append(el("p", "muted small", build.hps60 != null
       ? `Estimated ${build.hps60} healing per second at 60 on one target (sustained over a fight, no overhealing), measured with ` +
         `${build.reference.join(" + ")} and raid buffs on. Use it to compare builds, not as a promise.`
       : `Estimated ${build.dps60} damage per second at 60, measured with ${build.reference.join(" + ")} ` +
@@ -111,14 +125,33 @@
       return;
     }
     const treeNames = KP.talents.trees[state.cls.token].map((t) => t.name);
+    // leveling or level 60: starts on leveling below 60
+    const kind = state.buildKind || (state.level < 60 ? "leveling" : "group");
+    const bar = el("div", "build-kinds");
+    for (const [k, label] of KINDS) {
+      const b = el("button", "btn" + (k === kind ? " primary" : ""), label);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(k === kind));
+      b.addEventListener("click", () => { state.buildKind = k; render(); });
+      bar.append(b);
+    }
+    box.append(bar);
     const how = el("p", "muted small build-how");
-    how.textContent = "How these are made: the final builds are suggestions for each role. The leveling order comes from the " +
-      "planner's math: you go down your main tree first and take its 31-point talent the moment it opens; within that, each " +
-      "point goes where it adds the most damage (for a tank, survival and threat; for a healer, healing) at that level. Points the math can't " +
-      "measure (utility, procs it doesn't model yet) say so and are placed by row.";
+    how.textContent = kind === "leveling"
+      ? "Leveling builds are for questing alone as that spec. The order comes from the planner's math: at each level the next " +
+        "point goes where you'd level fastest, counting both how quickly you kill a same-level mob and how long you then eat " +
+        "and drink (so damage, survival and mana savings all count), with no group buffs and the gear you'd have at that level. " +
+        "You go down your main tree first and take its 31-point talent at 40. Mob health and damage and food and drink rates " +
+        "come from Classic (they aren't in Forever's files). Points the math can't measure (pets, utility, procs) say so and " +
+        "are placed by row."
+      : "Level 60 builds are for groups and raids: measured with raid buffs on against a raid boss. The final builds are " +
+        "suggestions for each role. The leveling order comes from the planner's math: you go down your main tree first and " +
+        "take its 31-point talent the moment it opens; within that, each point goes where it adds the most damage (for a tank, " +
+        "survival and threat; for a healer, healing) at that level. Points the math can't measure (utility, procs it doesn't " +
+        "model yet) say so and are placed by row.";
     box.append(how);
     const grid = el("div", "build-grid");
-    for (const b of builds) grid.append(card(b, treeNames));
+    for (const b of builds.filter((x) => (x.kind || "group") === kind)) grid.append(card(b, treeNames));
     box.append(grid);
   }
 

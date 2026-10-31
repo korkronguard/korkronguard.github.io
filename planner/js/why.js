@@ -1,7 +1,8 @@
 // Kor'kron Planner: "Why these talents", under the leveling path on the Talents tab. For every talent picked: what
 // it does (the game's tooltip), why it's worth the points (measured by taking it out and comparing, or a written
 // note when the math can't see it), what it unlocks, and when it's taken while leveling. When the picks are one of
-// the suggested builds (Builds tab), the build's own measurements at level 60 are used.
+// the suggested builds (Builds tab), the build's own measurements at level 60 are used: for a level 60 build its
+// damage/healing/survival in a group, for a leveling build how much faster it levels solo (kills plus resting).
 (function () {
   "use strict";
 
@@ -122,10 +123,12 @@
     const role = build ? build.role : state.prio && state.prio.tank ? "tank" : null;
     const worth = build ? build.worth : liveWorth(live);
     const manaCover = build ? build.manaCover : liveCover(live);
-    const where = build ? "in this build at level 60 (its reference gear, raid buffs on)" : `at level ${state.level} with your gear and buffs`;
+    const leveling = build && build.kind === "leveling";
+    const where = leveling ? "in this build at level 60 solo (gear for your level, a same-level mob, eating and drinking counted)"
+      : build ? "in this build at level 60 (its reference gear, raid buffs on)" : `at level ${state.level} with your gear and buffs`;
 
     // the main number for each talent, to rank them
-    const main = (w) => !w ? 0 : role === "tank" ? w.ehpPct * 2 + (w.dps || 0) / 10 : role === "heal" ? w.hps : Math.max(w.dps, w.hps);
+    const main = (w) => !w ? 0 : leveling ? w.levelPct || 0 : role === "tank" ? w.ehpPct * 2 + (w.dps || 0) / 10 : role === "heal" ? w.hps : Math.max(w.dps, w.hps);
     const ranked = flat.map((t, i) => i).filter((i) => all[i] && main(worth[flat[i].id]) > 0.05)
       .sort((a, b) => main(worth[flat[b].id]) - main(worth[flat[a].id]));
 
@@ -165,6 +168,7 @@
         const unlocks = flat.filter((x, j) => all[j] && (x.requires || []).some((r) => r.talent === t.id));
         if (unlocks.length) reasons.push(`Needed for ${unlocks.map((x) => x.name).join(" and ")}.`);
         const bits = [];
+        if (w && w.levelPct > 0.05) bits.push(`${fmt(w.levelPct)}% faster leveling (quicker kills or less eating and drinking)`);
         if (w && w.dps > 0.05) bits.push(`${fmt(w.dps)} damage per second` + (w.baseDps || build ? ` (${fmt((w.dps / ((w.baseDps || build.dps60 || 1) - w.dps)) * 100)}%)` : ""));
         if (w && w.hps > 0.05) bits.push(`${fmt(w.hps)} healing per second`);
         if (w && w.ehpPct > 0.05) bits.push(`${fmt(w.ehpPct)}% survival (health through armor and avoidance)`);

@@ -118,6 +118,7 @@
       mods: [],       // ability modifiers: { op, pct, value, mask, name }
       dmgPct: [],     // damage done %: { school, value, name }
       healCrit: [],   // critical healing bonus %: { school, value } (Holy Power)
+      costSchool: [], // mana cost % for a school's spells: { school, value } (Shadowform -50% Shadow)
       offhandPct: 0, armorIgnore: 0, extraAttack: 0,
       healthPct: 0, powerPct: 0, apPct: 0, rapPct: 0, spPct: 0, meleeHaste: 0, rangedHaste: 0, castHaste: 0,
       lines: [],      // for the sheet: what each talent added
@@ -129,7 +130,6 @@
     ctx.flat.forEach((t, i) => {
       const r = ctx.ranks[i];
       if (!r) return;
-      if (!t.passive && t.ranks.length === 1) return; // an ability you cast, not an always-on bonus
       if (t.needs) {
         const have = t.needs.class === 2 ? weaponMask : armorMask;
         // e.g. Dual Wield Specialization: the weapon has to be in the off hand (inventory type 22)
@@ -138,6 +138,38 @@
           out.lines.push({ name: t.name, text: "needs a matching weapon or shield", off: true });
           return;
         }
+      }
+      // An ability you cast, not an always-on bonus, with three exceptions that change your numbers all fight:
+      // a form you stay in (Shadowform, Moonkin Form), a buff that lasts as long as its cooldown (Ice Barrier),
+      // and a damage cooldown (Death Wish, Arcane Power), averaged over its cooldown like the racials.
+      // Only effects on yourself count (Bestial Wrath buffs the pet, Power Infusion is cast on someone else).
+      let share = 1, how = "";
+      if (!t.passive && t.ranks.length === 1) {
+        const self = (t.effects[0] || []).filter((e) => e.effect === 6 && e.target === 1);
+        const book = bookRank(ctx.cls.token, t.name, ctx.level);
+        if (self.some((e) => e.aura === 36)) how = " (a form you stay in)";
+        else if (book && book.durMs > 0 && book.cdMs > 0 && book.durMs >= book.cdMs) how = " (kept up)";
+        else if (book && book.durMs > 0 && book.cdMs >= 60000) {
+          share = book.durMs / book.cdMs;
+          how = ` (averaged: ${Math.round(book.durMs / 1000)} sec every ${Math.round(book.cdMs / 6000) / 10} min)`;
+        } else return;
+        const parts = [];
+        for (const e of self) {
+          const v = e.value * share;
+          if (e.aura === 79) { out.dmgPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`+${Math.round(v * 10) / 10}% damage`); }
+          if (e.aura === 72) { out.costSchool.push({ school: e.misc, value: v }); parts.push(`${Math.round(v)}% mana cost`); }
+          if (e.aura === 51 && share === 1) { out.block += v; parts.push(`+${v}% block`); } // Holy Shield, kept up
+          if ((e.aura === 107 || e.aura === 108) && e.mask && e.mask.some((m) => m)) {
+            out.mods.push({ op: e.misc, pct: e.aura === 108, value: v, mask: e.mask, name: t.name });
+            if (e.misc === 0) parts.push(`+${Math.round(v * 10) / 10}% damage to its spells`);
+            if (e.misc === 15) parts.push(`+${Math.round(v)}% crit damage`);
+          }
+        }
+        // Ice Barrier's "+15% Frost damage for 1 min" sits on another spell: read from its tooltip
+        const extra = t.name === "Ice Barrier" && /increasing your Frost damage by (\d+)% for/.exec(t.desc[0] || "");
+        if (extra) { out.dmgPct.push({ school: 16, value: +extra[1], name: t.name }); parts.push(`+${extra[1]}% Frost damage`); }
+        if (parts.length) out.lines.push({ name: t.name, text: [...new Set(parts)].join(", ") + how });
+        return;
       }
       const parts = [];
       for (const e of t.effects[r - 1] || []) {
@@ -642,6 +674,8 @@
     const [b, per] = SPIRIT_REGEN[ctx.cls.token] || [15, 5];
     const spiritRegen = (b + S.attr.spirit / per) / 2;
     const keep = talentKeep(ctx);
+    // the leveling model (tools/make_builds.js) sets how much mana per second a fight may use (it pays for it in drinking)
+    if (ctx.manaPerSec != null) return { perSec: ctx.manaPerSec, keep, busy: 0, extras: [] };
     // Mage: one Evocation (regen +1500% for 8 sec) and the best mana gem you can conjure, once per fight
     let extra = 0, busy = 0;
     const extras = [];
@@ -683,7 +717,8 @@
     const known = bookRank("WARLOCK", "Life Tap", ctx.level);
     const scale = book.ranks.length > 1 ? (book.ranks.indexOf(known) + 1) / book.ranks.length : 1;
     const base = parseFloat(m[1]) * scale + (m[2] ? S.attr.spirit * parseFloat(m[2]) / 100 : 0);
-    return base * (1 + talentNumber(ctx, "Improved Life Tap", /by (\d+)%/) / 100);
+    // the health it costs is the base amount; Improved Life Tap adds mana only
+    return { mana: base * (1 + talentNumber(ctx, "Improved Life Tap", /by (\d+)%/) / 100), health: base };
   }
 
   // Damage-over-time spells worth keeping up, then the best filler you can afford over a fight: the strongest
@@ -691,11 +726,11 @@
   // A Warlock also tries spending some of the fight on Life Tap (one global cooldown each) and keeps the best.
   function casterRotation(ctx, S, abilities) {
     const tap = lifeTapMana(ctx, S);
-    let best = casterRotationWith(ctx, S, abilities, 0, tap);
+    let best = casterRotationWith(ctx, S, abilities, 0, 0);
     if (!best || !tap) return best;
     for (let share = 0.02; share <= 0.4; share += 0.02) {
-      const r = casterRotationWith(ctx, S, abilities, share, tap);
-      if (r && r.dps > best.dps + 0.01) best = r;
+      const r = casterRotationWith(ctx, S, abilities, share, tap.mana);
+      if (r && r.dps > best.dps + 0.01) best = { ...r, tapHealth: (share * tap.health) / 1.5 };
     }
     return best;
   }
@@ -766,6 +801,9 @@
     const free = 1 - busy;
     let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
     const pick = fillerPick(fillers, best, mana, free);
+    // mana actually used per second (from the pool and regen; Life Tap's mana isn't counted as spent)
+    const fillerMana = free * (pick.starved ? pick.A.mps * pick.f : pick.f * pick.A.mps + (1 - pick.f) * pick.B.mps);
+    const manaSpent = Math.max(0, budget.perSec - mana + fillerMana);
     if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
     const fd = pick.d * free;
     dps += fd;
@@ -783,8 +821,8 @@
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
-      "Spells with a cooldown are cast when they beat the filler; procs and big cooldowns (like Arcane Power) aren't counted." + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
+      "Spells with a cooldown are cast when they beat the filler; damage cooldowns (Arcane Power, Death Wish...) are averaged over their cooldown, procs aren't counted." + buffNote(ctx);
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
   }
 
   // The filler for the casting time and mana that are left: the strongest spell, a strong/cheap mix that just fits
@@ -1072,11 +1110,12 @@
       parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
     }
     if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
+    const manaSpent = sealCost / 30 + manaUsed(fitted);
     if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
     if (learnedTalent(ctx, "Unsealed Wrath")) notes.push("Unsealed Wrath's stored Seals (switching Seals mid-fight) aren't counted");
     notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
   }
 
   // Windfury Weapon's extra attacks on white hits, Stormstrike, the best shock (Stormstrike makes the next one
@@ -1130,9 +1169,10 @@
     }
     if (haste) notes.push(`Rage of the Farseer averages +${haste.toFixed(1)}% attack speed`);
     if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every shock over a 3-minute fight");
+    const manaSpent = manaUsed(fitted);
     notes.push("Lightning Bolts with Maelstrom Weapon, Flametongue/Rockbiter and Windfury Totem aren't counted yet");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
   }
 
   // ------------------------------------------------------------ Druid forms
@@ -1235,6 +1275,7 @@
 
   // Fit attacks into the global cooldown / cast time, then into the mana you have over the fight.
   // shots: { name, perUse, rate (uses per sec if always pressed), mana, busy (sec of button time per use) }
+  const manaUsed = (fitted) => sum(fitted.map((s) => s.rate * s.f * (s.mana || 0))); // mana per second the fitted shots use
   function fitShots(shots, manaPerSec) {
     let time = 0.95; // leave a little room for moving and reacting
     for (const s of [...shots].sort((a, b) => b.perUse / (b.busy || 1e-9) - a.perUse / (a.busy || 1e-9))) {
@@ -1284,7 +1325,8 @@
       return m ? parseFloat(m[1]) : 0;
     }));
     const spiritRegen = (15 + S.attr.spirit / 5) / 2;
-    const manaPerSec = (withSting) => (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
+    const manaPerSec = (withSting) => ctx.manaPerSec != null ? ctx.manaPerSec
+      : (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
     const shot = (a, opts = {}) => a && !a.locked && a.expected > 0 && {
       name: opts.name || a.name, perUse: opts.perUse != null ? opts.perUse : a.expected,
       rate: opts.rate || 1 / Math.max(1.5, (opts.every || a.cdMs || 1500) / 1000), mana: manaOf(a),
@@ -1294,6 +1336,7 @@
     let dps = 0;
     const notes = [];
     const starved = [];
+    let manaSpent = 0;
     // Summon Hawk shares Arcane Shot's cooldown: the bigger hit is used. Only the hawk's dive is in the game files
     // (its tooltip: base + 5% of ranged attack power); its 18 sec of attacks after that aren't counted.
     const arcane = byName["Arcane Shot"], hawk = byName["Summon Hawk"];
@@ -1308,6 +1351,7 @@
       const shots = [shot(big), shot(hawkUp ? hawk : arcane), shot(byName["Sniper Shot"]),
         shot(byName["Serpent Sting"], { every: byName["Serpent Sting"] && byName["Serpent Sting"].durMs })].filter(Boolean);
       const fitted = fitShots(shots, manaPerSec(shots.some((s) => s.name === "Serpent Sting")));
+      manaSpent = manaUsed(fitted);
       starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
       const castFrac = Math.min(0.9, sum(fitted.map((s) => s.rate * s.f * s.cast))); // Auto Shot pauses while you cast
       const autoDps = auto.dps * (1 + haste / 100) * (1 - castFrac);
@@ -1348,6 +1392,7 @@
       const trap = byName["Immolation Trap"];
       shots.push(shot(trap)); // Forever lets you lay traps in combat; in melee the boss stands on it
       const fitted = fitShots(shots.filter(Boolean), manaPerSec(false));
+      manaSpent = manaUsed(fitted);
       starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
       for (const s of fitted) {
         dps += s.dps;
@@ -1360,7 +1405,7 @@
     if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
     notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula); pet not counted; Aspect of the Viper not used`);
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved };
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved, manaSpent };
   }
 
   function whiteHits(ctx, S) {
@@ -1595,9 +1640,11 @@
     const channelMs = rank.channeled ? rank.durMs : 0;
     const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100)) / (1 + (S.castHaste || 0) / 100);
     const cdMs = Math.max(0, (rank.cdMs + mods.flat(11)) * (1 + mods.pct(11) / 100));
-    const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100));
+    const schoolCost = sum(S.tal.costSchool.filter((c) => c.school & (rank.school || 1)).map((c) => c.value));
+    const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100) * (1 + schoolCost / 100));
     const cost = rank.powerType === 1 ? costRaw / 10 : costRaw; // rage is stored x10
-    const heal = r.heal * dmgMult;
+    // heals take the spell's own modifiers (Healing Way, Purification...), not "damage done %" auras (Naturalist, Searing Light)
+    const heal = r.heal * (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100);
     // a heal crit heals 150%; talents like Holy Power raise the bonus part
     const healCritMult = 1 + 0.5 * (1 + sum(S.tal.healCrit.filter((h) => h.school & (rank.school || 1)).map((h) => h.value)) / 100);
     // Execute: each leftover rage point adds amp x 10 damage, with the same talents, armor, hit and crit
@@ -1625,5 +1672,12 @@
     return { S, white, abilities: list, rotation: rotation(ctx, S, white, list), healing };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps };
+  // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
+  function manaInfo(ctx) {
+    const S = stats(ctx);
+    const [b, per] = SPIRIT_REGEN[ctx.cls.token] || [15, 5];
+    return { pool: S.mana, regen: S.mp5 / 5 + ((b + S.attr.spirit / per) / 2) * keepWhileCasting(ctx) / 100 };
+  }
+
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo };
 })();
