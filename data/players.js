@@ -93,7 +93,7 @@ window.KG_PLAYERS = [
     "class": "Warrior",
     "title": "High Overlord of the Kor'kron Guard",
     "page": "grimscar-orc.html",
-    "portrait": "",
+    "portrait": "grimscar-greystone-orc.jpg",
     "blurb": "A Blackrock veteran of all three wars, freed from the camps by Thrall. His axe is banded with the iron of his own shackles."
   },
   {
@@ -106,7 +106,7 @@ window.KG_PLAYERS = [
     "class": "Hunter",
     "title": "Pathfinder of the Kor'kron Guard",
     "page": "grimscar-tauren.html",
-    "portrait": "",
+    "portrait": "grimscar-greystone-tauren.jpg",
     "blurb": "Last son of the Greystone stone-keepers, saved from the centaur by Thrall's orcs. Walks ahead of the Guard with his lion, Dustmane."
   },
   {
