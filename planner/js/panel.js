@@ -436,9 +436,9 @@
   function panel(R, opts) {
     const box = el("div", "panel-in");
     if (opts.controls) box.append(controls(R));
-    // a healer build (most points in a healing tree's spells) sees its healing first
+    // healing first when the role is Healing (Priority tab's Role: a healing build, or chosen); damage first otherwise
     const heals = R.healing && R.healing.hps > 0;
-    const healerFirst = heals && (!R.rotation || R.healing.hps > R.rotation.dps);
+    const healerFirst = heals && (app.prioRole ? app.prioRole() === "heal" : !R.rotation || R.healing.hps > R.rotation.dps);
     if (healerFirst) box.append(healingBox(R), rotationBox(R));
     else box.append(rotationBox(R), ...(heals ? [healingBox(R)] : []));
     box.append(statGrid(R), whiteTable(R), abilityList(R));

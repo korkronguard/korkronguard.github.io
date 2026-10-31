@@ -31,8 +31,8 @@
   const STANCE_NAME = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
   const TWO_HAND = [1, 5, 6, 8, 10]; // weapon subclasses: 2H axe, 2H mace, polearm, 2H sword, staff
 
-  // Settings on this tab (in the link): tank mode, Hunter style
-  state.prio = state.prio || { tank: null, style: "auto", weapons: "auto" };
+  // Settings on this tab (in the link): tank mode, Hunter style, weapons, role (damage or healing)
+  state.prio = state.prio || { tank: null, style: "auto", weapons: "auto", role: "auto" };
   const WEAPON_SETUPS = { "2h": "Two-hander", dw: "Dual wield", shield: "Sword and board" };
   const WS_LINK = { "2h": "2", dw: "d", shield: "s" };
   app.encoders.push(() => {
@@ -40,6 +40,7 @@
     if (state.prio.tank != null) s += "&tk=" + (state.prio.tank ? 1 : 0);
     if (state.prio.style !== "auto") s += "&hs=" + state.prio.style[0];
     if (state.prio.weapons !== "auto") s += "&ws=" + WS_LINK[state.prio.weapons];
+    if (state.prio.role === "dps" || state.prio.role === "heal") s += "&rl=" + state.prio.role[0];
     return s;
   });
   function readHash() {
@@ -47,8 +48,33 @@
     const tk = p.get("tk");
     state.prio = { tank: tk === "1" ? true : tk === "0" ? false : null,
       style: { r: "ranged", m: "melee" }[p.get("hs")] || "auto",
-      weapons: Object.keys(WS_LINK).find((k) => WS_LINK[k] === p.get("ws")) || "auto" };
+      weapons: Object.keys(WS_LINK).find((k) => WS_LINK[k] === p.get("ws")) || "auto",
+      role: { d: "dps", h: "heal" }[p.get("rl")] || "auto" };
   }
+
+  // Classes that can heal: their healing tree(s). The Role setting picks the damage or the healing list. Auto means
+  // healing only for a committed healing build (the healing tree is the main tree, 21+ points): while leveling or
+  // lightly talented you're dealing damage (Judgement, Smite, Wrath...), and a Holy "Shockadin" can pick Damage.
+  const HEAL_TREES = { PALADIN: [0], PRIEST: [0, 1], DRUID: [2], SHAMAN: [2] };
+  function autoRole(token, treePts) {
+    const trees = HEAL_TREES[token];
+    if (!trees) return "dps";
+    const most = Math.max(...treePts);
+    return most >= 21 && trees.includes(treePts.indexOf(most)) ? "heal" : "dps";
+  }
+  const roleOf = (c) => (state.prio.role === "dps" || state.prio.role === "heal" ? state.prio.role : autoRole(c.token, c.treePts));
+  const roleToggle = (c) => ({ key: "role", label: "Role", value: state.prio.role === "dps" || state.prio.role === "heal" ? state.prio.role : "auto",
+    options: [["auto", `Auto (${autoRole(c.token, c.treePts) === "heal" ? "Healing" : "Damage"})`], ["dps", "Damage"], ["heal", "Healing"]],
+    help: "Damage: what to press when you're dealing damage (leveling, a Holy Shockadin, a Shadow Priest). Healing: keeping your " +
+      "group alive. Auto picks Healing only for a healing build with 21+ points in its healing tree." });
+  // the same choice for the side panel (healing estimate first or second)
+  app.prioRole = () => {
+    if (!state.cls || !HEAL_TREES[state.cls.token]) return "dps";
+    if (state.prio.role === "dps" || state.prio.role === "heal") return state.prio.role;
+    const pts = [0, 0, 0], ranks = app.liveRanks();
+    app.flat().forEach((t, i) => { pts[t.tree] += ranks[i] || 0; });
+    return autoRole(state.cls.token, pts);
+  };
 
   // ------------------------------------------------------------ what this character has
 
@@ -204,7 +230,7 @@
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: you hold the boss (Defensive Stance, threat first). Off: you're free to deal damage, e.g. an off-tank between pulls." });
     const specName = { arms: "Arms", fury: "Fury", prot: "Protection" }[spec];
-    L.title = `${specName} Warrior${tank ? ", tanking" : ""}`;
+    L.title = `${arms + fury + prot ? specName + " " : ""}Warrior${tank ? ", tanking" : ""}`; // no talents yet: just "Warrior"
     L.facts.push(`Talents: ${arms} / ${fury} / ${prot}` + (c.talent["Mortal Strike"] ? " · Mortal Strike" : "") +
       (c.talent["Bloodthirst"] ? " · Bloodthirst" : "") + (c.talent["Shield Slam"] ? " · Shield Slam" : ""));
     const setup = weaponSetup(c, L, spec === "prot" ? "shield" : spec === "fury" ? "dw" : "2h", ["2h", "dw", "shield"]);
@@ -361,20 +387,25 @@
   function paladin(c) {
     const L = list(c);
     const [holy, prot, ret] = c.treePts;
-    const spec = c.talent["Holy Shield"] || (prot > holy && prot > ret) ? "prot"
-      : c.talent["Seal of Command"] || c.talent["Unsealed Wrath"] || (ret >= holy && ret > 0) ? "ret" : "holy";
+    // the spec is the main tree (a Holy build that borrows Seal of Command from Retribution is still Holy)
+    const spec = prot > holy && prot >= ret ? "prot" : ret >= holy && ret > 0 ? "ret" : holy > 0 ? "holy" : "none";
     const tank = state.prio.tank != null ? state.prio.tank : spec === "prot";
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: you hold the boss (Righteous Fury, threat first). Off: you're free to deal damage." });
-    L.title = `${{ prot: "Protection", ret: "Retribution", holy: "Holy" }[spec]} Paladin${tank ? ", tanking" : ""}`;
+    const role = tank ? "dps" : roleOf(c);
+    if (!tank) L.toggles.push(roleToggle(c));
+    L.title = tank ? `${spec === "prot" ? "Protection " : ""}Paladin, tanking`
+      : spec === "holy" ? (role === "heal" ? "Holy Paladin" : "Holy Paladin, dealing damage")
+        : `${{ prot: "Protection ", ret: "Retribution ", none: "" }[spec]}Paladin${role === "heal" ? ", healing" : ""}`;
     L.facts.push(`Talents: ${holy} / ${prot} / ${ret}` + (c.talent["Holy Shield"] ? " · Holy Shield" : "") +
       (c.talent["Seal of Command"] ? " · Seal of Command" : "") + (c.talent["Light's Vigil"] ? " · Light's Vigil" : ""));
-    const setup = weaponSetup(c, L, spec === "ret" ? "2h" : "shield", ["shield", "2h"]);
+    // leveling and Retribution: a two-hander; tanks and healers: a shield
+    const setup = weaponSetup(c, L, spec === "prot" || role === "heal" ? "shield" : "2h", ["shield", "2h"]);
     weaponTalents(c, L, setup);
     const A = c.res;
     const unit = "mana";
     const desc = (n) => (c.spell(n) || {}).desc || "";
-    if (spec === "holy" && !tank) return healer(c, "Holy Paladin", `Talents: ${holy} / ${prot} / ${ret}`);
+    if (role === "heal") return healer(c, L.title, `Talents: ${holy} / ${prot} / ${ret}`, L.toggles);
 
     if (tank) {
       L.facts.push("No taunt in the Paladin spellbook (game data): you hold threat with damage, so open strong.");
@@ -441,6 +472,8 @@
         c.talent["Sanctified Judgement"] ? `Sanctified Judgement: ${fmt(numberAfter(talentText(c, "Sanctified Judgement"), "chance to return"))}% of the Seal's mana back` : null] });
     L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement on its own cooldown, free (game data).",
       facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
+    L.add("Holy Shock", { tag: "On cooldown", text: "Instant Holy damage from range" + (spec === "holy" ? ": a Holy \"Shockadin\" leans on it." : "."),
+      facts: [dmgLine(A["Holy Shock"], unit)] });
     L.add("Holy Strike", { tag: "On cooldown", text: "Weapon damage plus Holy damage.",
       facts: [dmgLine(A["Holy Strike"], unit), c.talent["Sacred Arbiter"] ? "Sacred Arbiter: +20% damage and it refreshes your Judgements" : null] });
     L.add("Hammer of the Righteous", { tag: "On cooldown", text: "With a one-handed axe, mace or sword.",
@@ -469,7 +502,16 @@
     const tank = state.prio.tank != null ? state.prio.tank : isFeral && !!(c.talent["Natural Reaction"] || c.talent["Thick Hide"]);
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: Bear Form tank (threat first). Off: Cat Form damage, e.g. an off-tank between pulls." });
-    if (!isFeral && !tank) return resto > bal ? healer(c, "Restoration Druid", `Talents: ${bal} / ${feral} / ${resto}`) : generic(c);
+    const role = tank ? "dps" : roleOf(c);
+    if (!tank) L.toggles.push(roleToggle(c));
+    if (role === "heal") return healer(c, "Restoration Druid", `Talents: ${bal} / ${feral} / ${resto}`, L.toggles);
+    if (!isFeral && !tank) {
+      // casting for damage: Wrath, Moonfire, Starfire (Balance, Restoration while leveling, or no talents yet)
+      const G = generic(c, L.toggles);
+      G.title = bal > resto ? "Balance Druid" : resto > 0 ? "Restoration Druid, dealing damage" : "Druid";
+      G.facts.unshift(`Talents: ${bal} / ${feral} / ${resto}`);
+      return G;
+    }
     L.title = `Feral Druid, ${tank ? "Bear Form tank" : "Cat Form damage"}`;
     L.facts.push(`Talents: ${bal} / ${feral} / ${resto}`);
     L.facts.push("Form attacks use Classic's base-attack rule (the game files don't hold it); everything else is Forever's data.");
@@ -632,12 +674,16 @@
 
   function shaman(c) {
     const [ele, enh, resto] = c.treePts;
-    const spec = c.talent["Stormstrike"] || (enh > ele && enh > resto) ? "enh" : resto > ele ? "resto" : "ele";
-    if (spec === "resto") return healer(c, "Restoration Shaman", `Talents: ${ele} / ${enh} / ${resto}`);
+    const role = roleOf(c);
+    if (role === "heal") return healer(c, "Restoration Shaman", `Talents: ${ele} / ${enh} / ${resto}`, [roleToggle(c)]);
+    // dealing damage: Enhancement's melee list or Elemental's spells, whichever tree has more (Restoration levels in melee)
+    const spec = c.talent["Stormstrike"] || enh > ele || (resto > ele && resto > 0) ? "enh" : "ele";
     const L = list(c);
+    L.toggles.push(roleToggle(c));
     const A = c.res, unit = "mana";
     const rot = c.R.rotation || {};
-    L.title = spec === "enh" ? "Enhancement Shaman" : "Elemental Shaman";
+    L.title = resto > Math.max(ele, enh) ? "Restoration Shaman, dealing damage" : spec === "enh" ? "Enhancement Shaman"
+      : ele > 0 ? "Elemental Shaman" : "Shaman";
     L.facts.push(`Talents: ${ele} / ${enh} / ${resto}` + ["Stormstrike", "Rage of the Farseer", "Lava Burst", "Elemental Mastery"]
       .filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
     if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
@@ -687,17 +733,23 @@
 
   function priest(c) {
     const [disc, holy, shadow] = c.treePts;
-    if (shadow > Math.max(disc, holy) || c.talent["Shadowform"]) {
-      const L = generic(c);
-      L.title = "Shadow Priest";
-      L.facts.unshift(`Talents: ${disc} / ${holy} / ${shadow}`);
-      L.section("Keep up", null);
-      L.add("Shadowform", { tag: "Always", text: "Stay in it: more Shadow damage and less damage taken (you can't cast Holy spells in it)." });
-      L.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
-      L.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
-      return L;
-    }
-    return healer(c, disc > holy ? "Discipline Priest" : "Holy Priest", `Talents: ${disc} / ${holy} / ${shadow}`);
+    const role = roleOf(c);
+    const line = `Talents: ${disc} / ${holy} / ${shadow}`;
+    if (role === "heal") return healer(c, disc > holy ? "Discipline Priest" : "Holy Priest", line, [roleToggle(c)]);
+    // dealing damage: Shadow, or Holy/Discipline while leveling (Smite, Holy Fire, Shadow Word: Pain, Mind Blast)
+    const shadowSpec = shadow > Math.max(disc, holy) || c.talent["Shadowform"];
+    const L = generic(c, [roleToggle(c)], (G) => {
+      G.section("Buffs and protection", null);
+      if (shadowSpec) {
+        G.add("Shadowform", { tag: "Always", text: "Stay in it: more Shadow damage, Shadow spells cost half the mana, and you take less damage (you can't cast Holy spells in it)." });
+        G.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
+      }
+      G.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
+      G.add("Power Word: Shield", { tag: "Before you're hit", text: "Solo: shield yourself before the mob reaches you, then keep casting." });
+    });
+    L.title = shadowSpec ? "Shadow Priest" : disc + holy > 0 ? `${disc > holy ? "Discipline" : "Holy"} Priest, dealing damage` : "Priest";
+    L.facts.unshift(line);
+    return L;
   }
 
   // ------------------------------------------------------------ healers (any class)
@@ -713,8 +765,9 @@
       group: ["Prayer of Healing", "Holy Nova", "Prayer of Mending"] },
   };
 
-  function healer(c, title, talentsLine) {
+  function healer(c, title, talentsLine, switches = []) {
     const L = list(c);
+    L.toggles.push(...switches);
     L.title = title;
     L.facts.push(talentsLine);
     if (!c.gearKnown) L.facts.push("No gear picked: healing numbers use your base stats only (Gear & Stats tab for real numbers).");
@@ -864,8 +917,8 @@
     L.toggles.push({ key: "style", label: "Style", value: state.prio.style, auto,
       options: [["auto", `Auto (${auto})`], ["ranged", "Ranged"], ["melee", "Melee"]],
       help: "Ranged: shots and Auto Shot. Melee: Forever's Survival melee kit (Raptor Strike, Lacerate, Mongoose Bite, Strider Kick)." });
-    const specName = bm >= mm && bm >= sv && bm > 0 ? "Beast Mastery" : mm >= sv && mm > 0 ? "Marksmanship" : sv > 0 ? "Survival" : "Hunter";
-    L.title = `${specName} Hunter, ${style}`;
+    const specName = bm >= mm && bm >= sv && bm > 0 ? "Beast Mastery " : mm >= sv && mm > 0 ? "Marksmanship " : sv > 0 ? "Survival " : "";
+    L.title = `${specName}Hunter, ${style}`;
     L.facts.push(`Talents: ${bm} / ${mm} / ${sv}` + (meleeTalents.length ? ` · melee talents: ${meleeTalents.join(", ")}` : ""));
     if (c.gearKnown) {
       L.facts.push(style === "ranged" ? (c.ranged ? `Ranged weapon: ${c.ranged.name}` : "No ranged weapon equipped") :
@@ -989,9 +1042,11 @@
 
   // ------------------------------------------------------------ everyone else: from the numbers alone
 
-  function generic(c) {
+  function generic(c, switches = [], first = null) {
     const L = list(c);
+    L.toggles.push(...switches);
     L.title = `${state.cls.name}: basic list`;
+    if (first) first(L); // class sections that come before the attacks (buffs, forms)
     L.facts.push("A full priority for this class is coming. Until then: your damage abilities by the numbers.");
     const unit = { 0: "mana", 1: "rage", 3: "energy" }[state.cls.power] || "mana";
     const ready = c.R.abilities.filter((a) => !a.locked && a.expected && !a.cc && !a.aoe);

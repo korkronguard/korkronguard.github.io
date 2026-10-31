@@ -53,6 +53,8 @@
       if (build.weapons) state.prio.weapons = build.weapons;
       if (build.style) state.prio.style = build.style;
       state.prio.tank = build.role === "tank";
+      // leveling builds deal damage (even the "healer who fights" ones); level 60 healer builds heal
+      state.prio.role = build.kind === "leveling" ? "dps" : build.role === "heal" ? "heal" : "auto";
     }
     app.setView("talents", false);
     app.changed();
