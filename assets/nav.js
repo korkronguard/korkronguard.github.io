@@ -10,6 +10,7 @@
     ["lore", "lore.html", "The Lore"],
     ["guard", "players/index.html", "The Guard"],
     ["calendar", "calendar.html", "Calendar"],
+    ["tools", "index.html#tools", "Guild Tools"],
     ["planner", "planner/index.html", "Planner"],
     ["join", "index.html#join", "Join"]
   ];
