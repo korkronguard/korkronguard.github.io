@@ -46,7 +46,8 @@
 
   // Background music: "Gathering Force", quiet and looping, with an on/off button in the corner.
   // Browsers won't play sound until the visitor clicks or presses a key, so it starts on the first one.
-  // The on/off choice is remembered; the song picks up where it left off on the next page.
+  // Every visit starts with music on; turning it off lasts for the rest of that visit (sessionStorage).
+  // The song picks up where it left off on the next page.
   var VOLUME = 0.15;
   var store = function (kind, key, value) {
     try {
@@ -59,7 +60,8 @@
   music.loop = true;
   music.volume = VOLUME;
   music.preload = "auto";
-  var wantOn = store("localStorage", "kg-music") !== "off";
+  try { localStorage.removeItem("kg-music"); } catch (e) {} // clear the old remember-forever setting
+  var wantOn = store("sessionStorage", "kg-music") !== "off";
   var resumeAt = parseFloat(store("sessionStorage", "kg-music-time")) || 0;
   if (resumeAt) music.addEventListener("loadedmetadata", function () { music.currentTime = resumeAt; }, { once: true });
 
@@ -94,7 +96,7 @@
   }
   soundBtn.addEventListener("click", function () {
     wantOn = !(wantOn && !music.paused);
-    store("localStorage", "kg-music", wantOn ? "on" : "off");
+    store("sessionStorage", "kg-music", wantOn ? "on" : "off");
     if (wantOn) start(); else music.pause();
     paint();
   });
