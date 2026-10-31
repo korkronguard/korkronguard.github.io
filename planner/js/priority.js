@@ -452,11 +452,17 @@
 
     // dealing damage (Retribution, or a Protection Paladin off-tanking)
     L.section("Keep up", null);
-    if (c.has("Seal of Command") && c.hold.twoHand) {
-      L.add("Seal of Command", { tag: "Keep up", text: "Your damage Seal with a slow two-hander: extra Holy hits worth 70% of your weapon damage.",
-        facts: [dmgLine(A["Seal of Command"], unit)] });
+    // the Seal the damage estimate found better (both are worked out once Seal of Command is learned)
+    const rot = c.R.rotation || {};
+    const sealDps = rot.sealDps || {};
+    const sealFact = sealDps.Command && sealDps.Righteousness
+      ? `Estimate with your gear: Command ${fmt(sealDps.Command, 1)} vs Righteousness ${fmt(sealDps.Righteousness, 1)} damage per second (Seal + its Judgement)` : null;
+    if (rot.seal ? rot.seal === "Command" : c.has("Seal of Command") && c.hold.twoHand) {
+      L.add("Seal of Command", { tag: "Keep up", text: "Your damage Seal: extra Holy hits worth 70% of your weapon damage (slow weapons proc as often but hit harder). " +
+        "Its Judgement does full damage only on a stunned target: judge right after Hammer of Justice.",
+        facts: [dmgLine(A["Seal of Command"], unit), sealFact] });
     } else {
-      L.add("Seal of Righteousness", { tag: "Keep up", text: "Holy damage on every hit; slower weapons hit harder with it." });
+      L.add("Seal of Righteousness", { tag: "Keep up", text: "Holy damage on every hit; slower weapons hit harder with it.", facts: [sealFact] });
     }
     if (c.talent["Unsealed Wrath"]) {
       L.add("Unsealed Wrath", { always: true, icon: talentIcon(c, "Unsealed Wrath"), tag: "Talent", source: "theory",

@@ -1064,7 +1064,7 @@
       const land = (100 - table(ctx, S, "magic").miss) / 100;
       const hits = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) +
         (regen / pick.energy) * (pick.n + 1) * 0.9; // ability hits on the main hand
-      const d = hits * chance * poison.value * vile * land * (1 + damagePct(S, 8) / 100);
+      const d = hits * chance * procAt(poison, level) * vile * land * (1 + damagePct(S, 8) / 100);
       parts.push({ name: "Instant Poison (both weapons)", dps: d });
       dps += d;
       notes.push(`Instant Poison on both weapons, ${Math.round(chance * 100)}% chance per hit (the base 20% is Classic's; not in the files)`);
@@ -1085,6 +1085,9 @@
     for (const x of (KP.abilities.PROCS || {})[name] || []) if (x.level <= level) r = x;
     return r;
   };
+  // a proc rank's number at a level: it grows from the rank's SpellLevel up to its MaxLevel
+  const procAt = (p, level, key = "value", per = "perLevel") =>
+    p[key] + (p[per] || 0) * Math.max(0, Math.min(level, p.maxLevel || level) - (p.spellLevel || p.level));
   // a white swing's raw average (weapon + attack power), before armor: for Holy damage based on the weapon
   const rawSwing = (S, w, extraAp = 0) => (w.weapon.min + w.weapon.max) / 2 + ((S.ap + extraAp) / 14) * w.weapon.speed;
   // a melee swing's expected damage with more attack power, scaled from the white-hit numbers
@@ -1094,6 +1097,7 @@
   // (in Forever it doesn't use up the Seal), Holy Strike, Hammer of the Righteous with a one-hander, Hammer of
   // Wrath in the last 20% of the fight, all within the mana you have.
   const SOC_PPM = 7; // Seal of Command procs per minute: Classic's rate; the game files don't hold it
+  const SOR_SPEEDS = [1.5, 3.8]; // weapon speeds taken as the ends of Seal of Righteousness's tooltip range (estimate)
   function retRotation(ctx, S, white, byName) {
     const mh = white.find((w) => w.label === "Main hand");
     if (!mh || !S.mh) return null;
@@ -1104,65 +1108,99 @@
     const vMult = 1 + vengeance / 100;
     const land = Math.max(0, 100 - mh.miss - mh.dodge) / 100;
     const crit = Math.min(100, S.crit - critSuppression(ctx)) / 100;
-    const parts = [{ name: "White hits", dps: mh.dps * vMult }];
-    let dps = mh.dps * vMult;
-    const notes = [];
-    const soc = learnedTalent(ctx, "Seal of Command") && bookRank("PALADIN", "Seal of Command", level);
-    if (soc) {
-      const perProc = (0.7 * rawSwing(S, S.mh) * (1 + crit) + 0.29 * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult;
-      const d = (SOC_PPM / 60) * land * perProc;
-      parts.push({ name: "Seal of Command procs", dps: d });
-      dps += d;
-      notes.push(`Seal of Command at ${SOC_PPM} procs a minute (Classic's rate; not in the game files)`);
-    } else {
-      notes.push("Seal of Righteousness's damage per hit isn't in the game files, so it isn't counted");
-    }
-    const baseMana = (rules.baseMana.PALADIN || [])[level - 1] || 0;
-    const sealCost = soc ? soc.cost : ((bookRank("PALADIN", "Seal of Righteousness", level) || {}).cost || 0);
-    const shots = [];
-    const jr = procRank(soc ? "Judgement of Command" : "Judgement of Righteousness", level);
-    const jRank = bookRank("PALADIN", "Judgement", level);
-    if (jr && jRank) {
-      const cd = Math.max(1, jRank.cdMs / 1000 - talentNumber(ctx, "Improved Judgement", /by (\d+) sec/));
-      const per = (jr.value + jr.coef * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
-      const refund = talentNumber(ctx, "Sanctified Judgement", /return (\d+)%/) / 100;
-      shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: 1 / cd,
-        // Sanctified Judgement gives back part of the judged Seal's cost
-        mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
-        busy: 1.5, cast: 0 });
-      // Swift Judgement (Protection talent): another Judgement on its own cooldown, free (game data)
-      const sj = learnedTalent(ctx, "Swift Judgement") && bookRank("PALADIN", "Swift Judgement", level);
-      if (sj && sj.cdMs) {
-        shots.push({ name: "Swift Judgement", perUse: per, rate: 1000 / sj.cdMs,
-          mana: (sj.costPct || 0) * baseMana / 100 + (sj.cost || 0), busy: 1.5, cast: 0 });
+    const socRank = learnedTalent(ctx, "Seal of Command") && bookRank("PALADIN", "Seal of Command", level);
+    const sorRank = bookRank("PALADIN", "Seal of Righteousness", level);
+    // with Seal of Command learned, both Seals are worked out and the better one kept
+    const runs = [socRank, sorRank].filter(Boolean).map((r) => retSeal(r === socRank));
+    if (!runs.length) return null;
+    const best = runs.reduce((a, b) => (b.dps > a.dps ? b : a));
+    const other = runs.find((r) => r !== best);
+    if (other) best.notes.unshift(`Seal of ${best.seal} beats Seal of ${other.seal} here (${best.dps.toFixed(1)} vs ${other.dps.toFixed(1)} damage per second)`);
+    const note = best.notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
+    return { dps: best.dps, parts: best.parts.filter((p) => p.dps > 0.05), note, manaSpent: best.manaSpent,
+      seal: best.seal, sealDps: Object.fromEntries(runs.map((r) => [r.seal, r.dps])) };
+
+    function retSeal(useSoc) {
+      const parts = [{ name: "White hits", dps: mh.dps * vMult }];
+      let dps = mh.dps * vMult;
+      const notes = [];
+      const soc = useSoc && socRank;
+      const jr = procRank(soc ? "Judgement of Command" : "Judgement of Righteousness", level);
+      if (soc) {
+        const perProc = (0.7 * rawSwing(S, S.mh) * (1 + crit) + 0.29 * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult;
+        const d = (SOC_PPM / 60) * land * perProc;
+        parts.push({ name: "Seal of Command procs", dps: d });
+        dps += d;
+        notes.push(`Seal of Command at ${SOC_PPM} procs a minute (Classic's rate; not in the game files)`);
+      } else if (jr && jr.sealValue) {
+        // Seal of Righteousness on every landed swing. The tooltip's range runs from a fast one-hander (value/87 +
+        // 7.65% Holy spell power) to a slow two-hander (value/25 + 12%); where a weapon falls in it is placed by its
+        // speed between SOR_SPEEDS (an estimate: the exact rule isn't in the files)
+        const v = procAt(jr, level, "sealValue", "sealPerLevel"), sp = spellPowerFor(S, 2);
+        const t = Math.min(1, Math.max(0, (S.mh.weapon.speed - SOR_SPEEDS[0]) / (SOR_SPEEDS[1] - SOR_SPEEDS[0])));
+        const lo = v / 87 + 0.0765 * sp, hi = v / 25 + 0.12 * sp;
+        const perHit = (lo + t * (hi - lo)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
+        const d = land / mh.effSpeed * perHit;
+        parts.push({ name: "Seal of Righteousness hits", dps: d });
+        dps += d;
+        notes.push(`Seal of Righteousness at ${Math.round(perHit)} Holy damage per hit with a ${S.mh.weapon.speed.toFixed(1)} sec weapon ` +
+          `(estimate: the tooltip gives ${Math.round(lo)} to ${Math.round(hi)} from fast one-handers to slow two-handers)`);
       }
+      const baseMana = (rules.baseMana.PALADIN || [])[level - 1] || 0;
+      const sealCost = soc ? soc.cost : ((sorRank || {}).cost || 0);
+      const shots = [];
+      const jRank = bookRank("PALADIN", "Judgement", level);
+      if (jr && jRank) {
+        const cd = Math.max(1, jRank.cdMs / 1000 - talentNumber(ctx, "Improved Judgement", /by (\d+) sec/));
+        // Judgement of Command: half damage unless the target is stunned (tooltip); one Judgement per Hammer of
+        // Justice cooldown is counted on a stunned target
+        let value = procAt(jr, level);
+        if (soc) {
+          const hoj = bookRank("PALADIN", "Hammer of Justice", level);
+          const stunnedShare = hoj && hoj.cdMs ? Math.min(1, cd / (hoj.cdMs / 1000)) : 0;
+          value = value / 2 * (1 + stunnedShare);
+          notes.push(stunnedShare ? `Judgement of Command at half damage, except one a minute after Hammer of Justice (full damage on a stunned target)`
+            : `Judgement of Command at half damage (full only on a stunned target)`);
+        }
+        const per = (value + jr.coef * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
+        const refund = talentNumber(ctx, "Sanctified Judgement", /return (\d+)%/) / 100;
+        shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: 1 / cd,
+          // Sanctified Judgement gives back part of the judged Seal's cost
+          mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
+          busy: 1.5, cast: 0 });
+        // Swift Judgement (Protection talent): another Judgement on its own cooldown, free (game data)
+        const sj = learnedTalent(ctx, "Swift Judgement") && bookRank("PALADIN", "Swift Judgement", level);
+        if (sj && sj.cdMs) {
+          shots.push({ name: "Swift Judgement", perUse: per, rate: 1000 / sj.cdMs,
+            mana: (sj.costPct || 0) * baseMana / 100 + (sj.cost || 0), busy: 1.5, cast: 0 });
+        }
+      }
+      const hs = byName["Holy Strike"];
+      if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: 1 / Math.max(1.5, hs.cdMs / 1000), mana: hs.cost, busy: 1.5, cast: 0 });
+      const hotr = bookRank("PALADIN", "Hammer of the Righteous", level);
+      const oneHand = S.mh.inv !== 17;
+      if (hotr && oneHand) {
+        const per = 3 * (rawSwing(S, S.mh) / S.mh.weapon.speed) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
+        shots.push({ name: "Hammer of the Righteous", perUse: per, rate: 1 / Math.max(1.5, hotr.cdMs / 1000), mana: (hotr.costPct || 6) * baseMana / 100, busy: 1.5, cast: 0 });
+      }
+      const how = byName["Hammer of Wrath"];
+      if (how && !how.locked && how.expected) {
+        shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: 0.2 / Math.max(1.5, how.cdMs / 1000), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
+      }
+      // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec)
+      const budget = manaBudget(ctx, S, keepWhileCasting);
+      const fitted = fitShots(shots, Math.max(0, budget.perSec - sealCost / 30));
+      for (const s of fitted) {
+        dps += s.dps;
+        parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+      }
+      if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
+      const manaSpent = sealCost / 30 + manaUsed(fitted);
+      if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
+      if (learnedTalent(ctx, "Unsealed Wrath")) notes.push("Unsealed Wrath's stored Seals (switching Seals mid-fight) aren't counted");
+      notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
+      return { dps, parts, notes, manaSpent, seal: soc ? "Command" : "Righteousness" };
     }
-    const hs = byName["Holy Strike"];
-    if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: 1 / Math.max(1.5, hs.cdMs / 1000), mana: hs.cost, busy: 1.5, cast: 0 });
-    const hotr = bookRank("PALADIN", "Hammer of the Righteous", level);
-    const oneHand = S.mh.inv !== 17;
-    if (hotr && oneHand) {
-      const per = 3 * (rawSwing(S, S.mh) / S.mh.weapon.speed) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
-      shots.push({ name: "Hammer of the Righteous", perUse: per, rate: 1 / Math.max(1.5, hotr.cdMs / 1000), mana: (hotr.costPct || 6) * baseMana / 100, busy: 1.5, cast: 0 });
-    }
-    const how = byName["Hammer of Wrath"];
-    if (how && !how.locked && how.expected) {
-      shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: 0.2 / Math.max(1.5, how.cdMs / 1000), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
-    }
-    // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec)
-    const budget = manaBudget(ctx, S, keepWhileCasting);
-    const fitted = fitShots(shots, Math.max(0, budget.perSec - sealCost / 30));
-    for (const s of fitted) {
-      dps += s.dps;
-      parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
-    }
-    if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
-    const manaSpent = sealCost / 30 + manaUsed(fitted);
-    if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
-    if (learnedTalent(ctx, "Unsealed Wrath")) notes.push("Unsealed Wrath's stored Seals (switching Seals mid-fight) aren't counted");
-    notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
-    const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
   }
 
   // Windfury Weapon's extra attacks on white hits, Stormstrike, the best shock (Stormstrike makes the next one
