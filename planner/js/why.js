@@ -43,7 +43,7 @@
     const S = R.S;
     const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * (level + 3)));
     const avoid = Math.min(0.6, (S.dodge + S.parry + S.block) / 100 + Math.max(0, S.defense) * 0.0004);
-    return S.health / ((1 - armorDR) * (1 - avoid));
+    return S.health / ((1 - armorDR) * (1 - avoid)) / (1 + (S.damageTaken || 0) / 100);
   }
 
   // what each picked talent is worth now (your level, gear and buffs): take all its points out and compare

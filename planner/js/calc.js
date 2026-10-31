@@ -119,6 +119,7 @@
       dmgPct: [],     // damage done %: { school, value, name }
       healCrit: [],   // critical healing bonus %: { school, value } (Holy Power)
       costSchool: [], // mana cost % for a school's spells: { school, value } (Shadowform -50% Shadow)
+      damageTaken: 0, // % physical damage taken (Molten Skin -10, Shadowform -15): survival and leveling rest
       offhandPct: 0, armorIgnore: 0, extraAttack: 0,
       healthPct: 0, powerPct: 0, apPct: 0, rapPct: 0, spPct: 0, meleeHaste: 0, rangedHaste: 0, castHaste: 0,
       lines: [],      // for the sheet: what each talent added
@@ -159,6 +160,7 @@
           if (e.aura === 79) { out.dmgPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`+${Math.round(v * 10) / 10}% damage`); }
           if (e.aura === 72) { out.costSchool.push({ school: e.misc, value: v }); parts.push(`${Math.round(v)}% mana cost`); }
           if (e.aura === 51 && share === 1) { out.block += v; parts.push(`+${v}% block`); } // Holy Shield, kept up
+          if (e.aura === 87 && e.misc & 1) { out.damageTaken += v; parts.push(`${Math.round(v * 10) / 10}% physical damage taken`); }
           if ((e.aura === 107 || e.aura === 108) && e.mask && e.mask.some((m) => m)) {
             out.mods.push({ op: e.misc, pct: e.aura === 108, value: v, mask: e.mask, name: t.name });
             if (e.misc === 0) parts.push(`+${Math.round(v * 10) / 10}% damage to its spells`);
@@ -192,6 +194,7 @@
             }
             break;
           case 79: out.dmgPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`+${v}% damage`); break;
+          case 87: if (e.misc & 1) { out.damageTaken += v; parts.push(`${v}% physical damage taken`); } break;
           case 50: out.healCrit.push({ school: e.misc, value: v }); parts.push(`+${v}% critical healing bonus`); break;
           case 122: out.offhandPct += v; parts.push(`+${v}% off-hand damage`); break;
           case 280: out.armorIgnore += v; parts.push(`ignores ${v}% armor`); break;
@@ -219,6 +222,7 @@
         }
       }
     });
+    handRules(ctx, out);
     // gear bonuses that work like talents (stat %, crit, hit, ability modifiers from set bonuses)
     for (const a of gearAuras(ctx)) {
       const v = a.value;
@@ -244,6 +248,31 @@
     return out;
   }
 
+  // Talents whose effect the server works out (a "dummy" aura in the files): their number comes from the tooltip.
+  // Shadow Weaving and Shadow and Flame are assumed at full effect (you cast Shadow spells / Conflagrate all fight).
+  function handRules(ctx, out) {
+    const text = (name) => { const i = ctx.flat.findIndex((t) => t.name === name); const r = i >= 0 ? ctx.ranks[i] : 0; return r ? ctx.flat[i].desc[r - 1] || "" : ""; };
+    const learned = (name) => !!text(name) || ctx.flat.some((t, i) => t.name === name && ctx.ranks[i]);
+    let m;
+    if ((m = /by (\d+)% for \d+ sec, stacking up to (\d+) times/.exec(text("Shadow Weaving")))) {
+      out.dmgPct.push({ school: 32, value: m[1] * m[2], name: "Shadow Weaving" });
+      out.lines.push({ name: "Shadow Weaving", text: `+${m[1] * m[2]}% Shadow damage (${m[2]} stacks kept up)` });
+    }
+    const snf = text("Shadow and Flame");
+    if (snf) {
+      const sh = /Conflagrate increases all Shadow damage you deal by (\d+)%/.exec(snf), fi = /Shadowburn increases all Fire damage you deal by (\d+)%/.exec(snf);
+      const parts = [];
+      if (sh && learned("Conflagrate")) { out.dmgPct.push({ school: 32, value: +sh[1], name: "Shadow and Flame" }); parts.push(`+${sh[1]}% Shadow (Conflagrate)`); }
+      if (fi && learned("Shadowburn")) { out.dmgPct.push({ school: 4, value: +fi[1], name: "Shadow and Flame" }); parts.push(`+${fi[1]}% Fire (Shadowburn)`); }
+      if (parts.length) out.lines.push({ name: "Shadow and Flame", text: parts.join(", ") + ", assuming you use them on cooldown" });
+    }
+    // Improved Righteous Fury changes Righteous Fury itself: counts while tanking (Righteous Fury on)
+    if (ctx.tank && (m = /all damage taken is reduced by (\d+)%/.exec(text("Improved Righteous Fury")))) {
+      out.damageTaken -= +m[1];
+      out.lines.push({ name: "Improved Righteous Fury", text: `-${m[1]}% damage taken while tanking (Righteous Fury on)` });
+    }
+  }
+
   // Racials (game data). Always-on ones count fully; cooldowns (Blood Fury, Berserking, Elune's Light, Eureka!) are
   // averaged over their cooldown, as if used whenever ready. Damage against one creature type isn't counted.
   function racialEffects(ctx, out) {
@@ -266,6 +295,7 @@
             for (const [stat, bit] of STAT_BITS) if (a.misc === -1 || a.misc2 & bit) { out.statPct[stat] += v; parts.push(`+${r1(v)}% ${stat}`); }
             break;
           case 133: out.healthPct += v; parts.push(`+${r1(v)}% health`); break;
+          case 87: if (a.misc & 1) { out.damageTaken += v; parts.push(`${r1(v)}% physical damage taken`); } break;
           case 178: if (a.misc === ctx.cls.power) { out.powerPct += v; parts.push(`+${r1(v)}% maximum ${["mana", "rage", "", "energy"][a.misc]}`); } break;
           case 319: out.meleeHaste += v; parts.push(`+${r1(v)}% attack speed`); break;
           case 140: out.rangedHaste += v; parts.push(`+${r1(v)}% ranged attack speed`); break;
@@ -369,7 +399,7 @@
       rap: (Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
       // haste from racials (Wind Blessed, Berserking averaged): melee and ranged attack speed, casting speed
-      meleeHaste: tal.meleeHaste, rangedHaste: tal.rangedHaste, castHaste: tal.castHaste,
+      meleeHaste: tal.meleeHaste, rangedHaste: tal.rangedHaste, castHaste: tal.castHaste, damageTaken: tal.damageTaken,
       hit: g("hit") / per("meleeHit") + tal.hit,
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + buffValue(ctx, "Leader of the Pack"),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
@@ -389,7 +419,7 @@
       health: Math.round((rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana")) * (1 + tal.powerPct / 100)) : 0,
-      mp5: g("manaRegen"),
+      mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)
       // in a Druid form the form's own attack replaces the weapon
       mh: form ? formWeapon(form, lvl) : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
       oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
@@ -647,9 +677,16 @@
       const r = retRotation(ctx, S, white, byName);
       if (r) return r;
     }
-    if (token === "SHAMAN" && white.length && S.mh) {
+    // Shaman: melee or casting by the main tree (more Elemental points: casting; more Enhancement: melee); with
+    // neither ahead, whichever does more. A build can say which (ctx.style "caster" / "melee").
+    const shamanPts = [0, 0, 0];
+    if (token === "SHAMAN") ctx.flat.forEach((t, i) => { shamanPts[t.tree] += ctx.ranks[i] || 0; });
+    const shamanStyle = ctx.style === "caster" || ctx.style === "melee" ? ctx.style
+      : shamanPts[0] > shamanPts[1] ? "caster" : shamanPts[1] > shamanPts[0] ? "melee" : null;
+    if (token === "SHAMAN" && white.length && S.mh && shamanStyle !== "caster") {
       const r = enhRotation(ctx, S, white, byName);
       if (r && r.dps > whiteDps) {
+        if (shamanStyle === "melee") return r;
         const caster = casterRotation(ctx, S, abilities);
         if (!caster || r.dps >= caster.dps) return r;
       }
@@ -659,9 +696,12 @@
       if (d) return d;
     }
 
+    // a caster casts (its spare time out of mana goes to the wand, inside casterRotation); white hits alone are only
+    // for a class with no rotation worked out
     if (ctx.cls.power === 0) {
-      const c = casterRotation(ctx, S, abilities);
-      if (c && (!white.length || c.dps > whiteDps)) return c;
+      const wand = white.find((w) => w.label === "Wand");
+      const c = casterRotation(ctx, S, abilities, wand ? wand.dps : 0);
+      if (c) return c;
     }
     return result(whiteDps + extra, white.length ? "White hits only; this class's rotation isn't worked out yet." : "Equip a weapon to see damage.");
   }
@@ -724,23 +764,24 @@
   // Damage-over-time spells worth keeping up, then the best filler you can afford over a fight: the strongest
   // spell, or a mix of a strong one and an efficient one when the strong one would run you out of mana.
   // A Warlock also tries spending some of the fight on Life Tap (one global cooldown each) and keeps the best.
-  function casterRotation(ctx, S, abilities) {
+  function casterRotation(ctx, S, abilities, wandDps = 0) {
     const tap = lifeTapMana(ctx, S);
-    let best = casterRotationWith(ctx, S, abilities, 0, 0);
+    let best = casterRotationWith(ctx, S, abilities, 0, 0, wandDps);
     if (!best || !tap) return best;
     for (let share = 0.02; share <= 0.4; share += 0.02) {
-      const r = casterRotationWith(ctx, S, abilities, share, tap.mana);
+      const r = casterRotationWith(ctx, S, abilities, share, tap.mana, wandDps);
       if (r && r.dps > best.dps + 0.01) best = { ...r, tapHealth: (share * tap.health) / 1.5 };
     }
     return best;
   }
 
-  function casterRotationWith(ctx, S, abilities, tapShare, tapMana) {
+  function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0) {
     const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
     const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
     const baseMana = (rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0;
     // talents that make casts cheaper on average: Clearcasting procs (Arcane Concentration), Master of Elements refunds
-    const clearcast = talentNumber(ctx, "Arcane Concentration", /(\d+)% chance/) / 100;
+    const clearcast = (talentNumber(ctx, "Arcane Concentration", /(\d+)% chance/) ||
+      talentNumber(ctx, "Elemental Focus", /(\d+)% chance/)) / 100; // Mage / Shaman Clearcasting
     const moe = talentNumber(ctx, "Master of Elements", /refund (\d+)%/) / 100;
     const manaOf = (a) => {
       const raw = a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
@@ -807,6 +848,12 @@
     if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
     const fd = pick.d * free;
     dps += fd;
+    // out of mana: the time you can't afford to cast goes to the wand (Mage, Priest, Warlock), which costs nothing
+    const idle = pick.starved ? free * (1 - pick.f) : 0;
+    if (wandDps && idle > 0.01) {
+      parts.push({ name: `Wand (${Math.round(idle * 100)}% of the time, out of mana)`, dps: wandDps * idle });
+      dps += wandDps * idle;
+    }
     if (pick.f >= 0.999 || pick.A === pick.B) {
       parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd });
       if (pick.A !== best) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
@@ -1591,7 +1638,9 @@
       }
     }
     const mods = modsFor(S, rank);
-    const src = { ...rank, familyName: ab.name };
+    // talents that lengthen it (Improved Shadow Word: Pain +6 sec, Nature's Splendor): more ticks
+    const durMs = Math.max(0, ((rank.durMs || 0) + mods.flat(1)) * (1 + mods.pct(1) / 100));
+    const src = { ...rank, durMs, familyName: ab.name };
     let r = effectDamage(rank.effects, src, S, ctx, "mainHand", mods);
     // spells it sets off: add their damage (a periodic trigger fires once per tick)
     const periodicTrigger = rank.effects.find((e) => e.effect === 6 && e.aura === 23 && e.trigger);
@@ -1622,7 +1671,10 @@
     const mit = physicalHit ? 1 - mitigation(ctx, S) : 1;
     const dmin = r.hasDirect ? (r.dmin + flatDmg) * dmgMult * mit : 0;
     const dmax = r.hasDirect ? (r.dmax + flatDmg) * dmgMult * mit : 0;
-    const dot = r.dot * dotMult;
+    // Improved Mind Flay: each tick hits harder than the last (the server's rule; its tooltip has the %)
+    const growth = ab.name === "Mind Flay" ? talentNumber(ctx, "Improved Mind Flay", /deals (\d+)% more damage than its previous/) / 100 : 0;
+    const tickGrowth = growth && r.ticks > 1 ? sum(Array.from({ length: r.ticks }, (_, k) => (1 + growth) ** k)) / r.ticks : 1;
+    const dot = r.dot * dotMult * tickGrowth;
     const isSpell = r.kind === "magic";
     const critChance = Math.max(0, (isSpell ? S.spellCrit : S.crit - critSuppression(ctx)) + mods.flat(7));
     const critMult = 1 + (isSpell ? 0.5 : 1) * (1 + mods.pct(15) / 100);
@@ -1658,7 +1710,7 @@
       combo: r.combo, aoe: r.area && !r.single,
       // crowd control (root, stun, fear, sleep): not part of a damage rotation
       cc: rank.effects.some((e) => e.effect === 6 && [5, 7, 12, 26].includes(e.aura)), directExpected, dotExpected, channeled: !!rank.channeled,
-      durMs: rank.durMs, mods: [...new Set(mods.list.map((m) => m.name))],
+      durMs, mods: [...new Set(mods.list.map((m) => m.name))],
       perSecond: isSpell && ctx.cls.power === 0 && (expected || heal)
         ? (expected || heal * (1 + critChance / 100 * 0.5)) / Math.max(1.5, (channelMs || castMs) / 1000) : null,
     };

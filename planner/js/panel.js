@@ -30,7 +30,7 @@
   // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
   const BUFF_KEYS = { b: "Battle Shout", m: "Blessing of Might", k: "Blessing of Kings", w: "Mark of the Wild",
     e: "Strength of Earth", g: "Grace of Air", y: "Windfury Totem", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
-    s: "Sunder Armor", x: "Expose Armor", f: "Faerie Fire", r: "Curse of Recklessness" };
+    s: "Sunder Armor", x: "Expose Armor", f: "Faerie Fire", r: "Curse of Recklessness", d: "Blessing of Wisdom" };
   // [name, label, who brings it, what it does ({v} = the number at your level)]
   const BUFF_LIST = [
     ["Group buffs", [
@@ -44,6 +44,7 @@
       ["Leader of the Pack", "Leader of the Pack", "Feral Druid (talent)", "+{v}% crit"],
       ["Trueshot Aura", "Trueshot Aura", "Hunter (talent)", "+{v} ranged attack power"],
       ["Arcane Intellect", "Arcane Intellect", "Mage", "+{v} Intellect"],
+      ["Blessing of Wisdom", "Blessing of Wisdom", "Paladin", "+{v} mana every 5 sec"],
     ]],
     ["Target debuffs", [
       ["Sunder Armor", "Sunder Armor ×5", "Warrior", "−{v} armor per stack, 5 stacks"],
@@ -96,7 +97,7 @@
       cls: state.cls, level: state.level, flat: app.flat(), ranks: ranks || app.liveRanks(),
       race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
       worn: app.worn ? app.worn() : [], base: state.base, target: target(), buffs: state.buffs,
-      style: (state.prio || {}).style, // Hunter ranged/melee choice from the Priority tab
+      style: state.cls && state.cls.token === "HUNTER" ? (state.prio || {}).style : undefined, // Hunter ranged/melee choice (Priority tab)
       tank: (state.prio || {}).tank,   // tank mode (a Druid tanks in Bear Form)
     };
   }

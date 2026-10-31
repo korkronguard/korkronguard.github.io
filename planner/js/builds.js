@@ -50,8 +50,9 @@
     state.loadedBuild = build.key; // "Why these talents" uses the build's own numbers while the picks still match
     // set the Priority tab up for the build too
     if (state.prio) {
-      if (build.weapons) state.prio.weapons = build.weapons;
-      if (build.style) state.prio.style = build.style;
+      // the Priority tab's weapon choice (a Rogue picks a main hand: daggers or anything else)
+      if (build.weapons) state.prio.weapons = state.cls.token === "ROGUE" ? (build.weapons === "daggers" ? "dagger" : "other") : build.weapons;
+      if (build.style && state.cls.token === "HUNTER") state.prio.style = build.style; // ranged or melee Hunter
       state.prio.tank = build.role === "tank";
       // leveling builds deal damage (even the "healer who fights" ones); level 60 healer builds heal
       state.prio.role = build.kind === "leveling" ? "dps" : build.role === "heal" ? "heal" : "auto";
