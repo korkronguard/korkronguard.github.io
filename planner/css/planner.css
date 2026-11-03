@@ -571,6 +571,12 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .why-why { font-size: 14px; margin-top: 4px; }
 .why-why strong { color: var(--gold); }
 
+/* ---------- gear tab: Equip BiS ---------- */
+.gear-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.gear-tools .pfield select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; }
+.gear-tools .btn:disabled { opacity: .55; cursor: default; }
+.gear-bis-note { flex-basis: 100%; margin: 0; }
+
 /* ---------- abilities tab (spreadsheet-style table) ---------- */
 .lab-bar { gap: 8px 22px; }
 .lab-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }

@@ -1823,6 +1823,14 @@
     return { S, results };
   }
 
+  // survival: health through armor and avoidance against a raid boss (the measure the builds, "why" and Equip BiS use)
+  function ehp(R, level) {
+    const S = R.S;
+    const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * (level + 3)));
+    const avoid = Math.min(0.6, (S.dodge + S.parry + S.block) / 100 + Math.max(0, S.defense) * 0.0004);
+    return S.health / ((1 - armorDR) * (1 - avoid)) / (1 + (S.damageTaken || 0) / 100);
+  }
+
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
   function manaInfo(ctx) {
     const S = stats(ctx);
@@ -1830,5 +1838,5 @@
     return { pool: S.mana, regen: S.mp5 / 5 + ((b + S.attr.spirit / per) / 2) * keepWhileCasting(ctx) / 100 };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS };
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp };
 })();

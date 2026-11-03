@@ -165,11 +165,15 @@
     return true;
   }
 
-  // Why this item can't go in this slot for this character (null if it can).
-  function whyNot(it, slotKey) {
+  const myFaction = () => (KP.classes.races.find((r) => r.id === state.race) || {}).faction;
+
+  // Why this item can't go in this slot for this character (null if it can). `mh` = the main hand to check an off-hand
+  // item against (default: the one worn now; Equip BiS passes its own).
+  function whyNot(it, slotKey, mh) {
     const slot = slotByKey[slotKey];
     const cls = state.cls;
     if (!slot.inv.includes(it.inv)) return "Wrong slot.";
+    if (it.faction && myFaction() && it.faction !== myFaction()) return `${it.faction} only.`;
     if (it.classMask && !(it.classMask & (1 << (cls.id - 1)))) return `${cls.name}s can't use this.`;
     if (it.class === 2 && !(WEAPONS[cls.token] || []).includes(it.subclass)) return `${cls.name}s can't use ${WEAPON_NAMES[it.subclass] || "this weapon"}s.`;
     const wl = it.class === 2 && (WEAPON_LEVEL[cls.token] || {})[it.subclass];
@@ -184,8 +188,8 @@
         if (!dw) return `${cls.name}s can't dual wield.`;
         if (state.level < dw) return `${cls.name}s learn Dual Wield at level ${dw}.`;
       }
-      const mh = items && items.get(gear.mainHand);
-      if (mh && mh.inv === 17) return "Your main hand is a two-handed weapon.";
+      const main = mh !== undefined ? mh : items && items.get(gear.mainHand);
+      if (main && main.inv === 17) return "Your main hand is a two-handed weapon.";
     }
     if (it.req > state.level) return `Requires level ${it.req}.`;
     return null;
@@ -276,6 +280,8 @@
       if (e.text) box.append(el("div", "green", `${TRIGGER[e.trigger] || "Equip"}: ${e.text}`));
     }
     if (it.req > 1) box.append(el("div", it.req > state.level ? "warn" : null, `Requires Level ${it.req}`));
+    if (it.prof) box.append(el("div", null, `Requires ${it.prof.replace(/ (\d+)$/, " ($1)")}`));
+    if (it.faction) box.append(el("div", it.faction !== myFaction() ? "warn" : "muted", `${it.faction} only`));
     box.append(el("div", "muted", `Item Level ${it.ilvl}` + (it.forever ? " · New in Forever" : "") +
       (it.src ? ` · Source: ${SOURCE_NAMES[it.src]}` : "")));
     if (it.set && KP.items.sets[it.set]) {
@@ -283,6 +289,10 @@
       const have = new Set(equipped().map((e) => e.item.id));
       const count = set.items.filter((id) => have.has(id)).length;
       box.append(el("div", "setname", `${set.name} (${count}/${set.items.length})`));
+      if (set.cls && set.cls !== state.cls.token) {
+        const owner = (KP.classes.classes.find((c) => c.token === set.cls) || {}).name || set.cls;
+        box.append(el("div", "warn", `A ${owner} set: its bonuses are for ${owner} abilities, and its pieces come from ${owner} tokens.`));
+      }
       for (const b of set.bonuses) {
         box.append(el("div", count >= b.pieces ? "green" : "muted", `(${b.pieces}) Set: ${b.text || "?"}`));
       }
@@ -535,6 +545,184 @@
     app.changed();
   }
 
+  // ------------------------------------------------------------ Equip BiS
+
+  // Fills every slot with the best item this character can use at its level, by the planner's own numbers (the panel's
+  // math): damage per second, healing per second for a healer, or survival plus some threat for a tank (0.7 / 0.3, like
+  // the tank builds). Trying every item takes seconds, so first each stat's worth is measured on the character (+25 of it,
+  // +300 armor); in each slot the items worth most by those weights, plus items with an equip effect or a set (which
+  // weights can't see), are then tried for real. Weapons: the best two-hander against the best one-hander + off hand.
+  // Run twice, the second time with the whole set on (hit caps, set bonuses). Left out: items that need a profession,
+  // weapons whose damage isn't confirmed, and the other faction's gear (whyNot).
+  const BIS_SLOTS = ["head", "neck", "shoulder", "back", "chest", "wrist", "hands", "waist", "legs", "feet",
+    "finger1", "finger2", "trinket1", "trinket2", "ranged"];
+  const TWIN = { finger1: "finger2", finger2: "finger1", trinket1: "trinket2", trinket2: "trinket1" };
+  const ROLE_NAMES = { dps: "Damage", heal: "Healing", tank: "Tanking" };
+  const CAN_HEAL = ["PALADIN", "PRIEST", "DRUID", "SHAMAN"], CAN_TANK = ["WARRIOR", "PALADIN", "DRUID"];
+  let bisFor = "auto";   // the player's choice: auto, dps, heal, tank
+  let bisNote = null;    // what the last run did
+
+  function autoRole() {
+    if (app.prioTank && app.prioTank()) return "tank";
+    if (app.prioRole && app.prioRole() === "heal") return "heal";
+    return "dps";
+  }
+  const bisRole = () => (bisFor !== "auto" && (bisFor === "dps" || (bisFor === "heal" ? CAN_HEAL : CAN_TANK).includes(state.cls.token))
+    ? bisFor : autoRole());
+
+  // the score of a set of gear (slot -> item): v = what the role wants, e = survival (breaks ties)
+  function bisEval(g, role) {
+    const c = app.ctx();
+    c.worn = Object.entries(g).filter(([, it]) => it).map(([slot, item]) => ({ slot, item }));
+    if (role === "tank") c.tank = true; // a Druid tanks in Bear Form
+    const R = KP.calc.compute(c);
+    const dps = (R.rotation && R.rotation.dps) || 0;
+    const e = KP.calc.ehp(R, state.level);
+    const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? 0.7 * Math.log(e) + 0.3 * Math.log(1 + dps) : dps;
+    return { v, e };
+  }
+  const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
+    (Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(b.v)) && a.e > b.e + 1e-6);
+
+  // what +1 of each stat is worth right now (v and survival), measured with a stand-in item
+  function bisWeights(g, role, keys) {
+    const base = bisEval(g, role);
+    const w = { v: {}, e: {} };
+    for (const k of keys) {
+      const amt = k === "armor" || k === "bonusArmor" ? 300 : k === "health" || k === "mana" ? 200 : 25;
+      const probe = k === "armor" ? { name: "", armor: amt } : { name: "", stats: { [k]: amt } };
+      const r = bisEval({ ...g, probe }, role);
+      w.v[k] = (r.v - base.v) / amt;
+      w.e[k] = (r.e - base.e) / amt;
+    }
+    return w;
+  }
+  const linear = (it, w) => (it.armor || 0) * (w.armor || 0) + Object.entries(it.stats || {}).reduce((s, [k, v]) => s + v * (w[k] || 0), 0);
+  const weaponDps = (it) => (it.weapon ? (it.weapon.min + it.weapon.max) / 2 / it.weapon.speed : 0);
+
+  // the items worth trying for real: the best by the stat weights (and, for weapons, by damage per second), plus items
+  // whose worth isn't all in their stats (equip effects, sets)
+  function shortlist(list, W, n, weapons) {
+    const scored = list.map((it) => ({ it, a: linear(it, W.v), b: linear(it, W.e) }));
+    scored.sort((x, y) => y.a - x.a || y.b - x.b || y.it.ilvl - x.it.ilvl || y.it.quality - x.it.quality);
+    const pick = new Set(scored.slice(0, n).map((x) => x.it));
+    if (weapons) [...list].sort((x, y) => weaponDps(y) - weaponDps(x)).slice(0, n).forEach((it) => pick.add(it));
+    scored.filter((x) => x.it.set || (x.it.effects || []).some((e) => e.auras && e.auras.length)).slice(0, 10).forEach((x) => pick.add(x.it));
+    return [...pick];
+  }
+
+  // the best of these items in one slot, the rest of the gear as it is (ties: more survival, then the list's order)
+  function bestFor(g, slotKey, cands, role) {
+    let best = null;
+    for (const it of cands) {
+      if (TWIN[slotKey] && g[TWIN[slotKey]] && g[TWIN[slotKey]].id === it.id) continue; // one of each ring / trinket
+      const r = bisEval({ ...g, [slotKey]: it }, role);
+      if (better(r, best)) best = { it, ...r };
+    }
+    return best ? best.it : null;
+  }
+
+  // Dungeon and raid loot and many quest rewards have no level requirement (0 or 1: Onyxia Tooth Pendant, Darkmantle,
+  // Forever's Discarded Circlet at item level 43), so the game would let a level 1 wear them; nobody gets them that early.
+  // For BiS such an item counts from 5 levels below its item level (most Classic items' requirement), at most 60.
+  const bisLevel = (it) => (it.req > 1 ? it.req : Math.min(60, Math.max(1, it.ilvl - 5)));
+  // another class's tier set (the data lets anyone wear it, but the game hands it out through class-locked tokens)
+  const setClass = (it) => it.set && KP.items.sets[it.set] && KP.items.sets[it.set].cls;
+  const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;
+
+  function computeBis() {
+    const role = bisRole();
+    const ok = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
+      !whyNot(it, slotKey, mh);
+    const lists = {};
+    for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
+    for (const it of items.values()) {
+      for (const s of [...BIS_SLOTS, "mainHand"]) if (slotByKey[s].inv.includes(it.inv) && ok(it, s, null)) lists[s].push(it);
+    }
+    const offFor = (mh) => [...items.values()].filter((it) => slotByKey.offHand.inv.includes(it.inv) && ok(it, "offHand", mh));
+    const keys = new Set(["armor"]);
+    for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
+    const g = {};
+    for (let pass = 0; pass < 2; pass++) {
+      const W = bisWeights(g, role, [...keys]);
+      const n = pass ? 8 : 12;
+      // weapons: a two-hander, or a one-hander with the best off hand for it
+      const rest = { ...g, mainHand: null, offHand: null };
+      const two = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv === 17), W, n, true), role);
+      let one = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role);
+      let off = one ? bestFor({ ...rest, mainHand: one }, "offHand", shortlist(offFor(one), W, n, true), role) : null;
+      if (one && off) one = bestFor({ ...rest, offHand: off }, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role) || one;
+      const a = two ? bisEval({ ...rest, mainHand: two }, role) : null;
+      const b = one ? bisEval({ ...rest, mainHand: one, offHand: off }, role) : null;
+      if (a && (!b || better(a, b))) { g.mainHand = two; g.offHand = null; } else { g.mainHand = one; g.offHand = off; }
+      for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, shortlist(lists[s], W, n, s === "ranged"), role);
+    }
+    return { g, role };
+  }
+
+  function equipBis() {
+    if (!items) return;
+    const t0 = performance.now();
+    const before = bisEval(Object.fromEntries(equipped().map((w) => [w.slot, w.item])), bisRole());
+    const { g, role } = computeBis();
+    for (const s of SLOTS) { if (g[s.key]) gear[s.key] = g[s.key].id; else delete gear[s.key]; }
+    const after = bisEval(g, role);
+    const n = Object.values(g).filter(Boolean).length;
+    const unit = role === "heal" ? "healing per second" : "damage per second";
+    const shown = (r) => (role === "tank" ? null : r.v);
+    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit };
+    app.changed();
+  }
+
+  function renderTools() {
+    const box = $("gearTools");
+    if (!box) return;
+    box.textContent = "";
+    const tok = state.cls.token;
+    const btn = el("button", "btn primary", `Equip BiS for level ${state.level}`);
+    btn.type = "button";
+    btn.disabled = !items;
+    btn.title = "Puts the best item you can use at this level in every slot, by the planner's own numbers. Takes a moment.";
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      btn.textContent = "Working…";
+      setTimeout(() => { // let the button repaint first
+        try { equipBis(); } catch (e) { console.error(e); app.toast("Couldn't work out the BiS gear (see the browser console)."); render(); }
+      }, 30);
+    });
+    const sel = el("select");
+    sel.setAttribute("aria-label", "What BiS is best at");
+    const opts = [["auto", `Auto (${ROLE_NAMES[autoRole()]})`], ["dps", "Damage"]];
+    if (CAN_HEAL.includes(tok)) opts.push(["heal", "Healing"]);
+    if (CAN_TANK.includes(tok)) opts.push(["tank", "Tanking"]);
+    for (const [v, label] of opts) { const o = el("option", null, label); o.value = v; sel.append(o); }
+    sel.value = opts.some(([v]) => v === bisFor) ? bisFor : "auto";
+    sel.addEventListener("change", () => { bisFor = sel.value; });
+    const lab = el("label", "pfield");
+    lab.append(el("span", null, "for"), sel);
+    const clear = el("button", "btn", "Empty all slots");
+    clear.type = "button";
+    clear.disabled = !SLOTS.some((s) => gear[s.key]);
+    clear.addEventListener("click", () => {
+      if (!confirm("Take off every item?")) return;
+      for (const s of SLOTS) delete gear[s.key];
+      bisNote = null;
+      app.changed();
+    });
+    box.append(btn, lab, clear);
+    if (bisNote) {
+      const b = bisNote;
+      const fmt1 = (v) => (Math.round(v * 10) / 10).toLocaleString("en-US");
+      box.append(el("p", "muted small gear-bis-note",
+        `Equipped the best ${b.n} items for ${ROLE_NAMES[b.role].toLowerCase()} (${fmt1(b.ms / 1000)} sec)` +
+        (b.after != null ? `: ${fmt1(b.after)} ${b.unit}` + (b.before != null && Math.abs(b.after - b.before) > 0.05 ? ` (was ${fmt1(b.before)})` : "") : "") +
+        ". Your target, buffs and talents count. Dungeon and raid loot with no level requirement counts from 5 levels below its " +
+        "item level. Left out: profession items (Engineering…), weapons whose damage isn't confirmed, other classes' tier sets " +
+        "and the other faction's gear; " +
+        "proc and \"Use:\" effects aren't in the math. Every item is still in the picker."));
+    }
+  }
+
   // ------------------------------------------------------------ character sheet
 
   app.worn = equipped;
@@ -691,6 +879,7 @@
 
   function render() {
     if (view !== "gear") return;
+    renderTools();
     renderSlots();
     renderSheet();
   }

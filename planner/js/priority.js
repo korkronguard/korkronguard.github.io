@@ -67,6 +67,19 @@
     options: [["auto", `Auto (${autoRole(c.token, c.treePts) === "heal" ? "Healing" : "Damage"})`], ["dps", "Damage"], ["heal", "Healing"]],
     help: "Damage: what to press when you're dealing damage (leveling, a Holy Shockadin, a Shadow Priest). Healing: keeping your " +
       "group alive. Auto picks Healing only for a healing build with 21+ points in its healing tree." });
+  // Tank mode as the Priority tab works it out (the setting, else Protection Warrior/Paladin or a Bear Druid with
+  // Natural Reaction or Thick Hide), for the gear tab's Equip BiS
+  app.prioTank = () => {
+    if (!state.cls) return false;
+    if (state.prio.tank != null) return state.prio.tank;
+    const pts = [0, 0, 0], ranks = app.liveRanks(), talent = {};
+    app.flat().forEach((t, i) => { pts[t.tree] += ranks[i] || 0; if (ranks[i]) talent[t.name] = true; });
+    const [a, b, c] = pts;
+    if (state.cls.token === "WARRIOR") return !!talent["Shield Slam"] || (c > a && c > b);
+    if (state.cls.token === "PALADIN") return b > a && b >= c;
+    if (state.cls.token === "DRUID") return b > Math.max(a, c) && !!(talent["Natural Reaction"] || talent["Thick Hide"]);
+    return false;
+  };
   // the same choice for the side panel (healing estimate first or second)
   app.prioRole = () => {
     if (!state.cls || !HEAL_TREES[state.cls.token]) return "dps";
