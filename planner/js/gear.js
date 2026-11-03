@@ -98,6 +98,28 @@
     manaRegen: "Mp5", haste: "Haste" };
   const TRIGGER = { 0: "Use", 1: "Equip", 2: "Chance on hit" };
   const SCHOOLS = ["Physical", "Holy", "Fire", "Nature", "Frost", "Shadow", "Arcane"];
+  // where an item comes from: the game's own tag (data script, ItemModifiedAppearance); not every item has one
+  const SOURCE_NAMES = { drop: "Drop", quest: "Quest", vendor: "Vendor", crafted: "Crafted" };
+  // Wowhead's Forever database: its item pages list who drops, sells or makes an item (we only link to it)
+  const wowheadUrl = (it) => `https://www.wowhead.com/forever/item=${it.id}`;
+
+  // Filter buttons in the item picker. Several buttons in one row = any of them; none = everything.
+  // Armor and source choices carry over between slots (Plate picked for the head stays on for the chest);
+  // weapon choices are kept per slot. A row only shows when it can narrow the list.
+  const HAND_NAMES = { 13: "One-Hand", 21: "Main Hand", 22: "Off Hand", 17: "Two-Hand", 14: "Shield", 23: "Held in off hand" };
+  const FILTERS = [
+    { id: "hand", label: "Hand", slots: ["mainHand", "offHand"],
+      order: ["One-Hand", "Main Hand", "Off Hand", "Two-Hand", "Shield", "Held in off hand"],
+      value: (it) => HAND_NAMES[it.inv] },
+    { id: "type", label: "Type", slots: ["mainHand", "offHand", "ranged"],
+      order: ["Axe", "Mace", "Sword", "Dagger", "Fist Weapon", "Staff", "Polearm", "Bow", "Gun", "Crossbow", "Thrown",
+        "Wand", "Miscellaneous", "Libram", "Idol", "Totem"],
+      value: (it) => (it.class === 2 ? WEAPON_NAMES[it.subclass] : it.inv === 28 ? ARMOR_NAMES[it.subclass] : null) },
+    { id: "armor", label: "Armor", shared: true, slots: ["head", "shoulder", "chest", "wrist", "hands", "waist", "legs", "feet"],
+      order: ["Cloth", "Leather", "Mail", "Plate", "Other"],
+      value: (it) => (it.class === 4 ? (it.subclass >= 1 && it.subclass <= 4 ? ARMOR_NAMES[it.subclass] : "Other") : null) },
+    { id: "source", label: "Source", shared: true, order: Object.values(SOURCE_NAMES), value: (it) => SOURCE_NAMES[it.src] },
+  ];
 
   // ------------------------------------------------------------ state
 
@@ -106,6 +128,12 @@
   let loading = false;
   let view = "talents";
   let pickSlot = null;
+  // Worked out once each time the picker opens (nothing about the character changes while it's open):
+  let usable = [];         // items this character can put in the open slot
+  let gainCache = null;    // item id -> damage change if worn in the open slot
+  let gainBase = 0;        // the score with what's in the slot now
+  const chosen = {};       // filter key -> Set of chosen values
+  const hayCache = new Map(); // item id -> the text the search looks through
 
   const slotByKey = Object.fromEntries(SLOTS.map((s) => [s.key, s]));
 
@@ -247,7 +275,8 @@
       if (e.text) box.append(el("div", "green", `${TRIGGER[e.trigger] || "Equip"}: ${e.text}`));
     }
     if (it.req > 1) box.append(el("div", it.req > state.level ? "warn" : null, `Requires Level ${it.req}`));
-    box.append(el("div", "muted", `Item Level ${it.ilvl}` + (it.forever ? " · New in Forever" : "")));
+    box.append(el("div", "muted", `Item Level ${it.ilvl}` + (it.forever ? " · New in Forever" : "") +
+      (it.src ? ` · Source: ${SOURCE_NAMES[it.src]}` : "")));
     if (it.set && KP.items.sets[it.set]) {
       const set = KP.items.sets[it.set];
       const have = new Set(equipped().map((e) => e.item.id));
@@ -324,8 +353,21 @@
       b.append(ic, text);
       b.setAttribute("aria-label", `${s.name}: ${it ? it.name : "empty"}`);
       b.addEventListener("click", () => openPicker(s.key));
-      box.append(b);
+      const row = el("div", "slot-row");
+      row.append(b);
+      if (it) row.append(wowheadLink(it));
+      box.append(row);
     }
+  }
+
+  function wowheadLink(it) {
+    const a = el("a", "wh", "↗");
+    a.href = wowheadUrl(it);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = "Where to get it: opens this item on Wowhead (who drops, sells or makes it)";
+    a.setAttribute("aria-label", `${it.name} on Wowhead`);
+    return a;
   }
 
   // ------------------------------------------------------------ picker
@@ -336,33 +378,110 @@
     $("pickerTitle").textContent = slot.name;
     $("pickerSearch").value = "";
     $("pickerRemove").hidden = !gear[slotKey];
+    usable = [];
+    for (const it of items.values()) if (!whyNot(it, slotKey)) usable.push(it);
+    usable.sort((a, b) => b.ilvl - a.ilvl || b.quality - a.quality || a.name.localeCompare(b.name));
+    gainCache = new Map();
+    gainBase = app.scoreWith ? app.scoreWith(slotKey, items.get(gear[slotKey]) || null) : 0;
     renderPicker();
     $("picker").showModal();
     $("tooltip").hidden = true;
     if (matchMedia("(pointer: fine)").matches) $("pickerSearch").focus();
   }
 
-  function renderPicker() {
-    const q = $("pickerSearch").value.trim().toLowerCase();
-    const words = q.split(/\s+/).filter(Boolean);
-    const list = [];
-    for (const it of items.values()) {
-      if (whyNot(it, pickSlot)) continue;
-      if (words.length) {
-        const hay = (it.name + " " + Object.keys(it.stats || {}).map((k) => STAT_TEXT[k] || k).join(" ") + " " +
-          typeLine(it) + " " + (it.effects || []).map((e) => e.text || "").join(" ")).toLowerCase();
-        if (!words.every((w) => hay.includes(w))) continue;
-      }
-      list.push(it);
+  function hay(it) {
+    let h = hayCache.get(it.id);
+    if (h == null) {
+      h = (it.name + " " + Object.keys(it.stats || {}).map((k) => STAT_TEXT[k] || k).join(" ") + " " + typeLine(it) +
+        " " + (SOURCE_NAMES[it.src] || "") + " " + (it.effects || []).map((e) => e.text || "").join(" ")).toLowerCase();
+      hayCache.set(it.id, h);
     }
-    list.sort((a, b) => b.ilvl - a.ilvl || b.quality - a.quality || a.name.localeCompare(b.name));
-    // damage change if this item replaced what's in the slot now (estimated DPS from the panel's math)
+    return h;
+  }
+
+  // damage change if this item replaced what's in the slot now (estimated DPS from the panel's math)
+  function gainOf(it) {
+    let g = gainCache.get(it.id);
+    if (g == null) { g = app.scoreWith(pickSlot, it) - gainBase; gainCache.set(it.id, g); }
+    return g;
+  }
+
+  // The filter rows for the open slot: which buttons to offer (from every item the character can use here, so they
+  // don't jump around while typing) and which are switched on.
+  function filterRows() {
+    const rows = [];
+    for (const f of FILTERS) {
+      if (f.slots && !f.slots.includes(pickSlot)) continue;
+      const present = new Set();
+      let untagged = false;
+      for (const it of usable) { const v = f.value(it); if (v) present.add(v); else untagged = true; }
+      const options = f.order.filter((v) => present.has(v));
+      if (options.length < 2 && !(options.length === 1 && untagged)) continue; // nothing to narrow
+      const key = f.shared ? f.id : f.id + ":" + pickSlot;
+      const on = new Set([...(chosen[key] || [])].filter((v) => present.has(v)));
+      rows.push({ f, key, options, on });
+    }
+    return rows;
+  }
+
+  function renderFilters(rows, matches, passes) {
+    const box = $("pickerFilters");
+    const focusKey = box.contains(document.activeElement) ? document.activeElement.dataset.k : null;
+    box.textContent = "";
+    box.hidden = !rows.length;
+    for (const row of rows) {
+      const line = el("div", "fgroup");
+      line.setAttribute("role", "group");
+      line.setAttribute("aria-label", row.f.label);
+      const chips = el("div", "fchips");
+      line.append(el("span", "flabel", row.f.label), chips);
+      // how many items each button would show, with the search and the other rows applied
+      const counts = {};
+      for (const it of matches) if (passes(it, row)) { const v = row.f.value(it); if (v) counts[v] = (counts[v] || 0) + 1; }
+      for (const v of row.options) {
+        const on = row.on.has(v);
+        const b = el("button", "btn small chip" + (on ? " primary" : ""), v + " ");
+        b.type = "button";
+        b.dataset.k = row.key + "|" + v;
+        b.setAttribute("aria-pressed", String(on));
+        b.append(el("span", "n", String(counts[v] || 0)));
+        b.addEventListener("click", () => {
+          const set = chosen[row.key] || (chosen[row.key] = new Set());
+          if (set.has(v)) set.delete(v); else set.add(v);
+          renderPicker();
+        });
+        chips.append(b);
+      }
+      box.append(line);
+    }
+    if (rows.some((r) => r.on.size)) {
+      const clear = el("button", "btn small clear", "Clear filters");
+      clear.type = "button";
+      clear.dataset.k = "clear";
+      clear.addEventListener("click", () => {
+        for (const r of rows) delete chosen[r.key];
+        renderPicker();
+        $("pickerSearch").focus();
+      });
+      box.append(clear);
+    }
+    if (focusKey) {
+      const again = [...box.querySelectorAll("button")].find((b) => b.dataset.k === focusKey);
+      if (again) again.focus();
+    }
+  }
+
+  function renderPicker() {
+    const words = $("pickerSearch").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = words.length ? usable.filter((it) => words.every((w) => hay(it).includes(w))) : usable;
+    const rows = filterRows();
+    const passes = (it, skip) => rows.every((r) => r === skip || !r.on.size || r.on.has(r.f.value(it)));
+    const list = matches.filter((it) => passes(it));
+    renderFilters(rows, matches, passes);
+    const filtered = words.length || rows.some((r) => r.on.size);
     const byGain = $("pickerSortBy").value === "gain" && app.scoreWith;
-    const base = app.scoreWith ? app.scoreWith(pickSlot, items.get(gear[pickSlot]) || null) : 0;
-    const gainOf = new Map();
     const pool = byGain ? list.slice(0, 600) : list.slice(0, 200);
-    if (app.scoreWith) for (const it of pool) gainOf.set(it.id, app.scoreWith(pickSlot, it) - base);
-    if (byGain) pool.sort((a, b) => gainOf.get(b.id) - gainOf.get(a.id));
+    if (byGain) pool.sort((a, b) => gainOf(b) - gainOf(a));
     const ul = $("pickerList");
     ul.textContent = "";
     const shown = pool.slice(0, 200);
@@ -374,11 +493,12 @@
       iconStyle(ic, it.icon, 40);
       const text = el("span", "stext");
       text.append(el("span", "sname q-" + QUALITY[it.quality], it.name),
-        el("span", "ssub", `${typeLine(it) ? typeLine(it) + " · " : ""}ilvl ${it.ilvl}${it.req > 1 ? " · Req " + it.req : ""}${it.forever ? " · Forever" : ""}`),
+        el("span", "ssub", `${typeLine(it) ? typeLine(it) + " · " : ""}ilvl ${it.ilvl}${it.req > 1 ? " · Req " + it.req : ""}` +
+          `${it.src ? " · " + SOURCE_NAMES[it.src] : ""}${it.forever ? " · Forever" : ""}`),
         el("span", "ssub", statSummary(it)));
       b.append(ic, text);
-      if (gainOf.has(it.id)) {
-        const g = gainOf.get(it.id);
+      if (app.scoreWith) {
+        const g = gainOf(it);
         const cls = Math.abs(g) < 0.05 ? "same" : g > 0 ? "up" : "down";
         const gain = el("span", "gain " + cls, (cls === "same" ? "±0" : `${g > 0 ? "+" : ""}${g.toFixed(1)} dps`) +
           (it.damageUnverified ? " ?" : ""));
@@ -389,12 +509,17 @@
       if (gear[pickSlot] === it.id) b.classList.add("current");
       b.addEventListener("click", () => equip(it.id));
       hookTip(b, it, pickSlot);
-      li.append(b);
+      li.append(b, wowheadLink(it));
       ul.append(li);
     }
+    const s = (n) => (n === 1 ? "" : "s");
     $("pickerCount").textContent = list.length > shown.length
-      ? `Showing the top ${shown.length} of ${list.length} items${byGain ? " by damage gain (among the 600 highest item levels)" : " by item level"}. Type to narrow it down.`
-      : `${list.length} item${list.length === 1 ? "" : "s"} you can use at level ${state.level}.`;
+      ? `Showing the top ${shown.length} of ${list.length} items${byGain ? " by damage gain (among the 600 highest item levels)" : " by item level"}. ` +
+        "Type or use the filters to narrow it down."
+      : filtered
+        ? (list.length ? `${list.length} of the ${usable.length} item${s(usable.length)} you can use at level ${state.level} match.`
+          : `None of the ${usable.length} item${s(usable.length)} you can use at level ${state.level} match. Try fewer filters or words.`)
+        : `${list.length} item${s(list.length)} you can use at level ${state.level}.`;
   }
 
   function equip(id) {
@@ -438,7 +563,8 @@
       for (const [label, value, hint] of rows) {
         if (value == null) continue;
         const dt = el("dt", null, label);
-        const dd = el("dd", null, String(value));
+        // whole numbers, like the game (averaged racials such as Blood Fury leave fractions)
+        const dd = el("dd", null, String(typeof value === "number" ? Math.round(value) : value));
         if (hint) dd.title = hint;
         dl.append(dt, dd);
       }
@@ -449,7 +575,7 @@
     const wline = (it) => it ? `${it.weapon.min}-${it.weapon.max} (${it.weapon.speed.toFixed(2)})` : null;
 
     section("Attributes", ["strength", "agility", "stamina", "intellect", "spirit"].map((k) => [
-      STAT_TEXT[k], S.attr[k] + (tal.statPct[k] ? ` (+${tal.statPct[k]}% talents, racials)` : ""),
+      STAT_TEXT[k], Math.round(S.attr[k]) + (tal.statPct[k] ? ` (+${tal.statPct[k]}% talents, racials)` : ""),
     ]));
     section("Melee", [
       ["Attack power", S.ap, `${S.baseAp} from your level (Classic rule), ${cls.apPerStr} per Strength` +

@@ -479,8 +479,36 @@ ul.plain li { padding: 2px 0; }
 .prot p { margin: 4px 0 0; }
 .pick .gain { margin-left: auto; padding-left: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pick .gain.up { color: #7dff8a; } .pick .gain.down { color: #ff8a73; } .pick .gain.same { color: var(--muted); }
-.picker-sort { display: flex; gap: 6px; align-items: center; padding: 6px 14px 0; font-size: 13px; color: var(--muted); }
+.picker-sort { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 14px 0; font-size: 13px; color: var(--muted); }
 .picker-sort select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--text); }
+.picker-hint { margin-left: auto; font-size: 12px; }
+/* filter buttons (weapon hand and type, armor type, source) */
+.picker-filters { display: flex; flex-direction: column; gap: 5px; padding: 8px 14px 0; }
+.picker-filters[hidden] { display: none; }
+.fgroup { display: flex; align-items: flex-start; gap: 5px; }
+.fchips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+.flabel { flex: none; width: 52px; padding-top: 3px; font-size: 12px; color: var(--muted); }
+.chip { padding: 2px 9px; font-size: 12px; white-space: nowrap; }
+.chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip.primary .n { color: #c9a35a; }
+.picker-filters .clear { align-self: flex-start; margin-left: 57px; color: var(--muted); }
+/* the Wowhead link beside an item */
+.slot-row, .picker-list li { display: flex; gap: 5px; min-width: 0; }
+.slot-row .slot, .picker-list .pick { flex: 1; width: auto; }
+a.wh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 15px;
+}
+a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 
 /* ---------- smaller screens ---------- */
 /* Builds tab */
