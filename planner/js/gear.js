@@ -570,16 +570,21 @@
   const bisRole = () => (bisFor !== "auto" && (bisFor === "dps" || (bisFor === "heal" ? CAN_HEAL : CAN_TANK).includes(state.cls.token))
     ? bisFor : autoRole());
 
+  // extra character settings for a run (the MCP check: a set form, its weapon rule, the MCP's haste); see withCtx
+  let bisCtx = null;
+  const withCtx = (extra, fn) => { const prev = bisCtx; bisCtx = extra; try { return fn(); } finally { bisCtx = prev; } };
+
   // the score of a set of gear (slot -> item): v = what the role wants, e = survival (breaks ties)
   function bisEval(g, role) {
     const c = app.ctx();
     c.worn = Object.entries(g).filter(([, it]) => it).map(([slot, item]) => ({ slot, item }));
     if (role === "tank") c.tank = true; // a Druid tanks in Bear Form
+    if (bisCtx) Object.assign(c, bisCtx);
     const R = KP.calc.compute(c);
     const dps = (R.rotation && R.rotation.dps) || 0;
     const e = KP.calc.ehp(R, state.level);
     const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? 0.7 * Math.log(e) + 0.3 * Math.log(1 + dps) : dps;
-    return { v, e };
+    return { v, e, dps };
   }
   const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
     (Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(b.v)) && a.e > b.e + 1e-6);
@@ -630,10 +635,14 @@
   const setClass = (it) => it.set && KP.items.sets[it.set] && KP.items.sets[it.set].cls;
   const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;
 
-  function computeBis() {
-    const role = bisRole();
-    const ok = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
-      !whyNot(it, slotKey, mh);
+  // opts (the MCP check): role, ctx = extra character settings, skip = item ids to leave out
+  function computeBis(opts = {}) {
+    return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2));
+  }
+  const bisOk = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
+    !whyNot(it, slotKey, mh);
+  function bisSearch(role, skip, passes) {
+    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && bisOk(it, slotKey, mh);
     const lists = {};
     for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
     for (const it of items.values()) {
@@ -643,7 +652,7 @@
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};
-    for (let pass = 0; pass < 2; pass++) {
+    for (let pass = 0; pass < passes; pass++) {
       const W = bisWeights(g, role, [...keys]);
       const n = pass ? 8 : 12;
       // weapons: a two-hander, or a one-hander with the best off hand for it
@@ -711,6 +720,13 @@
       app.changed();
     });
     box.append(btn, lab, clear);
+    if (tok === "DRUID" && $("mcpBox")) { // the Manual Crowd Pummeler check sits under the sheet
+      const go = el("button", "btn", "Manual Crowd Pummeler check ↓");
+      go.type = "button";
+      go.title = "When does another weapon beat the MCP? With your gear now and level by level.";
+      go.addEventListener("click", () => { if (app.openMcp) app.openMcp(); });
+      box.append(go);
+    }
     if (bisNote) {
       const b = bisNote;
       const fmt1 = (v) => (Math.round(v * 10) / 10).toLocaleString("en-US");
@@ -724,6 +740,16 @@
         "proc and \"Use:\" effects aren't in the math. Every item is still in the picker."));
     }
   }
+
+  // what the MCP check (mcp.js) borrows from Equip BiS
+  app.gearKit = { items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
+    equipped,
+    // put these weapons on (the MCP check's "Wear" buttons)
+    wear(mh, oh) {
+      gear.mainHand = mh.id;
+      if (oh) gear.offHand = oh.id; else delete gear.offHand;
+      app.changed();
+    } };
 
   // ------------------------------------------------------------ character sheet
 
@@ -884,6 +910,7 @@
     renderTools();
     renderSlots();
     renderSheet();
+    if (app.renderMcp) app.renderMcp();
   }
 
   $("tabTalents").addEventListener("click", () => setView("talents", true));

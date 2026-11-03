@@ -483,7 +483,12 @@
     const prioBox = $("prioSide");
     if (prioBox) { prioBox.textContent = ""; prioBox.append(panel(R, { controls: true })); }
     const labBox = $("labSide");
-    if (labBox && app.view && app.view() === "abilities") { labBox.textContent = ""; labBox.append(panel(R, { controls: true, short: true })); }
+    if (labBox && app.view && app.view() === "abilities") {
+      // the Abilities tab's stance / form switches change these stats (Berserker crit, Bear Form armor...)
+      const RL = app.labShape ? KP.calc.compute({ ...ctx(), ...app.labShape() }) : R;
+      labBox.textContent = "";
+      labBox.append(panel(RL, { controls: true, short: true }));
+    }
   }
 
   app.hooks.push(render);

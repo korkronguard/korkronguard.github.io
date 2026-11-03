@@ -23,7 +23,6 @@
   const sec = (ms) => fmt(ms / 1000, ms % 1000 ? 1 : 0) + " sec";
   const POWER = { 0: "mana", 1: "rage", 3: "energy" };
   const SCHOOL = { 1: "Physical", 2: "Holy", 4: "Fire", 8: "Nature", 16: "Frost", 20: "Frostfire", 32: "Shadow", 64: "Arcane" };
-  const FORM_NAME = { bear: "Bear Form", cat: "Cat Form" };
   // "on your next swing" attacks: they replace a normal swing, so they add their damage minus that swing's
   const NEXT_SWING = ["Heroic Strike", "Maul", "Cleave", "Raptor Strike"];
   const MAX_PICK = 6;          // talents in the combinations at once (2^6 = 64 rows)
@@ -35,7 +34,7 @@
 
   // ------------------------------------------------------------ settings (in the link)
 
-  state.lab = state.lab || { targets: 1, ap: null, sp: null, healing: null };
+  state.lab = state.lab || { targets: 1, ap: null, sp: null, healing: null, shape: {} };
   app.encoders.push(() => {
     const L = state.lab;
     let s = "";
@@ -43,13 +42,119 @@
     if (L.ap != null) s += "&xa=" + L.ap;
     if (L.sp != null) s += "&xs=" + L.sp;
     if (L.healing != null) s += "&xh=" + L.healing;
+    // stance / form switches that aren't Auto: "&sh=stance.berserker_prowl.off"
+    const sh = Object.entries(L.shape || {}).filter(([, v]) => v && v !== "auto").map(([k, v]) => k + "." + v).join("_");
+    if (sh) s += "&sh=" + sh;
     return s;
   });
   function readHash() {
     const p = new URLSearchParams(location.hash.replace(/^#/, ""));
     const num = (k) => { const v = parseInt(p.get(k), 10); return isNaN(v) || v < 0 ? null : v; };
-    state.lab = { targets: Math.max(1, Math.min(MAX_TARGETS, num("nt") || 1)), ap: num("xa"), sp: num("xs"), healing: num("xh") };
+    const shape = {};
+    for (const part of (p.get("sh") || "").split("_")) { const [k, v] = part.split("."); if (k && v) shape[k] = v; }
+    state.lab = { targets: Math.max(1, Math.min(MAX_TARGETS, num("nt") || 1)), ap: num("xa"), sp: num("xs"), healing: num("xh"), shape };
   }
+
+  // ------------------------------------------------------------ stances and forms
+
+  // The switches per class (the game's own stances and forms: KP.abilities.STANCES). Auto works each ability out in
+  // a stance or form it can be used in. A switch only shows what's learned at this level.
+  const learnedShape = (name) => {
+    const s = (((KP.abilities.STANCES || {})[state.cls.token]) || []).find((x) => x.name === name);
+    if (!s) return false;
+    if (s.talent) { const i = app.flat().findIndex((t) => t.id === s.talent); return i >= 0 && !!app.liveRanks()[i]; }
+    return s.level <= state.level;
+  };
+  function shapeSwitches() {
+    const tok = state.cls.token;
+    const out = [];
+    if (tok === "WARRIOR") {
+      const opts = [["auto", `Auto (${STANCE_LABEL[warriorDefault()]} first)`], ["battle", "Battle"]];
+      if (learnedShape("Defensive Stance")) opts.push(["defensive", "Defensive"]);
+      if (learnedShape("Berserker Stance")) opts.push(["berserker", "Berserker"]);
+      out.push({ key: "stance", label: "Stance", opts, help: "Battle: no change. Defensive: −10% damage dealt and taken, more threat. " +
+        "Berserker: +3% crit, +10% damage taken (game data). Abilities that need another stance are locked." });
+    }
+    if (tok === "DRUID") {
+      const opts = [["auto", "Auto (each in its form)"], ["caster", "Caster"]];
+      if (learnedShape("Cat Form")) opts.push(["cat", "Cat"]);
+      if (learnedShape("Bear Form")) opts.push(["bear", learnedShape("Dire Bear Form") ? "Dire Bear" : "Bear"]);
+      if (learnedShape("Moonkin Form")) opts.push(["moonkin", "Moonkin"]);
+      out.push({ key: "form", label: "Form", opts, help: "Your form changes attack power, armor and which talents work (Sharpened Claws, " +
+        "Predatory Strikes, Heart of the Wild only in Cat or Bear Form). Abilities of other forms are locked." });
+      if (learnedShape("Prowl")) out.push({ key: "prowl", label: "Prowl", opts: [["auto", "Auto (openers from Prowl)"], ["on", "Prowling"], ["off", "Not prowling"]],
+        help: "Ravage and Pounce only work from Prowl (game data)." });
+    }
+    if (tok === "ROGUE" && learnedShape("Stealth")) {
+      out.push({ key: "stealth", label: "Stealth", opts: [["auto", "Auto (openers from Stealth)"], ["on", "In Stealth"], ["off", "Not in Stealth"]],
+        help: "Ambush, Garrote and Cheap Shot only work from Stealth (game data)." });
+    }
+    if (tok === "PRIEST" && learnedShape("Shadowform")) {
+      out.push({ key: "shadowform", label: "Shadowform", opts: [["auto", "On (you have it)"], ["off", "Off"]],
+        help: "Shadowform: +Shadow damage, cheaper Shadow spells, less physical damage taken; no Holy spells or Holy talents in it (game data)." });
+    }
+    if (tok === "HUNTER") {
+      out.push({ key: "aspect", label: "Aspect", opts: [["auto", "Auto (Hawk for ranged)"], ["hawk", "Aspect of the Hawk"], ["none", "None"]],
+        help: "Aspect of the Hawk adds ranged attack power (rank for your level)." });
+    }
+    return out;
+  }
+  const STANCE_LABEL = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
+  // the Warrior's main stance (calc's rule, shared with the estimates and builds): tank -> Defensive, Fury -> Berserker,
+  // else Battle
+  const warriorDefault = () => KP.calc.warriorStance(app.ctx());
+  const setting = (key) => ((state.lab.shape || {})[key]) || "auto";
+  const bookOf = (ab) => (((KP.spellbook || {})[state.cls.token] || []).find((b) => b.name === ab.name)) || {};
+  // what the math needs to know about the stance or form one ability is worked out in (ctx fields), and its name
+  function shapeFor(ab) {
+    const tok = state.cls.token;
+    const book = bookOf(ab);
+    const o = {};
+    let label = null;
+    if (tok === "WARRIOR") {
+      let st = setting("stance");
+      if (st === "auto") {
+        const ok = (s) => (s === "battle" || learnedShape(STANCE_LABEL[s])) && (!book.stances || KP.calc.inMask(book.stances, KP.calc.STANCE_FORM[s]));
+        st = [warriorDefault(), "battle", "berserker", "defensive"].find(ok) || warriorDefault();
+      }
+      o.stance = st;
+      label = STANCE_LABEL[st];
+    }
+    if (tok === "DRUID") {
+      let f = setting("form");
+      if (f === "auto") {
+        const p = ab.ranks[0].powerType;
+        f = p === 1 ? "bear" : p === 3 ? "cat" : learnedShape("Moonkin Form") && KP.calc.inMask(book.stances || 0, 31) ? "moonkin" : "caster";
+      }
+      o.form = f === "caster" ? "none" : f;
+      label = { bear: learnedShape("Dire Bear Form") ? "Dire Bear Form" : "Bear Form", cat: "Cat Form", moonkin: "Moonkin Form" }[f] || null;
+      const pr = setting("prowl");
+      if (pr !== "auto") o.prowl = pr === "on";
+      if (book.stealthOnly && pr !== "off" && f === "cat") label = (label ? label + ", " : "") + "Prowl";
+    }
+    if (tok === "ROGUE") {
+      const s = setting("stealth");
+      if (s !== "auto") o.stealth = s === "on";
+      if (book.stealthOnly && s !== "off") label = "Stealth";
+    }
+    if (tok === "PRIEST" && setting("shadowform") === "off") o.shadowform = false;
+    else if (tok === "PRIEST" && learnedShape("Shadowform")) o.shadowform = true;
+    if (tok === "HUNTER" && setting("aspect") !== "auto") o.aspect = setting("aspect");
+    // the row tag: only where Auto picks per ability (a chosen stance is in the toolbar already)
+    const auto = tok === "WARRIOR" ? setting("stance") === "auto" : tok === "DRUID" ? setting("form") === "auto" : true;
+    const opener = (tok === "ROGUE" || tok === "DRUID") && book.stealthOnly && label && /Stealth|Prowl/.test(label);
+    return { o, label, tag: auto ? label : opener ? (tok === "ROGUE" ? "Stealth" : "Prowl") : null };
+  }
+  // the same for the side panel's stats: the switches that are set (a Warrior on Auto shows its usual stance)
+  app.labShape = () => {
+    if (!state.cls) return {};
+    const tok = state.cls.token, o = {};
+    if (tok === "WARRIOR") o.stance = setting("stance") === "auto" ? warriorDefault() : setting("stance");
+    if (tok === "DRUID" && setting("form") !== "auto") o.form = setting("form") === "caster" ? "none" : setting("form");
+    if (tok === "PRIEST" && setting("shadowform") === "off") o.shadowform = false;
+    if (tok === "HUNTER" && setting("aspect") !== "auto") o.aspect = setting("aspect");
+    return o;
+  };
 
   // on-page choices (not in the link)
   const open = new Set();   // "<class>:<ability>" rows that are open
@@ -61,12 +166,6 @@
 
   const abilities = () => KP.abilities[state.cls.token] || [];
   const isDruid = () => state.cls.token === "DRUID";
-  // the form a Druid ability needs: rage = Bear Form, energy = Cat Form, mana = caster form
-  function formOf(ab) {
-    if (!isDruid()) return undefined;
-    const p = ab.ranks[0].powerType;
-    return p === 1 ? "bear" : p === 3 ? "cat" : "none";
-  }
   // the talent that teaches an ability (Mortal Strike, Primal Bite...)
   const grantIndex = (ab) => (ab.talent ? app.flat().findIndex((t) => t.id === ab.talent) : -1);
   const withRank = (ranks, i, r) => { const x = ranks.slice(); x[i] = r; return x; };
@@ -78,16 +177,17 @@
     if (L.healing != null) o.healing = L.healing;
     return Object.keys(o).length ? o : undefined;
   }
-  function ctxFor(ranks, n, form) {
+  // the character as the math sees it, with the stance / form fields (shape.o) for one ability
+  function ctxFor(ranks, n, shape) {
     const c = app.ctx(ranks);
     c.targets = n;
-    if (form) c.form = form;
+    Object.assign(c, (shape && shape.o) || {});
     c.override = override();
     return c;
   }
 
   // Every ability's result for these talent ranks and number of targets (null where there's nothing to count),
-  // each in its own form, talent abilities as if learned. `only` = ability indexes to work out.
+  // each in its own stance or form, talent abilities as if learned. `only` = ability indexes to work out.
   function evaluate(ranks, n, only) {
     const list = abilities();
     const out = new Array(list.length).fill(null);
@@ -96,14 +196,14 @@
       if (only && !only.includes(i)) return;
       const g = grantIndex(ab);
       const force = g >= 0 && !ranks[g] ? g : -1;
-      const form = formOf(ab);
-      const key = (form || "") + "|" + force;
-      if (!groups.has(key)) groups.set(key, { form, force, idx: [] });
+      const shape = shapeFor(ab);
+      const key = JSON.stringify(shape.o) + "|" + force;
+      if (!groups.has(key)) groups.set(key, { shape, force, idx: [] });
       groups.get(key).idx.push(i);
     });
     for (const g of groups.values()) {
       const r = g.force >= 0 ? withRank(ranks, g.force, 1) : ranks;
-      const { results } = KP.calc.abilityResults(ctxFor(r, n, g.form), g.idx);
+      const { results } = KP.calc.abilityResults(ctxFor(r, n, g.shape), g.idx);
       for (const i of g.idx) out[i] = results[i];
     }
     return out;
@@ -201,7 +301,7 @@
           specific: (x.max && (x.max.mods || []).includes(flat[x.ti].name)) || reach[x.ti] <= 3 };
       });
       const g = grantIndex(ab);
-      rows.push({ ab, i, r, one, m: metrics(r, one), changes: ch, form: formOf(ab), notTaken: g >= 0 && !ranks[g] ? flat[g] : null });
+      rows.push({ ab, i, r, one, m: metrics(r, one), changes: ch, shape: shapeFor(ab), notTaken: g >= 0 && !ranks[g] ? flat[g] : null });
     });
     return { list, flat, n, ranks, rows };
   }
@@ -267,7 +367,7 @@
 
     // what-if numbers
     const tok = state.cls.token;
-    const S = KP.calc.stats(app.ctx());
+    const S = KP.calc.stats({ ...app.ctx(), ...app.labShape() });
     const fields = [];
     if (!NO_AP.includes(tok)) fields.push(["ap", "Attack power", Math.round(tok === "HUNTER" ? S.rap : S.ap)]);
     if (SPELLS.includes(tok)) fields.push(["sp", "Spell damage", Math.round(S.sp)]);
@@ -288,7 +388,7 @@
         state.lab[key] = isNaN(v) || v < 0 ? null : v;
         app.changed();
       });
-      l.title = `Type a number to see every ability with that much ${label.toLowerCase()} instead of yours (${now}${isDruid() && key === "ap" ? " in the panel's form" : ""}). Empty = yours.`;
+      l.title = `Type a number to see every ability with that much ${label.toLowerCase()} instead of yours (${now}${isDruid() && key === "ap" ? " in the chosen form" : ""}). Empty = yours.`;
       l.append(el("span", null, label), i);
       wrap.append(l);
     }
@@ -300,6 +400,25 @@
     }
     wf.append(wrap);
     box.append(wf);
+
+    // stance / form switches (Warrior stance, Druid form and Prowl, Rogue Stealth, Shadowform, Hunter aspect)
+    const sw = shapeSwitches();
+    if (sw.length) {
+      const sf = el("div", "lab-field");
+      const row = el("div", "lab-chips");
+      for (const s of sw) {
+        const l = el("label", "pfield");
+        const sel = el("select");
+        for (const [v, label] of s.opts) { const o = el("option", null, label); o.value = v; sel.append(o); }
+        sel.value = s.opts.some(([v]) => v === setting(s.key)) ? setting(s.key) : "auto";
+        sel.addEventListener("change", () => { state.lab.shape = { ...(state.lab.shape || {}), [s.key]: sel.value }; app.changed(); });
+        l.title = s.help;
+        l.append(el("span", "lab-label", s.label), sel);
+        row.append(l);
+      }
+      sf.append(row);
+      box.append(sf);
+    }
     return box;
   }
 
@@ -381,7 +500,7 @@
     if (rank && row.ab.ranks.length > 1) title.append(el("span", "muted small", ` rank ${row.ab.ranks.indexOf(rank) + 1}`));
     txt.append(title);
     const tags = el("span", "lab-tags");
-    if (row.form && FORM_NAME[row.form]) tags.append(el("span", "prio-tag", FORM_NAME[row.form]));
+    if (row.shape && row.shape.tag) tags.append(el("span", "prio-tag", row.shape.tag));
     if (row.notTaken) tags.append(el("span", "prio-tag theory", "talent not taken"));
     if (row.m && row.m.heal) tags.append(el("span", "prio-tag lab-heal", "heal"));
     if (tags.childNodes.length) txt.append(tags);
@@ -460,7 +579,7 @@
     const add = (t) => facts.append(el("li", null, t));
     const kind = r.kind === "magic" ? "spell" : r.kind;
     add(`${SCHOOL[r.school] || ""} ${kind}`.trim() + " · " + (channelMs(r) ? `channeled ${sec(channelMs(r))}` : r.castMs ? `${sec(r.castMs)} cast` : "instant") +
-      (r.cdMs >= 1500 ? ` · ${sec(r.cdMs)} cooldown` : "") + (row.form && FORM_NAME[row.form] ? ` · in ${FORM_NAME[row.form]}` : ""));
+      (r.cdMs >= 1500 ? ` · ${sec(r.cdMs)} cooldown` : "") + (row.shape && row.shape.label ? ` · in ${row.shape.label}` : ""));
     // how many it hits
     const e = targetRule(r);
     if (e) add(e);
@@ -472,12 +591,12 @@
       add((crits ? `Crit ${fmt(r.critChance, 1)}% for ×${fmt(critMult(r), 2)}` : "Its ticks can't crit") +
         ` · ${fmt(r.miss, 1)}% miss` + (r.dodge ? ` · ${fmt(r.dodge, 1)}% dodge` : ""));
       if (r.kind !== "magic" && r.school === 1 && one.dmax > 0) {
-        const c = ctxFor(M.ranks, 1, row.form);
+        const c = ctxFor(M.ranks, 1, row.shape);
         add(`Armor takes off ${fmt(KP.calc.mitigation(c, KP.calc.stats(c)) * 100, 1)}% of the hit (bleeds ignore it)`);
       }
     }
     if (NEXT_SWING.includes(row.ab.name)) {
-      const c = ctxFor(M.ranks, 1, row.form);
+      const c = ctxFor(M.ranks, 1, row.shape);
       const mh = KP.calc.compute(c).white.find((w) => w.label === "Main hand");
       if (mh) add(`On your next swing: it replaces a normal swing (${fmt(mh.perSwing)} on average), so it adds ${fmt(row.m.total - mh.perSwing)}` +
         (row.m.cost ? ` (${fmt((row.m.total - mh.perSwing) / row.m.cost, 1)} per ${row.m.power})` : "") + ".");

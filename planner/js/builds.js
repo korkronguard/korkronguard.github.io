@@ -62,6 +62,53 @@
     app.toast(`Loaded "${build.name}". Its leveling path and why each talent is picked are under the trees.`);
   }
 
+  // The stance or form a build lives in (the same rule the estimates use: calc.js warriorStance, tank mode, Shadowform,
+  // Moonkin Form), with that stance's numbers from the game data and when to dance out of it.
+  const STANCE_KEY = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
+  function stanceNumbers(name) {
+    const s = (((KP.abilities.STANCES || {})[state.cls.token]) || []).find((x) => x.name === name);
+    const sign = (v) => (v > 0 ? "+" : "−") + Math.abs(v);
+    const bits = ((s && s.auras) || []).map((a) => a.aura === 290 || a.aura === 52 ? `${sign(a.value)}% crit`
+      : a.aura === 79 && a.value ? `${sign(a.value)}% damage dealt` : a.aura === 87 && a.value ? `${sign(a.value)}% damage taken`
+        : a.aura === 10 && a.value ? `${sign(a.value)}% threat` : null).filter(Boolean);
+    return bits.length ? ` (${bits.join(", ")}; game data)` : "";
+  }
+  function stanceNote(build) {
+    const tok = state.cls.token;
+    const flat = app.flat();
+    const ranks = flat.map(() => 0);
+    for (const o of build.order) { const i = flat.findIndex((t) => t.id === o.id); if (i >= 0) ranks[i]++; }
+    const has = (name) => flat.some((t, i) => t.name === name && ranks[i]);
+    if (tok === "WARRIOR") {
+      const ctx = (level) => ({ cls: state.cls, level, flat, ranks, tank: build.role === "tank" ? true : undefined });
+      const st = KP.calc.warriorStance(ctx(60));
+      const early = build.kind === "leveling" && st !== "battle" ? KP.calc.warriorStance(ctx(st === "berserker" ? 29 : 9)) : st;
+      const from = early !== st ? `${STANCE_KEY[early]} until level ${st === "berserker" ? 30 : 10}, then ` : "";
+      if (st === "berserker") {
+        return `${from}${STANCE_KEY.berserker}${stanceNumbers("Berserker Stance")} for most of the fight. Dance to Battle Stance for ` +
+          `Overpower when it lights up${has("Sweeping Strikes") ? " and Sweeping Strikes on packs" : ""}, then back. The numbers count Berserker Stance.`;
+      }
+      if (st === "defensive") {
+        return `${from}${STANCE_KEY.defensive}${stanceNumbers("Defensive Stance")} while you hold the target. When you're not tanking, ` +
+          "Battle Stance (or Berserker Stance from level 30) to deal damage. The numbers count Defensive Stance.";
+      }
+      return `${STANCE_KEY.battle}${stanceNumbers("Battle Stance")} for most of the fight: Overpower, Sweeping Strikes and Spearing Strike ` +
+        "only work there. Dance to Berserker Stance for Whirlwind (from level 30) when you have the rage, then back. The numbers count Battle Stance.";
+    }
+    if (tok === "DRUID") {
+      if (build.role === "tank") return "Bear Form (Dire Bear Form from level 40) while tanking; Cat Form or caster form between pulls if you like. The numbers count Bear Form.";
+      if (/^Feral|Cat/i.test(build.name) || has("Shred") || (build.points[1] > build.points[0] && build.points[1] > build.points[2])) {
+        return "Cat Form for damage; out of it only to heal yourself or buff. Ravage and Pounce need Prowl. The numbers count Cat Form.";
+      }
+      if (has("Moonkin Form")) return "Moonkin Form for damage (no heals in it, game data); drop it to heal. The numbers count Moonkin Form.";
+      return null;
+    }
+    if (tok === "PRIEST" && has("Shadowform")) {
+      return "Shadowform for damage (+Shadow damage, cheaper Shadow spells; no Holy spells or Holy talents in it, game data). Drop it to heal.";
+    }
+    return null;
+  }
+
   function card(build, treeNames) {
     const box = el("article", "build-card");
     const head = el("div", "build-head");
@@ -78,6 +125,12 @@
     titles.append(meta);
     head.append(ic, titles);
     box.append(head, el("p", "build-summary", build.summary));
+    const stance = stanceNote(build);
+    if (stance) {
+      const p = el("p", "build-stance");
+      p.append(el("strong", null, "Stance: "), stance);
+      box.append(p);
+    }
     if (capstone) box.append(el("p", "muted small", `${capstone.name} at level ${capstone.level}.`));
     if (build.kind === "leveling") {
       box.append(el("p", "muted small", `Solo at 60: about ${build.kill60} sec per same-level mob and ${build.rest60}% of your time ` +

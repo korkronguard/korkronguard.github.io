@@ -571,11 +571,33 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .why-why { font-size: 14px; margin-top: 4px; }
 .why-why strong { color: var(--gold); }
 
+.build-stance { margin: 6px 0; font-size: 13px; padding: 4px 8px; border-left: 2px solid #6b5a2c; background: var(--panel-2); border-radius: 0 6px 6px 0; }
+.build-stance strong { color: var(--gold); }
+
 /* ---------- gear tab: Equip BiS ---------- */
 .gear-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
 .gear-tools .pfield select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; }
 .gear-tools .btn:disabled { opacity: .55; cursor: default; }
 .gear-bis-note { flex-basis: 100%; margin: 0; }
+
+/* ---------- gear tab: Manual Crowd Pummeler check (Druids) ---------- */
+.mcp { margin: 16px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; scroll-margin-top: 12px; }
+.mcp-details > summary { cursor: pointer; font-weight: 600; color: var(--gold); padding: 2px 0; }
+.mcp-intro { margin: 8px 0 10px; }
+.mcp-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 6px; }
+.mcp-bar select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; max-width: 100%; }
+.mcp-bar .pfield { flex-wrap: wrap; max-width: 100%; }
+.mcp-sec h4 { margin: 16px 0 6px; font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: .06em; }
+.mcp-head { margin: 4px 0 8px; font-size: 14px; }
+.lab-table.mcp-table th { padding: 6px 8px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.mcp-table td.mcp-name { min-width: 200px; }
+.mcp-table td.small { min-width: 220px; }
+.mcp-table tr.mcp-self > td { background: #1c1a14; }
+.mcp-table tr.mcp-mine > td { background: var(--panel-2); }
+.mcp-scanbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 4px 0 8px; }
+.mcp-scanbar .btn:disabled { opacity: .6; cursor: default; }
+.mcp-notes { margin: 14px 0 4px; padding-left: 18px; }
+.mcp-notes li { margin: 2px 0; }
 
 /* ---------- abilities tab (spreadsheet-style table) ---------- */
 .lab-bar { gap: 8px 22px; }

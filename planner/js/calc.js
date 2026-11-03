@@ -111,7 +111,85 @@
       { kind: "extra", effect: 2, subclasses: [0, 7] }],
   };
 
+  // ------------------------------------------------------------ stances and forms
+  // The game's form numbers (SpellShapeshiftForm): Warrior stances 17 Battle, 18 Defensive, 19 Berserker; Druid 1 Cat,
+  // 5 Bear, 8 Dire Bear, 31 Moonkin; 28 Shadowform; 30 Stealth. Masks in the data use bit (form - 1).
+  // The Abilities tab sets the stance (ctx.stance), Druid form (ctx.form, incl. "moonkin"), ctx.prowl / ctx.stealth,
+  // ctx.shadowform and ctx.aspect. Elsewhere a Warrior's stance is unknown (no stance numbers, no stance locks); a Druid's
+  // form is the one the planner works out, a Priest with Shadowform is in it.
+  const STANCE_FORM = { battle: 17, defensive: 18, berserker: 19 };
+  const DRUID_FORM = { cat: 1, bear: 5, dire: 8 };
+  const FORM_NAMES = { 1: "Cat Form", 5: "Bear Form", 8: "Dire Bear Form", 31: "Moonkin Form", 17: "Battle Stance",
+    18: "Defensive Stance", 19: "Berserker Stance", 28: "Shadowform", 30: "Stealth", 2: "Tree of Life", 32: "Spirit of Redemption" };
+  const inMask = (mask, form) => !!form && ((mask >>> (form - 1)) & 1) === 1;
+  const maskNames = (mask) => Object.keys(FORM_NAMES).map(Number).filter((f) => inMask(mask, f)).map((f) => FORM_NAMES[f]);
+  // A Warrior's stance: the one set on the Abilities tab, else the main stance the build lives in (the Priority tab's
+  // rule): tanking -> Defensive, Fury -> Berserker (from the level it's learned), anything else -> Battle. Estimates and
+  // builds count that stance's numbers all fight; dancing to another stance for a few presses (Overpower) isn't counted.
+  function warriorStance(ctx) {
+    if (ctx.stance) return ctx.stance;
+    const pts = [0, 0, 0], learned = new Set();
+    ctx.flat.forEach((t, i) => { if (ctx.ranks[i]) { pts[t.tree] += ctx.ranks[i]; learned.add(t.name); } });
+    const [arms, fury, prot] = pts;
+    const spec = learned.has("Shield Slam") || (prot > arms && prot > fury) ? "prot"
+      : learned.has("Mortal Strike") || (arms >= fury && arms > 0) ? "arms" : learned.has("Bloodthirst") || fury > 0 ? "fury" : "arms";
+    const tank = ctx.tank != null ? ctx.tank : spec === "prot";
+    if (tank && bookRank("WARRIOR", "Defensive Stance", ctx.level)) return "defensive";
+    if (spec === "fury" && bookRank("WARRIOR", "Berserker Stance", ctx.level)) return "berserker";
+    return "battle";
+  }
+
+  // the form the character is in: a number, null (none), or undefined (not known)
+  function shapeOf(ctx) {
+    const tok = ctx.cls.token;
+    if (tok === "WARRIOR") return STANCE_FORM[warriorStance(ctx)];
+    if (tok === "DRUID") {
+      if (ctx.form === "moonkin") return 31;
+      const f = druidForm(ctx);
+      if (f) return DRUID_FORM[f];
+      return ctx.form === undefined && learnedTalent(ctx, "Moonkin Form") ? 31 : null;
+    }
+    if (tok === "PRIEST") return (ctx.shadowform != null ? ctx.shadowform : learnedTalent(ctx, "Shadowform")) ? 28 : null;
+    return undefined;
+  }
+  // Why a stance or form stops this ability (only when the Abilities tab set it), or null
+  function stanceLock(ctx, ab, rank) {
+    const book = (((KP.spellbook || {})[ctx.cls.token] || []).find((b) => b.name === ab.name)) || {};
+    const tok = ctx.cls.token;
+    if (tok === "WARRIOR" && ctx.stance && book.stances && !inMask(book.stances, STANCE_FORM[ctx.stance])) {
+      return "Needs " + maskNames(book.stances).filter((n) => /Stance/.test(n)).join(" or ");
+    }
+    if (tok === "ROGUE" && ctx.stealth === false && book.stealthOnly) return "Needs Stealth";
+    if (tok === "DRUID") {
+      if (ctx.prowl === false && book.stealthOnly) return "Needs Prowl";
+      // a form chosen on the Abilities tab: a mana spell works in it only if its form list says so (Healing Touch:
+      // caster form only; Faerie Fire: every form)
+      const f = ctx.form === "moonkin" ? 31 : (ctx.form === "cat" || ctx.form === "bear") ? DRUID_FORM[druidForm(ctx)] : null;
+      if (f && rank.powerType === 0 && !inMask(book.stances || 0, f)) return `Not in ${FORM_NAMES[f]}`;
+    }
+    if (tok === "PRIEST" && ctx.shadowform === true && book.notIn && inMask(book.notIn, 28)) return "Not in Shadowform";
+    return null;
+  }
+  // a Warrior stance's own numbers (game data: "<stance> Passive"): crit, damage done and taken, attack power %
+  function stanceEffects(ctx, out) {
+    if (ctx.cls.token !== "WARRIOR") return;
+    const st = (((KP.abilities.STANCES || {}).WARRIOR) || []).find((s) => s.form === STANCE_FORM[warriorStance(ctx)]);
+    if (!st) return;
+    const parts = [];
+    for (const a of st.auras || []) {
+      if (a.aura === 290 || a.aura === 52) { out.crit += a.value; if (a.aura === 290) out.spellCrit += a.value; parts.push(`+${a.value}% crit`); }
+      if (a.aura === 79 && a.value) { out.dmgPct.push({ school: a.misc, value: a.value, name: st.name }); parts.push(`${a.value > 0 ? "+" : ""}${a.value}% damage`); }
+      if (a.aura === 87 && a.misc & 1 && a.value) { out.damageTaken += a.value; parts.push(`${a.value > 0 ? "+" : ""}${a.value}% damage taken`); }
+      if (a.aura === 166 && a.value) { out.apPct += a.value; parts.push(`+${a.value}% attack power`); }
+      if (a.aura === 10 && a.value) parts.push(`${a.value > 0 ? "+" : ""}${a.value}% threat`);
+    }
+    const threat = (st.auras || []).some((a) => a.aura === 10 && a.value);
+    out.lines.push({ name: st.name, text: (parts.join(", ") || "no change to your numbers") + (threat ? " (threat isn't in the numbers)" : "") +
+      (ctx.stance ? "" : ". Your main stance; the Abilities tab can switch it") });
+  }
+
   function talentEffects(ctx) {
+    const shape = shapeOf(ctx);
     const out = {
       crit: 0, hit: 0, spellHit: 0, spellCrit: 0, dodge: 0, parry: 0, block: 0, defense: 0, armorPct: 0,
       statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 },
@@ -148,7 +226,12 @@
       if (!t.passive && t.ranks.length === 1) {
         const self = (t.effects[0] || []).filter((e) => e.effect === 6 && e.target === 1);
         const book = bookRank(ctx.cls.token, t.name, ctx.level);
-        if (self.some((e) => e.aura === 36)) how = " (a form you stay in)";
+        const formAura = self.find((e) => e.aura === 36);
+        if (formAura && shape !== undefined && formAura.misc && shape !== formAura.misc) {
+          out.lines.push({ name: t.name, text: "not counted: you're not in it", off: true });
+          return;
+        }
+        if (formAura) how = " (a form you stay in)";
         else if (book && book.durMs > 0 && book.cdMs > 0 && book.durMs >= book.cdMs) how = " (kept up)";
         else if (book && book.durMs > 0 && book.cdMs >= 60000) {
           share = book.durMs / book.cdMs;
@@ -171,6 +254,12 @@
         const extra = t.name === "Ice Barrier" && /increasing your Frost damage by (\d+)% for/.exec(t.desc[0] || "");
         if (extra) { out.dmgPct.push({ school: 16, value: +extra[1], name: t.name }); parts.push(`+${extra[1]}% Frost damage`); }
         if (parts.length) out.lines.push({ name: t.name, text: [...new Set(parts)].join(", ") + how });
+        return;
+      }
+      // a talent that works only in some forms (Sharpened Claws: Cat and Bear Form) or not in some (the Holy talents in
+      // Shadowform), by the game data, when the form is known
+      if (shape !== undefined && ((t.forms && !inMask(t.forms, shape)) || (t.notIn && inMask(t.notIn, shape)))) {
+        out.lines.push({ name: t.name, text: t.forms ? `only in ${maskNames(t.forms).join(", ")}` : `not in ${maskNames(t.notIn).join(", ")}`, off: true });
         return;
       }
       const parts = [];
@@ -245,6 +334,7 @@
       }
     }
     racialEffects(ctx, out);
+    stanceEffects(ctx, out);
     return out;
   }
 
@@ -420,12 +510,21 @@
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)
-      // in a Druid form the form's own attack replaces the weapon
-      mh: form ? formWeapon(form, lvl) : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
+      // in a Druid form the form's own attack replaces the weapon (ctx.formWeaponDps: the weapon's damage per second
+      // at the form's speed instead, the guild's bear sheet's rule; only the MCP check asks for it)
+      mh: form ? formWeapon(form, lvl, ctx.formWeaponDps && worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null)
+        : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
       oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
       shield: !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6),
     };
+    // "Use:" buffs a tool asks for, averaged over the fight (ctx.useBuffs: [{ auras, share }], share = the part of the
+    // fight it's up). Only the MCP check passes them; elsewhere "Use:" effects aren't in the math. Haste multiplies.
+    for (const b of ctx.useBuffs || []) {
+      for (const a of b.auras || []) {
+        if ([319, 138, 342].includes(a.aura)) S.meleeHaste = ((1 + S.meleeHaste / 100) * (1 + (a.value * b.share) / 100) - 1) * 100;
+      }
+    }
     // "what if" numbers typed on the Abilities tab replace the worked-out ones: attack power (melee and ranged),
     // spell damage (all schools), healing
     const o = ctx.override;
@@ -465,10 +564,14 @@
     for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = Math.max(v, r.value);
     return v;
   }
-  // a ranged Hunter always has Aspect of the Hawk up and Hunter's Mark on the target (rank for the level)
+  // a ranged Hunter always has Aspect of the Hawk up and Hunter's Mark on the target (rank for the level); the
+  // Abilities tab can switch the aspect (ctx.aspect: "hawk" or "none")
   function hunterSelfBuffs(ctx) {
-    if (ctx.cls.token !== "HUNTER" || hunterStyle(ctx) !== "ranged") return [];
-    return ["Aspect of the Hawk", "Hunter's Mark"].map((name) => ({ name, value: rankValue(name, ctx.level) })).filter((b) => b.value);
+    if (ctx.cls.token !== "HUNTER") return [];
+    const ranged = hunterStyle(ctx) === "ranged";
+    const hawk = ctx.aspect ? ctx.aspect === "hawk" : ranged;
+    return [hawk && "Aspect of the Hawk", ranged && "Hunter's Mark"].filter(Boolean)
+      .map((name) => ({ name, value: rankValue(name, ctx.level) })).filter((b) => b.value);
   }
   // ranged or melee Hunter: the player's choice, else melee for Survival with at least two melee talents
   const HUNTER_MELEE_TALENTS = ["Lacerating Strikes", "Strider Kick", "Predator's Edge", "Savage Strikes", "Expose Prey"];
@@ -543,7 +646,7 @@
     // a set form (the Abilities tab works out each ability in the form it needs): "bear", "cat" or "none"
     if (ctx.form === "bear") return bookRank("DRUID", "Dire Bear Form", ctx.level) ? "dire" : bookRank("DRUID", "Bear Form", ctx.level) ? "bear" : null;
     if (ctx.form === "cat") return bookRank("DRUID", "Cat Form", ctx.level) ? "cat" : null;
-    if (ctx.form === "none") return null;
+    if (ctx.form === "none" || ctx.form === "moonkin") return null; // Moonkin keeps the caster's weapon and stats
     const pts = [0, 0, 0];
     const learned = new Set();
     ctx.flat.forEach((t, i) => { if (ctx.ranks[i]) { pts[t.tree] += ctx.ranks[i]; learned.add(t.name); } });
@@ -553,7 +656,12 @@
     if (feral) return bookRank("DRUID", "Cat Form", ctx.level) ? "cat" : null;
     return null;
   }
-  function formWeapon(form, level) {
+  function formWeapon(form, level, item) {
+    if (item) {
+      const k = form.speed / item.weapon.speed;
+      return { name: `${form.name} (${item.name}'s damage)`, class: 2, subclass: 13, inv: 13, form: true,
+        weapon: { min: item.weapon.min * k, max: item.weapon.max * k, speed: form.speed } };
+    }
     return { name: `${form.name} (base attack)`, class: 2, subclass: 13, inv: 13, form: true,
       weapon: { min: level * 0.85 * form.speed, max: level * 1.25 * form.speed, speed: form.speed } };
   }
@@ -1721,6 +1829,8 @@
           rangedOnly ? "Needs a different ranged weapon" : "Needs a different main-hand weapon" };
       }
     }
+    const stance = stanceLock(ctx, ab, rank);
+    if (stance) return { ...base, rank, locked: stance };
     if (ctx.cls.token === "DRUID") {
       const f = S.form;
       if (rank.powerType === 3 && f !== "cat") return { ...base, rank, locked: "Needs Cat Form" };
@@ -1848,5 +1958,6 @@
     return { pool: S.mana, regen: S.mp5 / 5 + ((b + S.attr.spirit / per) / 2) * keepWhileCasting(ctx) / 100 };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp };
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
+    STANCE_FORM, inMask, warriorStance };
 })();
