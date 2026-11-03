@@ -44,6 +44,7 @@
     <button type="button" role="tab" id="tabTalents" data-view="talents" aria-selected="true">Talents</button>
     <button type="button" role="tab" id="tabGear" data-view="gear" aria-selected="false">Gear &amp; Stats</button>
     <button type="button" role="tab" id="tabPriority" data-view="priority" aria-selected="false">Priority</button>
+    <button type="button" role="tab" id="tabAbilities" data-view="abilities" aria-selected="false">Abilities</button>
     <button type="button" role="tab" id="tabBuilds" data-view="builds" aria-selected="false">Builds</button>
   </nav>
 
@@ -91,6 +92,13 @@
       <aside class="side" id="prioSide" aria-label="Stats and abilities"></aside>
     </div>
   </div>
+
+  <div id="abilitiesView" role="tabpanel" aria-labelledby="tabAbilities" hidden>
+    <div class="prio-layout lab-layout">
+      <section class="prio lab" id="lab" aria-label="Abilities"></section>
+      <aside class="side" id="labSide" aria-label="Target, buffs and stats"></aside>
+    </div>
+  </div>
 </main>
 
 <dialog class="picker" id="picker" aria-labelledby="pickerTitle">
@@ -136,6 +144,7 @@
 <script src="js/gear.js"></script>
 <script src="js/panel.js"></script>
 <script src="js/priority.js"></script>
+<script src="js/abilitytab.js"></script>
 <script src="js/builds.js"></script>
 <script src="js/why.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="planner"></script>

@@ -148,6 +148,7 @@
       then && then();
       if (app.renderPanel) app.renderPanel(); // the stats panel can now count the gear
       if (app.renderPriority) app.renderPriority();
+      if (app.renderAbilities) app.renderAbilities();
     };
     s.onerror = () => app.toast("Couldn't load the item list.");
     document.head.append(s);
@@ -216,7 +217,7 @@
       const id = parseInt(v, 36);
       if (SLOTS[i] && id > 0) gear[SLOTS[i].key] = id;
     });
-    return { view: ["gear", "priority", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
+    return { view: ["gear", "priority", "abilities", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
   }
 
   // ------------------------------------------------------------ icons and tooltips
@@ -673,14 +674,17 @@
     $("talentsView").hidden = v !== "talents";
     $("gearView").hidden = v !== "gear";
     $("priorityView").hidden = v !== "priority";
+    $("abilitiesView").hidden = v !== "abilities";
     $("buildsView").hidden = v !== "builds";
     $("tabTalents").setAttribute("aria-selected", v === "talents");
     $("tabGear").setAttribute("aria-selected", v === "gear");
     $("tabPriority").setAttribute("aria-selected", v === "priority");
+    $("tabAbilities").setAttribute("aria-selected", v === "abilities");
     $("tabBuilds").setAttribute("aria-selected", v === "builds");
     $("tooltip").hidden = true;
-    if (v !== "talents" && v !== "builds") loadItems(render); // the priority tab needs to know your weapons too
+    if (v !== "talents" && v !== "builds") loadItems(render); // the priority and abilities tabs need your weapons too
     if (app.renderPriority) app.renderPriority();
+    if (app.renderAbilities) app.renderAbilities();
     if (app.renderBuilds) app.renderBuilds();
     if (push) app.changed();
   }
@@ -694,6 +698,7 @@
   $("tabTalents").addEventListener("click", () => setView("talents", true));
   $("tabGear").addEventListener("click", () => setView("gear", true));
   $("tabPriority").addEventListener("click", () => setView("priority", true));
+  $("tabAbilities").addEventListener("click", () => setView("abilities", true));
   $("tabBuilds").addEventListener("click", () => setView("builds", true));
   app.setView = setView;
   app.view = () => view;

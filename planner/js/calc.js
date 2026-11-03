@@ -426,6 +426,14 @@
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
       shield: !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6),
     };
+    // "what if" numbers typed on the Abilities tab replace the worked-out ones: attack power (melee and ranged),
+    // spell damage (all schools), healing
+    const o = ctx.override;
+    if (o) {
+      if (o.ap != null) { S.ap = o.ap; S.rap = o.ap; }
+      if (o.sp != null) { S.sp = o.sp; S.school = { holy: 0, fire: 0, nature: 0, frost: 0, shadow: 0, arcane: 0 }; }
+      if (o.healing != null) S.healing = o.healing;
+    }
     return S;
   }
 
@@ -532,6 +540,10 @@
   // without a tank choice, Bear when the build has Natural Reaction or Thick Hide (like the Priority tab)
   function druidForm(ctx) {
     if (ctx.cls.token !== "DRUID") return null;
+    // a set form (the Abilities tab works out each ability in the form it needs): "bear", "cat" or "none"
+    if (ctx.form === "bear") return bookRank("DRUID", "Dire Bear Form", ctx.level) ? "dire" : bookRank("DRUID", "Bear Form", ctx.level) ? "bear" : null;
+    if (ctx.form === "cat") return bookRank("DRUID", "Cat Form", ctx.level) ? "cat" : null;
+    if (ctx.form === "none") return null;
     const pts = [0, 0, 0];
     const learned = new Set();
     ctx.flat.forEach((t, i) => { if (ctx.ranks[i]) { pts[t.tree] += ctx.ranks[i]; learned.add(t.name); } });
@@ -1559,6 +1571,26 @@
     return e.base + e.perLevel * Math.max(0, L - rank.spellLevel);
   };
 
+  // How many of n targets one effect hits (the Abilities tab's target count; everything else uses 1), from the game
+  // data: an area hits all of them up to the spell's limit (Whirlwind 4); a chain jumps to `chain` targets, each jump
+  // doing chainAmp of the last (Chain Lightning 70%, Chain Heal 50%). An area heal is capped at a party (5).
+  // Returns the targets hit and the damage multiplier (targets x falloff).
+  const ONE_TARGET = [5, 6, 21, 25, 45, 57, 77]; // pet, enemy, ally, any, chain-heal ally, party member, channel target
+  function targetsHit(e, src, n) {
+    if (!n || n <= 1 || e.target === 1) return { hits: 1, mult: 1 };
+    if (ONE_TARGET.includes(e.target)) {
+      if (!(e.chain > 1)) return { hits: 1, mult: 1 };
+      const hits = Math.min(n, e.chain), amp = e.chainAmp || 1;
+      let mult = 0;
+      for (let k = 0; k < hits; k++) mult += amp ** k;
+      return { hits, mult };
+    }
+    const heal = e.effect === 10 || (e.effect === 6 && (e.aura === 8 || e.aura === 69));
+    // e.maxTargets: one part's own limit (Consecration's extra damage: "the first 4 enemies", from its tooltip)
+    const hits = Math.min(n, e.maxTargets || src.maxTargets || (heal ? 5 : n));
+    return { hits, mult: hits };
+  }
+
   // Damage of one set of effects (an ability rank or a spell it triggers). Returns min/max of the direct part,
   // the total of any damage over time, healing, and what it needed.
   function effectDamage(effects, src, S, ctx, weaponSlot, mods) {
@@ -1571,6 +1603,8 @@
     const coefMult = 1 + mods.pct(24) / 100;
     const spellPower = physical ? 0 : spellPowerFor(S, src.school);
     let combo = false, single = false, area = false;
+    // targets (ctx.targets, default 1): each effect's damage x the targets it hits; weapon effects share one count
+    let hits = 1, wMult = 1;
     // a share of attack power only the tooltip formula holds (Revenge 22.5%, Summon Hawk's dive 5% of ranged AP);
     // added once, to the first damage effect, when the effect itself has none
     let textBonus = src.textShares && !AP_DUMMY[src.familyName]
@@ -1584,6 +1618,8 @@
       const spread = (e.variance || 0) / 2;
       const perCombo = (e.perResource || 0) * COMBO_POINTS; // spread applies to the base part only
       if (perCombo) combo = true;
+      const th = targetsHit(e, src, ctx.targets);
+      const m = th.mult;
       switch (e.effect) {
         case 17: case 58: case 121: {
           if (!weaponItem) { needsWeapon = true; break; }
@@ -1591,6 +1627,7 @@
           weapon = { min: weaponItem.weapon.min + (ap / 14) * speed, max: weaponItem.weapon.max + (ap / 14) * speed };
           flat += v;
           hasDirect = true;
+          wMult = Math.max(wMult, m); hits = Math.max(hits, th.hits);
           break;
         }
         case 31:
@@ -1601,49 +1638,56 @@
           }
           if (!weaponItem) needsWeapon = true;
           hasDirect = true;
+          wMult = Math.max(wMult, m); hits = Math.max(hits, th.hits);
           break;
         case 2: {
           const bonus = (physical ? 0 : e.coef * spellPower * coefMult) + (e.apCoef || 0) * ap +
             (src.familyName === "Eviscerate" ? ap * EVISCERATE_AP_PER_POINT * COMBO_POINTS : 0) + (e.apCoef ? 0 : textBonus);
           textBonus = 0;
-          dmin += v * (1 - spread) + perCombo + bonus;
-          dmax += v * (1 + spread) + perCombo + bonus;
+          dmin += (v * (1 - spread) + perCombo + bonus) * m;
+          dmax += (v * (1 + spread) + perCombo + bonus) * m;
           hasDirect = true;
+          hits = Math.max(hits, th.hits);
           break;
         }
         case 3:
-          if (AP_DUMMY[src.familyName] === e.i) { dmin += (ap * v) / 100; dmax += (ap * v) / 100; hasDirect = true; }
+          if (AP_DUMMY[src.familyName] === e.i) { dmin += (ap * v) / 100 * m; dmax += (ap * v) / 100 * m; hasDirect = true; }
           else if (src.familyName === "Execute" && e.i === 0) { dmin += v; dmax += v; hasDirect = true; }
           else if (WEAPON_DPS_DUMMY[src.familyName] === e.i) {
             if (!weaponItem) { needsWeapon = true; break; }
             const w = weaponItem.weapon;
             const dps = ((w.min + w.max) / 2 + (ap / 14) * w.speed) / w.speed;
-            dmin += v * dps; dmax += v * dps; hasDirect = true;
+            dmin += v * dps * m; dmax += v * dps * m; hasDirect = true;
+            hits = Math.max(hits, th.hits);
           }
           break;
         case 10:
-          heal += v + e.coef * S.healing * coefMult;
+          heal += (v + e.coef * S.healing * coefMult) * m;
+          hits = Math.max(hits, th.hits);
           break;
         case 6:
           if (e.aura === 3 || e.aura === 53) { // damage over time
             const dur = (src.durMs || 0) + (perCombo ? (LONGER_PER_POINT[src.familyName] || 0) * COMBO_POINTS : 0);
             const n = e.period ? Math.floor(dur / e.period) : 0;
             ticks = Math.max(ticks, n);
-            dot += n * (v + perCombo + (physical ? 0 : e.coef * spellPower * coefMult));
+            dot += n * (v + perCombo + (physical ? 0 : e.coef * spellPower * coefMult)) * m;
+            if (hitsTarget) hits = Math.max(hits, th.hits);
           } else if (e.aura === 8) {
             const n = e.period ? Math.floor((src.durMs || 0) / e.period) : 0;
-            heal += n * (v + e.coef * S.healing * coefMult);
+            heal += n * (v + e.coef * S.healing * coefMult) * m;
+            hits = Math.max(hits, th.hits);
           } else if (e.aura === 69 && e.target !== 1) { // an absorb shield on someone else (Power Word: Shield)
-            heal += v + e.coef * S.healing * coefMult;
+            heal += (v + e.coef * S.healing * coefMult) * m;
+            hits = Math.max(hits, th.hits);
           }
           break;
       }
     }
     if (weapon) {
-      dmin += (weapon.min + flat) * wpct;
-      dmax += (weapon.max + flat) * wpct;
+      dmin += (weapon.min + flat) * wpct * wMult;
+      dmax += (weapon.max + flat) * wpct * wMult;
     }
-    return { kind, physical, dmin, dmax, dot, heal, ticks, needsWeapon, hasDirect, combo, single, area };
+    return { kind, physical, dmin, dmax, dot, heal, ticks, needsWeapon, hasDirect, combo, single, area, hits };
   }
 
   function abilityResult(ab, S, ctx) {
@@ -1680,10 +1724,12 @@
     const durMs = Math.max(0, ((rank.durMs || 0) + mods.flat(1)) * (1 + mods.pct(1) / 100));
     const src = { ...rank, durMs, familyName: ab.name };
     let r = effectDamage(rank.effects, src, S, ctx, "mainHand", mods);
-    // spells it sets off: add their damage (a periodic trigger fires once per tick)
-    const periodicTrigger = rank.effects.find((e) => e.effect === 6 && e.aura === 23 && e.trigger);
+    // spells it sets off: add their damage (a periodic trigger fires once per tick). Aura 226 with a trigger = an area
+    // spell's ticks (Blizzard, Consecration...), paired with its damage spell by the data script (areaLink)
+    const periodic = (e) => e.effect === 6 && (e.aura === 23 || e.aura === 226) && e.trigger;
+    const periodicTrigger = rank.effects.find(periodic);
     // only spells the ability itself sets off (not "when you're struck" procs like Lightning Shield)
-    const fired = new Set(rank.effects.filter((e) => e.trigger && (e.effect === 64 || (e.effect === 6 && e.aura === 23)))
+    const fired = new Set(rank.effects.filter((e) => e.trigger && (e.effect === 64 || periodic(e)))
       .map((e) => String(e.trigger)));
     const tlist = Object.entries(rank.triggers || {}).filter(([id]) => fired.has(id));
     tlist.forEach(([id, t], n) => {
@@ -1696,7 +1742,7 @@
       r = { ...r, dmin: r.dmin + sub.dmin * times, dmax: r.dmax + sub.dmax * times, dot: r.dot + sub.dot,
         heal: r.heal + sub.heal, needsWeapon: r.needsWeapon || sub.needsWeapon,
         hasDirect: r.hasDirect || sub.hasDirect, physical: r.physical && sub.physical, kind: sub.kind || r.kind,
-        combo: r.combo || sub.combo, single: r.single || sub.single, area: r.area || sub.area };
+        combo: r.combo || sub.combo, single: r.single || sub.single, area: r.area || sub.area, hits: Math.max(r.hits, sub.hits) };
     });
     if (r.needsWeapon && (!r.hasDirect || WEAPON_DPS_DUMMY[ab.name] != null)) return { ...base, rank, locked: "Needs a weapon" };
     if (!r.hasDirect && !r.dot && !r.heal) return null; // nothing we can put a number on
@@ -1740,8 +1786,15 @@
     // Execute: each leftover rage point adds amp x 10 damage, with the same talents, armor, hit and crit
     const amp = (rank.effects.find((e) => e.amp) || {}).amp;
     const perRage = amp && avg ? amp * 10 * dmgMult * mit * (expected / avg) : 0;
+    // Stacking bleeds (Lacerate): "plus 10% weapon damage per existing application", "stacks up to 5 times" (tooltip;
+    // the number is a dummy effect the server works out). weaponHit = that extra per existing stack, talents counted;
+    // left out of the average above (it depends on the stacks), shown on the Abilities tab
+    const stackMatch = /stacks up to (\d+) times/.exec(rank.desc || "");
+    const perStack = /plus (\d+)% weapon damage per existing application/.exec(rank.desc || "");
+    const stack = stackMatch && r.dot ? { max: +stackMatch[1],
+      weaponHit: perStack && S.mh ? (+perStack[1] / 100) * rawSwing(S, S.mh) * dmgMult : 0, weaponPct: perStack ? +perStack[1] : 0 } : null;
     return {
-      perRage,
+      perRage, hits: r.hits, stack, critMult,
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
       heal, healCrit: heal * healCritMult, healCritMult, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
       castMs, channelMs, cdMs, cost, costPct: rank.cost ? 0 : rank.costPct, powerType: rank.powerType,
@@ -1762,6 +1815,14 @@
     return { S, white, abilities: list, rotation: rotation(ctx, S, white, list), healing };
   }
 
+  // Just the abilities (no rotation), for the Abilities tab: { S, results } with results[i] for KP.abilities[class][i]
+  // (null when there's nothing to put a number on). `only` limits it to some ability indexes.
+  function abilityResults(ctx, only) {
+    const S = stats(ctx);
+    const results = (KP.abilities[ctx.cls.token] || []).map((ab, i) => (!only || only.includes(i) ? abilityResult(ab, S, ctx) : null));
+    return { S, results };
+  }
+
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
   function manaInfo(ctx) {
     const S = stats(ctx);
@@ -1769,5 +1830,5 @@
     return { pool: S.mana, regen: S.mp5 / 5 + ((b + S.attr.spirit / per) / 2) * keepWhileCasting(ctx) / 100 };
   }
 
-  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo };
+  KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS };
 })();

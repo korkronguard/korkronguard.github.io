@@ -437,6 +437,10 @@
   function panel(R, opts) {
     const box = el("div", "panel-in");
     if (opts.controls) box.append(controls(R));
+    if (opts.short) { // the Abilities tab: its table already lists the abilities
+      box.append(statGrid(R), el("p", "muted small pnote", "Target, armor, buffs and base stats here change every number in the table. Hover a stat for details."));
+      return box;
+    }
     // healing first when the role is Healing (Priority tab's Role: a healing build, or chosen); damage first otherwise
     const heals = R.healing && R.healing.hps > 0;
     const healerFirst = heals && (app.prioRole ? app.prioRole() === "heal" : !R.rotation || R.healing.hps > R.rotation.dps);
@@ -478,6 +482,8 @@
     if (gearBox) { gearBox.textContent = ""; gearBox.append(panel(R, { controls: true })); }
     const prioBox = $("prioSide");
     if (prioBox) { prioBox.textContent = ""; prioBox.append(panel(R, { controls: true })); }
+    const labBox = $("labSide");
+    if (labBox && app.view && app.view() === "abilities") { labBox.textContent = ""; labBox.append(panel(R, { controls: true, short: true })); }
   }
 
   app.hooks.push(render);

@@ -571,6 +571,67 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .why-why { font-size: 14px; margin-top: 4px; }
 .why-why strong { color: var(--gold); }
 
+/* ---------- abilities tab (spreadsheet-style table) ---------- */
+.lab-bar { gap: 8px 22px; }
+.lab-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.lab-label { font-weight: 600; font-size: 13px; }
+.lab-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.lab-num { width: 58px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; font-size: 13px; }
+.lab-scroll { overflow-x: auto; margin-top: 12px; }
+.lab-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.lab-table th { padding: 0; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+.lab-table th.num { text-align: right; }
+.lab-sort { width: 100%; padding: 6px 8px; background: none; border: 0; color: var(--muted); font-size: 12px; font-weight: 600; text-align: inherit; cursor: pointer; }
+.lab-sort:hover { color: var(--text); }
+.lab-arrow { color: var(--gold); }
+.lab-table td { padding: 4px 8px; border-bottom: 1px solid #23272e; vertical-align: middle; }
+.lab-table td.num, .lab-sub td.num, .lab-sub th.num { text-align: right; white-space: nowrap; }
+.lab-row:hover > td { background: #1b1f25; }
+.lab-row.open > td { background: var(--panel-2); border-bottom-color: transparent; }
+.lab-row.locked .lab-open { opacity: .65; }
+.lab-name { position: sticky; left: 0; z-index: 1; min-width: 210px; background: var(--panel); }
+.lab-open { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; background: none; border: 0; text-align: left; cursor: pointer; }
+.lab-caret { flex: none; width: 10px; color: var(--muted); font-size: 11px; }
+.lab-ntext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lab-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+td.lab-total { color: #fff; }
+td.lab-total.green { color: var(--green); }
+.lab-multi { color: var(--gold); font-weight: 700; }
+.lab-lock { font-style: italic; }
+.prio-tag.lab-heal { border-color: #2f6b36; color: var(--green); }
+.lab-detail > td { padding: 2px 12px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.lab-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 0 24px; }
+.lab-block h4, .lab-combos h4 { margin: 12px 0 6px; font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: .06em; }
+.lab-desc { margin: 0 0 6px; font-size: 13px; }
+.lab-facts li { color: var(--muted); }
+.lab-warn { color: var(--gold); }
+.lab-sub { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.lab-sub th { padding: 3px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; text-align: left; white-space: nowrap; }
+.lab-sub td { padding: 3px 8px; border-bottom: 1px solid #2a2f37; }
+.lab-sub tr.mine td { background: rgba(232, 182, 76, .1); }
+.lab-tlist { margin: 6px 0 0; }
+.lab-tlist li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 3px 0; }
+.lab-tname { color: var(--text); }
+.lab-tdo { color: var(--muted); }
+.lab-ctable { width: 100%; }
+.lab-chip { display: inline-block; margin: 1px 4px 1px 0; padding: 0 7px; border: 1px solid #4a3f22; border-radius: 10px; background: #221f19; font-size: 11px; white-space: nowrap; }
+.lab-later { margin-top: 8px; }
+/* an opened row's details stay in view while the wide table scrolls sideways (phones) */
+.lab-detail .lab-grid, .lab-detail .lab-talents { position: sticky; left: 12px; max-width: calc(100vw - 92px); }
+@media (max-width: 1250px) {
+  .prio-layout.lab-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .lab-grid { grid-template-columns: minmax(0, 1fr); }
+  .lab-name { min-width: 150px; }
+}
+@media (max-width: 520px) {
+  .tabs { overflow-x: auto; gap: 1px; scrollbar-width: none; }
+  .tabs button { padding: 8px 6px; white-space: nowrap; font-size: 13px; }
+  .lab { padding: 12px 10px; }
+  .lab-detail .lab-grid, .lab-detail .lab-talents { max-width: calc(100vw - 66px); }
+}
+
 @media (max-width: 1250px) {
   .talents-layout { grid-template-columns: 1fr; }
   .prio-layout { grid-template-columns: 1fr; }
