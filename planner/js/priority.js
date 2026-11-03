@@ -719,13 +719,22 @@
       L.section("Attack priority", "Press the first one that's ready.");
       L.add("Stormstrike", { tag: "On cooldown", score: 1000, text: "Weapon damage, and your next Earth Shock, Lightning Bolt or Chain Lightning hits 20% harder.",
         facts: [dmgLine(A["Stormstrike"], unit), c.talent["Improved Stormstrike"] ? "Improved Stormstrike: 50% mana regeneration while casting for 15 sec after it" : null] });
+      // shocks share one cooldown: Flame Shock once per burn (a new one replaces the old burn; its burn outlasts the
+      // cooldown), the best direct shock on the other cooldowns (the same plan as the damage estimate)
       const shocks = ["Earth Shock", "Flame Shock", "Frost Shock"].filter((n) => c.has(n));
-      const bestShock = shocks.map((n) => [n, A[n]]).filter(([, a]) => a && !a.locked && a.expected).sort((x, y) => y[1].expected - x[1].expected)[0];
+      const usable = (n) => A[n] && !A[n].locked && A[n].expected;
+      const direct = ["Earth Shock", "Frost Shock"].filter(usable).sort((x, y) => A[y].expected - A[x].expected)[0];
+      const shockCd = ((A[direct || "Flame Shock"] || {}).cdMs || 6000) / 1000;
+      const burn = usable("Flame Shock") ? (A["Flame Shock"].durMs || 0) / 1000 : 0;
+      const focus = c.talent["Shamanistic Focus"] ? ` (Shamanistic Focus: ${fmt(talentNumber(c, "Shamanistic Focus"))}% cheaper)` : "";
       for (const n of shocks) {
-        L.add(n, { tag: bestShock && bestShock[0] === n ? "On cooldown" : "Situational", score: bestShock && bestShock[0] === n ? 900 : 100,
-          text: n === "Earth Shock" ? "Right after Stormstrike for the +20%. Also your interrupt." : n === "Flame Shock" ? "Fire damage plus a burn over 12 sec." : "Slows the target.",
-          facts: [dmgLine(A[n], unit), "Shocks share one cooldown: the planner uses whichever does the most for you" +
-            (c.talent["Shamanistic Focus"] ? ` (Shamanistic Focus: ${fmt(talentNumber(c, "Shamanistic Focus"))}% cheaper)` : "")] });
+        const job = n === "Flame Shock" && burn > shockCd ? "keep" : n === direct ? "main" : "other";
+        L.add(n, { tag: job === "keep" ? "Keep up" : job === "main" ? "On cooldown" : "Situational", score: job === "keep" ? 950 : job === "main" ? 900 : 100,
+          text: n === "Earth Shock" ? "Right after Stormstrike for the +20%. Also your interrupt."
+            : n === "Flame Shock" ? `Fire damage plus a burn over ${fmt(burn || 12)} sec. Cast it again only when the burn has run out: a new Flame Shock replaces the burn still going.`
+              : "Slows the target.",
+          facts: [dmgLine(A[n], unit), job === "main" ? `Shocks share one cooldown: the ones Flame Shock doesn't need go to ${n}${focus}`
+            : job === "keep" ? `Shocks share one cooldown (${fmt(shockCd)} sec): Flame Shock takes one every ${fmt(burn)} sec${focus}` : "Shocks share one cooldown"] });
       }
       L.add("Lightning Bolt", { tag: "With Maelstrom", score: 50, text: "When Maelstrom Weapon has made it fast and cheap (5 stacks: instant).",
         facts: [c.talent["Maelstrom Weapon"] ? "Maelstrom Weapon: melee hits make your next Lightning Bolt faster and cheaper (game data)" : null] });

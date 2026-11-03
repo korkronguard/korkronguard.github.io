@@ -670,7 +670,8 @@
     const n = Object.values(g).filter(Boolean).length;
     const unit = role === "heal" ? "healing per second" : "damage per second";
     const shown = (r) => (role === "tank" ? null : r.v);
-    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit };
+    const buffsOn = Object.values(state.buffs || {}).some(Boolean);
+    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit, buffsOn };
     app.changed();
   }
 
@@ -716,7 +717,8 @@
       box.append(el("p", "muted small gear-bis-note",
         `Equipped the best ${b.n} items for ${ROLE_NAMES[b.role].toLowerCase()} (${fmt1(b.ms / 1000)} sec)` +
         (b.after != null ? `: ${fmt1(b.after)} ${b.unit}` + (b.before != null && Math.abs(b.after - b.before) > 0.05 ? ` (was ${fmt1(b.before)})` : "") : "") +
-        ". Your target, buffs and talents count. Dungeon and raid loot with no level requirement counts from 5 levels below its " +
+        (b.buffsOn ? ". Your target, buffs and talents count." : ". Your target and talents count, with no group buffs (just you): " +
+          "mana weighs more alone, so for raid gear switch the buffs on in the panel first.") + " Dungeon and raid loot with no level requirement counts from 5 levels below its " +
         "item level. Left out: profession items (Engineering…), weapons whose damage isn't confirmed, other classes' tier sets " +
         "and the other faction's gear; " +
         "proc and \"Use:\" effects aren't in the math. Every item is still in the picker."));

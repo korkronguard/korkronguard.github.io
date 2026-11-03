@@ -1250,22 +1250,32 @@
     const manaOf = (a) => a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
     const ssRate = ss && !ss.locked && ss.expected ? 1 / Math.max(1.5, ss.cdMs / 1000) : 0;
     if (ssRate) shots.push({ name: "Stormstrike", perUse: ss.expected, rate: ssRate, mana: manaOf(ss), busy: 1.5, cast: 0 });
-    // shocks share a cooldown: the one that does the most per use; Stormstrike's +20% lands on part of them
-    const shock = ["Earth Shock", "Flame Shock", "Frost Shock"].map((n) => byName[n])
-      .filter((a) => a && !a.locked && a.expected).sort((a, b) => b.expected - a.expected)[0];
-    if (shock) {
-      const rate = 1 / Math.max(1.5, (shock.cdMs || 6000) / 1000);
-      const buffed = shock.name === "Earth Shock" ? Math.min(1, ssRate / rate) * 0.2 : 0;
-      shots.push({ name: shock.name, perUse: shock.expected * (1 + buffed), rate, mana: manaOf(shock), busy: 1.5, cast: 0 });
+    // Shocks share one cooldown. Flame Shock's burn outlasts it (21 sec in Forever) and a new Flame Shock replaces the
+    // burn still running (Classic's rule), so it's cast once per burn; the other shock cooldowns go to the best direct
+    // shock (Earth Shock, which Stormstrike's +20% lands on). The mana then goes where it does the most per point.
+    const usableShock = (n) => byName[n] && !byName[n].locked && byName[n].expected ? byName[n] : null;
+    const fs = usableShock("Flame Shock");
+    const direct = ["Earth Shock", "Frost Shock"].map(usableShock).filter(Boolean).sort((a, b) => b.expected - a.expected)[0];
+    const shockCd = Math.max(1.5, (((direct || fs) || {}).cdMs || 6000) / 1000);
+    const fsRate = fs ? Math.min(1 / shockCd, 1 / Math.max(shockCd, (fs.durMs || 0) / 1000)) : 0;
+    if (fs) shots.push({ name: "Flame Shock", perUse: fs.expected, rate: fsRate, mana: manaOf(fs), busy: 1.5, cast: 0, keptUp: fs.durMs / 1000 > shockCd });
+    if (direct && 1 / shockCd - fsRate > 1e-9) {
+      const rate = 1 / shockCd - fsRate;
+      const buffed = direct.name === "Earth Shock" ? Math.min(1, ssRate / rate) * 0.2 : 0;
+      shots.push({ name: direct.name, perUse: direct.expected * (1 + buffed), rate, mana: manaOf(direct), busy: 1.5, cast: 0 });
     }
     const keep = (ctx) => Math.max(keepWhileCasting(ctx), ssRate && learnedTalent(ctx, "Improved Stormstrike") ? 50 : 0);
     const fitted = fitShots(shots, manaBudget(ctx, S, keep).perSec);
     for (const s of fitted) {
       dps += s.dps;
-      parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+      const label = s.keptUp ? `${s.name} (burn kept up${s.f < 0.99 ? `, ${Math.round(s.f * 100)}% of the time` : ""})`
+        : s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : "");
+      parts.push({ name: label, dps: s.dps });
     }
     if (haste) notes.push(`Rage of the Farseer averages +${haste.toFixed(1)}% attack speed`);
-    if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every shock over a 3-minute fight");
+    if (fs && fsRate < 1 / shockCd) notes.push(`Flame Shock once per burn (a new one replaces the old burn), ${direct ? direct.name : "nothing"} on the other shock cooldowns`);
+    if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover everything over a 3-minute fight (the least damage per mana is cut first: " +
+      fitted.filter((s) => s.manaCut).map((s) => s.name).join(", ") + ")");
     const manaSpent = manaUsed(fitted);
     notes.push("Lightning Bolts with Maelstrom Weapon, Flametongue/Rockbiter and Windfury Totem aren't counted yet");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
