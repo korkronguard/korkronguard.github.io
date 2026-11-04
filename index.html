@@ -183,7 +183,6 @@
           <span>Faction <b>Horde</b></span>
           <span>Game <b>WoW: Forever</b></span>
           <span>Ruleset <b>PvP</b></span>
-          <span>Realm <b id="realm">Announced at launch</b></span>
         </div>
         <p>This lore mirrors who we are as players. We are older gamers, veterans of classic MMOs, and working adults. We love the heavy, immersive feel of the Horde, and we don't follow the toxic, ego-driven culture that plagues modern gaming.</p>
         <p>When we raid, we raid: we show up focused, cut the chatter during boss pulls, and respect each other's time so we can clear the dungeon and go to bed. When we PvP, we do it to have a laugh and blow off steam. And when we aren't doing either, we just want a mature, drama-free Hearth to hang out in.</p>
@@ -211,7 +210,6 @@
   KG.renderMembers(document.getElementById("members"), "", 4);
 
   var site = window.KG_SITE || {};
-  if (site.realm) document.getElementById("realm").textContent = site.realm;
   document.getElementById("recruiting").textContent = site.recruiting ? "Recruiting: " + site.recruiting : "";
   if (site.discord) {
     document.getElementById("join-actions").insertAdjacentHTML("afterbegin",
