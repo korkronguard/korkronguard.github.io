@@ -181,7 +181,25 @@ window.KG_PLAYERS = [
   {
     "id": "matadoots",
     "player": "Matadoots",
-    "rank": "Kor'kron Vanguard"
+    "rank": "Kor'kron Vanguard",
+    "name": "Daddy Moofunk",
+    "race": "Tauren",
+    "class": "Druid",
+    "portrait": "matadoots-daddy-moofunk.jpg",
+    "story": [
+      "Born in Mulgore during a thunderstorm, Daddy emerged from the womb wearing a medallion and owing three goblins money.",
+      "He studied druidism under the elders, who quickly discovered he was exceptionally gifted at communing with nature and exceptionally bad at shutting the hell up.",
+      "He joined the Horde after declaring, \"THESE PEOPLE NEED HEALIN', BABY, AND SOME OF 'EM NEED A WHOLE NEW PERSONALITY!\"",
+      "He now travels Azeroth spreading the Earth Mother's wisdom, unsolicited romantic advice, and an alarming quantity of Rejuvenation."
+    ],
+    "appearance": [
+      "GOLD-TIPPED HORNS. SILK-SMOOTH MANE. A MEDALLION BIG ENOUGH TO REFLECT THE SUN.",
+      "Daddy rocks enchanted leather, a suspicious amount of jewelry, and a staff called The Persuader.",
+      "His hooves stay polished. His fur stays conditioned. His chest stays unnecessarily exposed.",
+      "Bear Form? THE HUG DEALER.",
+      "Cat Form? THE MIDNIGHT KITTY.",
+      "Travel Form? THE EXPRESS MOO."
+    ]
   },
   {
     "id": "jack",
