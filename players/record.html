@@ -79,15 +79,24 @@
     var who = m.name || m.player;
     document.title = who + " · Kor'kron Guard";
     var rc = KG.raceClass(m);
-    var sub = [rc, m.rank].filter(Boolean).join(" · ");
+    var sub = m.tagline || [rc, m.rank].filter(Boolean).join(" · ");
+    var played = [m.tagline && m.rank, KG.playedBy(m) && "Played by " + m.player].filter(Boolean).join(" · ");
     var pic = KG.portraitHtml(m, "../");
 
     var html = '<header class="reveal"><p class="kicker">Kor\'kron Guard &middot; Record of Service</p>' +
       "<h1>" + esc(who) + "</h1>" +
       '<p class="subtitle">' + esc(sub) + "</p>" +
-      (KG.playedBy(m) ? '<p class="played">Played by ' + esc(m.player) + "</p>" : "") +
+      (played ? '<p class="played">' + esc(played) + "</p>" : "") +
       (pic ? '<figure class="portrait-frame">' + pic + "</figure>" : seal) +
+      (m.quote ? '<p class="epigraph">' + inline(m.quote) + "</p>" : "") +
+      (m.intro ? m.intro.map(function (l) { return '<p class="intro">' + inline(l) + "</p>"; }).join("") : "") +
       "</header>";
+
+    if (m.sections) {
+      m.sections.forEach(function (s) { html += divider + sectionHtml(s); });
+      el.innerHTML = html + back;
+      return;
+    }
 
     var paras = function (list) { return list.map(function (p) { return "<p>" + esc(p) + "</p>"; }).join(""); };
     if (m.story && m.story.length) {
@@ -101,6 +110,39 @@
         "<p>Every Kor'kron tells their own story. When " + esc(m.player) + " sets theirs down, it will be kept here, in their own words.</p></section>";
     }
     el.innerHTML = html + back;
+
+    // ---- full character sheets (tools/add-sheet.js): every section, in the order the player wrote it ----
+    // The player's own **bold** and *italic*, made safe first.
+    function inline(s) {
+      return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
+    }
+    function lineKind(l) { return l.indexOf("- ") === 0 ? "item" : /^\*\*.+?:\*\*/.test(l) ? "label" : "para"; }
+
+    // Neighbouring lines of one kind form a block: a list, a set of labelled lines, or paragraphs.
+    // The template's own sections get the hand-made scrolls' looks (ledger, traits, kin, sayings, whispers).
+    function blockHtml(kind, lines, heading) {
+      if (kind === "item") {
+        return '<ul class="' + (/saying/.test(heading) ? "sayings" : "runes") + '">' +
+          lines.map(function (l) { return "<li>" + inline(l.slice(2)) + "</li>"; }).join("") + "</ul>";
+      }
+      if (kind === "para") return lines.map(function (l) { return "<p>" + inline(l) + "</p>"; }).join("");
+      var pairs = lines.map(function (l) { var x = l.match(/^\*\*(.+?):\*\*\s*(.*)$/); return [esc(x[1]), inline(x[2])]; });
+      var each = function (f) { return pairs.map(function (p) { return f(p[0], p[1]); }).join(""); };
+      if (/glance/.test(heading)) return '<dl class="ledger">' + each(function (k, v) { return "<dt>" + k + "</dt><dd>" + v + "</dd>"; }) + "</dl>";
+      if (/personality/.test(heading)) return '<div class="traits">' + each(function (k, v) { return "<div><h4>" + k + "</h4><p>" + v + "</p></div>"; }) + "</div>";
+      if (/relationship/.test(heading)) return '<div class="kin">' + each(function (k, v) { return "<div><b>" + k + "</b><span>" + v + "</span></div>"; }) + "</div>";
+      return '<div class="whispers">' + each(function (k, v) { return "<p><b>" + k + "</b>" + v + "</p>"; }) + "</div>";
+    }
+    function sectionHtml(s) {
+      var heading = s.heading.toLowerCase(), body = "", i = 0;
+      while (i < s.lines.length) {
+        var kind = lineKind(s.lines[i]), run = [];
+        while (i < s.lines.length && lineKind(s.lines[i]) === kind) run.push(s.lines[i++]);
+        body += blockHtml(kind, run, heading);
+      }
+      if (/tale/.test(heading)) body = '<div class="tale">' + body + "</div>";
+      return '<section class="reveal"><h2>' + inline(s.heading) + "</h2>" + body + "</section>";
+    }
   })();
 </script>
 <script src="../assets/scroll.js" data-seed="41"></script>

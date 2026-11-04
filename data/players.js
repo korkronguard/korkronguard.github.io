@@ -8,6 +8,8 @@
 //   name, race, class      the character, as the player gave it ("" / missing if not given)
 //   portrait  an image in players/images, or video: a link to a short clip
 //   story, appearance      the player's own words, one string per paragraph. NEVER edit or add to these.
+//   tagline, quote, intro, sections   a full character sheet instead of story/appearance, written by
+//             tools/add-sheet.js from the player's .md (never by hand); the record page shows every section
 //   page      a hand-made page in players/ instead of the generated record (Grimscar's scrolls)
 //   alt       true for a second character of the same player
 window.KG_RANKS = [
@@ -186,19 +188,110 @@ window.KG_PLAYERS = [
     "race": "Tauren",
     "class": "Druid",
     "portrait": "matadoots-daddy-moofunk.jpg",
-    "story": [
-      "Born in Mulgore during a thunderstorm, Daddy emerged from the womb wearing a medallion and owing three goblins money.",
-      "He studied druidism under the elders, who quickly discovered he was exceptionally gifted at communing with nature and exceptionally bad at shutting the hell up.",
-      "He joined the Horde after declaring, \"THESE PEOPLE NEED HEALIN', BABY, AND SOME OF 'EM NEED A WHOLE NEW PERSONALITY!\"",
-      "He now travels Azeroth spreading the Earth Mother's wisdom, unsolicited romantic advice, and an alarming quantity of Rejuvenation."
+    "tagline": "Tauren Druid · Grand High Minister of the Funk",
+    "quote": "\"THE EARTH MOTHER GIVETH, BABY, AND DADDY DELIVEREEETH! CAN YOU DIG IT?!\"",
+    "intro": [
+      "**Guild Pillar:** Hearth — because Daddy keeps EVERYBODY warm."
     ],
-    "appearance": [
-      "GOLD-TIPPED HORNS. SILK-SMOOTH MANE. A MEDALLION BIG ENOUGH TO REFLECT THE SUN.",
-      "Daddy rocks enchanted leather, a suspicious amount of jewelry, and a staff called The Persuader.",
-      "His hooves stay polished. His fur stays conditioned. His chest stays unnecessarily exposed.",
-      "Bear Form? THE HUG DEALER.",
-      "Cat Form? THE MIDNIGHT KITTY.",
-      "Travel Form? THE EXPRESS MOO."
+    "sections": [
+      {
+        "heading": "At a Glance",
+        "lines": [
+          "**Name:** Daddy Moofunk",
+          "**Race / Class:** Tauren Druid, Licensed Practitioner of the Botanical Arts",
+          "**Born / People:** Mulgore, baby. Grass-fed and lady-approved.",
+          "**Age:** 47 years young, 300 years smooth.",
+          "**Allegiance:** The Horde, the Earth Mother, and the rhythm section.",
+          "**Station:** Chief Executive Officer of Keepin' It Groovy.",
+          "**Known as:** The Mulgore Mack, His Moofulness, The Sultan of Soil.",
+          "**Height / Build:** 9 feet of premium, pasture-raised, USDA PRIME BEEF."
+        ]
+      },
+      {
+        "heading": "Appearance",
+        "lines": [
+          "GOLD-TIPPED HORNS. SILK-SMOOTH MANE. A MEDALLION BIG ENOUGH TO REFLECT THE SUN.",
+          "Daddy rocks enchanted leather, a suspicious amount of jewelry, and a staff called **The Persuader**.",
+          "His hooves stay polished. His fur stays conditioned. His chest stays unnecessarily exposed.",
+          "Bear Form? **THE HUG DEALER.**",
+          "Cat Form? **THE MIDNIGHT KITTY.**",
+          "Travel Form? **THE EXPRESS MOO.**"
+        ]
+      },
+      {
+        "heading": "Voice & Manner",
+        "lines": [
+          "Daddy speaks with the swagger of a man who's never had a bad day, giving unsolicited compliments, and declarations of his own magnificence.",
+          "He calls everyone \"baby,\" including Warchiefs, enemies, and occasionally trees.",
+          "He refers to healing as **\"layin' down that sweet green lovin'.\"**",
+          "Innervate is **\"Daddy's Premium Mana Juice.\"**",
+          "Rebirth is **\"GET YO ASS BACK UP, BABY, WE AIN'T FINISHED DANCIN'!\"**",
+          "Stealth is impossible because Daddy narrates his own movements."
+        ]
+      },
+      {
+        "heading": "Their Tale",
+        "lines": [
+          "Born in Mulgore during a thunderstorm, Daddy emerged from the womb wearing a medallion and owing three goblins money.",
+          "He studied druidism under the elders, who quickly discovered he was exceptionally gifted at communing with nature and exceptionally bad at shutting the hell up.",
+          "He joined the Horde after declaring, **\"THESE PEOPLE NEED HEALIN', BABY, AND SOME OF 'EM NEED A WHOLE NEW PERSONALITY!\"**",
+          "He now travels Azeroth spreading the Earth Mother's wisdom, unsolicited romantic advice, and an alarming quantity of Rejuvenation."
+        ]
+      },
+      {
+        "heading": "Personality",
+        "lines": [
+          "**Virtues:** Generous, fearless, loyal, moisturized.",
+          "**Flaws:** Cannot whisper. Will flirt with a mailbox.",
+          "**Fears:** Baldness. Silence. Running out of mana mid-monologue.",
+          "**Loves:** The Earth Mother, fine robes, beautiful people.",
+          "**Hates:** Bad vibes, dry skin, and anybody disrespectin' the groove."
+        ]
+      },
+      {
+        "heading": "Relationships",
+        "lines": [
+          "**The Earth Mother:** His number-one lady. Relationship status: It's complicated.",
+          "**The Guard:** His funky family, whether they like it or not."
+        ]
+      },
+      {
+        "heading": "Sayings",
+        "lines": [
+          "- **\"AIN'T NO SHAME IN DADDY'S HEALIN' GAME!\"**",
+          "- **\"THESE HOOVES AIN'T MADE FOR RUNNIN', BABY. THAT'S WHY DADDY GOT TRAVEL FORM!\"**",
+          "- **\"I PUT THE HOT IN HEAL OVER TIME!\"**",
+          "- **\"YOU CAN'T SPELL NATURE WITHOUT... WELL, BABY, DADDY CAN'T SPELL, BUT YOU GET THE IDEA!\"**"
+        ]
+      },
+      {
+        "heading": "Roleplay Hooks",
+        "lines": [
+          "- Will offer unsolicited relationship counseling during combat.",
+          "- Claims to have personally invented Rejuvenation.",
+          "- Seeks the legendary Golden Comb of Mulgore.",
+          "- Owes a goblin 400 gold. Refuses to elaborate."
+        ]
+      },
+      {
+        "heading": "What Others Might Know or Hear",
+        "lines": [
+          "**Common knowledge:** Daddy Moofunk is a talented druid and an unbearable flirt.",
+          "**Rumor:** His medallion is enchanted to play entrance music. It isn't. He makes the noises himself.",
+          "**Secret:** Daddy's real first name is Clarence. The last fool who called him that is still a decorative shrub outside Thunder Bluff."
+        ]
+      },
+      {
+        "heading": "One Last Thing, Baby...",
+        "lines": [
+          "They say the Earth Mother watches over all her children.",
+          "**WELL, BABY, THE EARTH MOTHER WATCHES OVER DADDY MOOFUNK TOO... BUT SOMETIMES SHE GOTTA LOOK AWAY.**",
+          "So when the moon is high, the drums start thumpin', and you hear a deep, velvet voice rolling across the Barrens, don't you run, don't you hide, and don't you dare act surprised.",
+          "'Cause that ain't thunder, sugar.",
+          "*Stay funky. Stay fertile. Stay moisturized.*",
+          "**— DADDY MOOFUNK, THE MOO, THE MYTH, THE MEDALLION.**"
+        ]
+      }
     ]
   },
   {

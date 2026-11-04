@@ -288,6 +288,7 @@
   }
 
 /* ---------- generated records (players/record.html) ---------- */
+.intro { text-align: center; font-size: 16px; color: var(--ink-soft); margin: 14px 0 0; } /* lines above a sheet's first section */
 .played { text-align: center; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .24em; text-transform: uppercase; color: var(--ink-soft); margin: 8px 0 0; }
 .portrait-frame {
   margin: 28px auto 0; width: fit-content; max-width: min(100%, 420px); padding: 10px;

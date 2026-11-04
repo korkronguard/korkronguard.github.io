@@ -140,8 +140,8 @@ var KG = (function () {
   function rankOf(m) {
     return (window.KG_RANKS || []).filter(function (r) { return r.name === m.rank; })[0] || { name: m.rank || "", pillar: "hearth" };
   }
-  // A member "has a record" once they've sent a story (or have a hand-made page).
-  function hasRecord(m) { return !!(m.page || (m.story && m.story.length)); }
+  // A member "has a record" once they've sent a story or a character sheet (or have a hand-made page).
+  function hasRecord(m) { return !!(m.page || (m.story && m.story.length) || m.sections); }
   function recordHref(m, root) {
     return root + "players/" + (m.page ? esc(m.page) : "record.html?id=" + encodeURIComponent(m.id));
   }
@@ -149,9 +149,10 @@ var KG = (function () {
   // "Played by X" only when the character's name doesn't already start with the player's handle.
   function playedBy(m) { return !!(m.name && m.player && m.name.toLowerCase().indexOf(m.player.toLowerCase()) !== 0); }
   function classColor(m) { return CLASS_COLORS[m.class] || "#e9dcc6"; }
-  // The opening sentence of the player's own story, for the card.
+  // The opening sentence of the player's own story (or their sheet's quote), for the card.
   function firstSentence(m) {
     if (m.blurb) return m.blurb;
+    if (m.quote) return m.quote.replace(/\*/g, "");
     var t = (m.story && m.story[0]) || "";
     var match = t.match(/^.*?[.!?](\s|$)/);
     return (match ? match[0] : t).trim();
