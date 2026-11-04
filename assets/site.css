@@ -163,7 +163,10 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
 .tool h3 { font-size: 20px; color: #f3e4c6; }
 .tool code { font-family: Consolas, monospace; font-size: 13px; color: var(--gold); }
 .tool p { font-size: 15px; color: #cdbea5; margin: 8px 0 16px; }
-.tool a { margin-top: auto; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; text-decoration: none; }
+.tool a, .tool .soon { margin-top: auto; font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; text-decoration: none; }
+.tool .soon { color: var(--muted); }
+/* an odd card out spans the whole row instead of sitting alone */
+.tool-grid > .tool:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .howto { max-width: 760px; margin: 30px auto 0; padding: 18px 22px; font-size: 16px; color: #cdbea5; }
 .howto b { color: #f3e4c6; }
 
