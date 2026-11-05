@@ -589,16 +589,18 @@
   const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
     (Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(b.v)) && a.e > b.e + 1e-6);
 
-  // what +1 of each stat is worth right now (v and survival), measured with a stand-in item
+  // what +1 of each stat is worth right now (v, survival e, and damage per second d: a tank's v mixes the two), measured
+  // with a stand-in item
   function bisWeights(g, role, keys) {
     const base = bisEval(g, role);
-    const w = { v: {}, e: {} };
+    const w = { v: {}, e: {}, d: {} };
     for (const k of keys) {
       const amt = k === "armor" || k === "bonusArmor" ? 300 : k === "health" || k === "mana" ? 200 : 25;
       const probe = k === "armor" ? { name: "", armor: amt } : { name: "", stats: { [k]: amt } };
       const r = bisEval({ ...g, probe }, role);
       w.v[k] = (r.v - base.v) / amt;
       w.e[k] = (r.e - base.e) / amt;
+      w.d[k] = (r.dps - base.dps) / amt;
     }
     return w;
   }

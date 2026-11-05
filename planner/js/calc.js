@@ -2025,8 +2025,9 @@
   // The rules behind the character sheet's numbers, written out for the addon's Formulas tab (tools/export_formulas.js),
   // from the same numbers this file works with. Each: name, text (in words, with the class's numbers), and either expr
   // (to work out with your own numbers) with game (the game's number to show next to it), digits and unit, or only text
-  // for a rule of combat. expr uses level, str, agi, sta, int, spi, gearArmor (armor on your gear), armor (your armor)
-  // and the game tables baseHealth, baseMana, hpPerSta, with min and max. estimate = the planner's guess, not checked
+  // for a rule of combat. expr uses level, str, agi, sta, int, spi, gearArmor (armor on your gear), armor, health,
+  // dodge, parry, block (yours, as the game shows them) and the game tables baseHealth, baseMana, hpPerSta, with min
+  // and max. estimate = the planner's guess, not checked
   // in game yet. test/calc.test.js checks every expr against this file's own numbers.
   const INPUT_NAMES = { level: "level", str: "Strength", agi: "Agility", sta: "Stamina", int: "Intellect", spi: "Spirit" };
   // a sum like "3 × level + 2 × Strength - 20" and the same as an expression; terms = [[how many, of what], ...]
@@ -2073,6 +2074,10 @@
       text: "the armor on your gear + 2 per Agility (before talents and buffs)" });
     out.push({ name: "Physical damage your armor stops", digits: 1, unit: "%", expr: "min(75, armor / (armor + 400 + 85 * level) * 100)",
       text: "your armor ÷ (your armor + 400 + 85 × the attacker's level), at most 75%. Here: an attacker of your level." });
+    out.push({ name: "Effective health", digits: 0,
+      expr: "health / ((1 - min(0.75, armor / (armor + 400 + 85 * (level + 3)))) * (1 - min(0.6, (dodge + parry + block) / 100)))",
+      text: "how much damage you can take before you die, what the planner calls survival: health ÷ ((1 - what your " +
+        "armor stops from a raid boss 3 levels above you) × (1 - your dodge + parry + block chance, at most 60%))" });
     if (cls.power === 0) {
       const [b, per] = regenRule(t);
       out.push({ name: "Mana regen from Spirit", game: "regen", digits: 2, unit: " mana per second", estimate: true,
