@@ -1302,12 +1302,16 @@
       "Damage is an estimate (see the panel's notes)."));
   }
 
+  // the list for the current character, without drawing it (tools/make_builds.js also runs it for the addon)
+  const RULES = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman, PRIEST: priest };
+  app.priorityList = () => {
+    const c = character();
+    return (RULES[c.token] || generic)(c);
+  };
+
   function render() {
     if (!app.view || app.view() !== "priority" || !state.cls || !KP.spellbook) return;
-    const c = character();
-    const rules = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman, PRIEST: priest };
-    const L = (rules[c.token] || generic)(c);
-    draw(L);
+    draw(app.priorityList());
   }
 
   app.hooks.push(render);
