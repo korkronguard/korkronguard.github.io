@@ -350,15 +350,16 @@
       facts: [c.spell("Death Wish") ? `+${fmt(firstNumber(c.spell("Death Wish").desc))}% physical damage for 30 sec, ${sec(c.rank("Death Wish")?.cdMs || 180000)} cooldown` : null] });
     L.add("Recklessness", { tag: "Cooldown", text: "Once per fight: at the start of the Execute phase (Berserker Stance).",
       facts: [c.rank("Recklessness") ? `+100% crit for 15 sec, ${sec(c.rank("Recklessness").cdMs)} cooldown; you take 20% more damage` : null] });
+    L.add("Reckless Swings", { tag: "On cooldown", text: "Costs a quarter of your base health: your next 4 swings give 5 extra rage each. Every 15 sec." });
     L.add("Bloodrage", { tag: "Cooldown", text: "For rage: at the pull and whenever you're short.",
       facts: [c.talent["Improved Bloodrage"] ? `Improved Bloodrage: +${fmt(talentNumber(c, "Improved Bloodrage"))}% rage from it` : "20 rage over 10 sec for some health"] });
 
     // ---- several targets
     L.section("Several targets", null);
     L.add("Sweeping Strikes", { tag: "First", stance, text: "Your next 5 hits also strike a second enemy." });
-    L.add("Whirlwind", { tag: "On cooldown", stance: "berserker", text: "Up to 4 enemies (Berserker Stance)." });
-    L.add("Cleave", { tag: "Rage dump", text: "Instead of Heroic Strike when 2+ enemies stand together." +
-      (c.talent["Raging Blows"] ? " Raging Blows makes it 3 rage cheaper." : "") });
+    L.add("Whirlwind", { tag: "On cooldown", stance: "berserker", text: "Up to 4 enemies (Berserker Stance).",
+      facts: [c.talent["Improved Whirlwind"] ? "Improved Whirlwind: " + talentText(c, "Improved Whirlwind") : null] });
+    L.add("Cleave", { tag: "Rage dump", text: "Instead of Heroic Strike when 2+ enemies stand together." });
     L.add("Thunder Clap", { tag: "Optional", stance, text: "Slows their attacks; small damage." });
     // off-tank: free to deal damage now, but ready to take the boss
     if (spec === "prot" || c.hold.shield) {
@@ -650,14 +651,18 @@
         facts: [`−${fmt(buffNumber("Expose Armor", c.level))} armor per combo point (−${fmt(buffNumber("Expose Armor", c.level) * 5)} at 5, game data)`,
           "In Classic it doesn't stack with Sunder Armor (check in game)"] });
     }
-    if (c.talent["Serrated Blades"] || c.talent["Thousand Cuts"] || c.talent["Hemorrhage"]) {
+    if (c.talent["Serrated Blades"] || c.talent["Blood Splatter"] || c.talent["Hemorrhage"]) {
       L.add("Rupture", { tag: "Keep up", text: "Your talents favour it: keep the bleed going.",
         facts: [dmgLine(A["Rupture"], unit), c.talent["Serrated Blades"] ? "Serrated Blades: +30% Rupture damage" : null,
-          c.talent["Thousand Cuts"] ? "Thousand Cuts: each Rupture tick makes your next Hemorrhage/Backstab cheaper" : null] });
+          c.talent["Blood Splatter"] ? "Blood Splatter: Rupture lasts 6 sec longer" : null] });
     }
-    L.add("Venom", { tag: "Keep up", text: "Finisher: +30% poison damage and +10% poison chance while it lasts." });
 
     L.section("Combo point builders", "Use the best one you can (order = damage per energy with your gear).");
+    const shank = A["Shank"];
+    L.add("Shank", { tag: "On cooldown", score: 2000,
+      text: "An off-hand stab that gives back more energy than it costs and a combo point" +
+        (c.talent["Boot Knife"] ? " (two with Boot Knife)" : "") + (c.talent["Venom"] ? "; Venom then boosts your poisons for 6 sec" : "") + ".",
+      facts: [dmgLine(shank, unit), shank && shank.cdMs ? `Every ${sec(shank.cdMs)}` + (c.talent["Flash of Steel"] ? " (Flash of Steel: sooner, and more energy back)" : "") : null] });
     const start = 0;
     for (const [n, note] of [["Mutilate", "Needs daggers in both hands; 2 combo points."], ["Backstab", "From behind, with a dagger."],
       ["Sinister Strike", "Works with any weapon, from any side."], ["Hemorrhage", "Also makes your Rupture hit harder."],
@@ -681,6 +686,9 @@
     L.add("Blade Flurry", { tag: "Cooldown", text: "+20% attack speed and a second target for 15 sec." });
     L.add("Cold Blood", { tag: "Cooldown", text: "Before a 5-point Eviscerate (or a Mutilate): a guaranteed crit." });
     L.add("Preparation", { tag: "Cooldown", text: "Resets your other cooldowns: use it after the first round of them." });
+    L.add("Death Mark", { tag: "Finisher, every 10 sec", text: "Marks the target: for 6 sec it stores a share of your damage (60% at 5 points, " +
+      "bleeds twice as much), then deals it, up to a cap set by your attack power and crit.",
+      facts: ["The cap isn't in the game files, so the planner can't put a number on it yet"] });
     L.add("Vanish", { tag: "Situational", text: "Drops threat" + (c.hold.dagger ? ", and lets you Ambush again." : ".") });
     L.section("Threat", null);
     L.add("Feint", { tag: "When threat is high", text: "Lowers your threat without breaking your rotation." });
@@ -702,7 +710,7 @@
     const rot = c.R.rotation || {};
     L.title = resto > Math.max(ele, enh) ? "Restoration Shaman, dealing damage" : spec === "enh" ? "Enhancement Shaman"
       : ele > 0 ? "Elemental Shaman" : "Shaman";
-    L.facts.push(`Talents: ${ele} / ${enh} / ${resto}` + ["Stormstrike", "Rage of the Farseer", "Lava Burst", "Elemental Mastery"]
+    L.facts.push(`Talents: ${ele} / ${enh} / ${resto}` + ["Stormstrike", "Rage of the Farseer", "Lightning Overload", "Lightning Mastery"]
       .filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
     if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need a weapon (Gear & Stats tab).");
     const desc = (n) => (c.spell(n) || {}).desc || "";
@@ -742,15 +750,18 @@
       L.add("Rage of the Farseer", { tag: "Cooldown", text: "On cooldown: +30% attack speed for 25 sec, every 3 min." });
     } else {
       L.section("Keep up", null);
-      L.add("Flame Shock", { tag: "Keep up", text: "Its burn is worth keeping on the target, and Lava Burst hits harder while it's there.",
-        facts: [dmgLine(A["Flame Shock"], unit)] });
+      L.add("Flame Shock", { tag: "Keep up", text: "Its burn is worth keeping on the target.", facts: [dmgLine(A["Flame Shock"], unit)] });
       L.section("Spell priority", "Press the first one that's ready.");
-      L.add("Lava Burst", { tag: "On cooldown", score: 1000, text: "Your big hit; +20% while Flame Shock is on the target.", facts: [dmgLine(A["Lava Burst"], unit)] });
-      L.add("Chain Lightning", { tag: "On cooldown", score: 500, text: "On cooldown if your mana allows; best with several targets.", facts: [dmgLine(A["Chain Lightning"], unit)] });
-      L.add("Lightning Bolt", { tag: "Filler", score: 100, text: "Your filler between cooldowns.", facts: [dmgLine(A["Lightning Bolt"], unit)] });
+      // Lightning Overload: a server rule (its tooltip's chance of a free half-damage copy), counted in the numbers
+      const overload = c.talent["Lightning Overload"] ? `Lightning Overload: ${fmt(talentNumber(c, "Lightning Overload"))}% chance of a free second bolt at half damage (counted)` : null;
+      const thunder = c.talent["Call of Thunder"] ? `Call of Thunder: +${fmt(talentNumber(c, "Call of Thunder"))}% crit` : null;
+      L.add("Chain Lightning", { tag: "On cooldown", score: 500, text: "On cooldown if your mana allows; best with several targets.",
+        facts: [dmgLine(A["Chain Lightning"], unit), thunder, overload] });
+      L.add("Lightning Bolt", { tag: "Filler", score: 100, text: "Your filler between cooldowns.", facts: [dmgLine(A["Lightning Bolt"], unit), thunder, overload] });
       L.sortFrom(0);
       L.section("Cooldowns", null);
-      L.add("Elemental Mastery", { tag: "Cooldown", text: "Before a Lava Burst or Lightning Bolt." });
+      L.add("Lightning Mastery", { tag: "Cooldown", text: "For 15 sec, Lightning Bolt casts 0.5 sec faster and Chain Lightning has no cooldown: " +
+        "every 3 min, or saved for a pack of enemies.", facts: ["Counted at its average over the cooldown"] });
     }
     if (rot.note) L.facts.push("Estimate: " + rot.note.split(". ")[0] + ".");
     return L;
