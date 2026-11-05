@@ -282,7 +282,7 @@ var KG = (function () {
   return {
     PILLARS: PILLARS, esc: esc, pillar: pillar, occurrences: occurrences, timeText: timeText, eventCard: eventCard,
     renderUpcoming: renderUpcoming, renderMembers: renderMembers, renderRoster: renderRoster, embers: embers, skyline: skyline, reveal: reveal,
-    rankOf: rankOf, hasRecord: hasRecord, raceClass: raceClass, classColor: classColor, portraitHtml: portraitHtml, playedBy: playedBy,
+    rankOf: rankOf, hasRecord: hasRecord, recordHref: recordHref, raceClass: raceClass, classColor: classColor, portraitHtml: portraitHtml, playedBy: playedBy,
     viewerZone: viewerZone, zoneLabel: zoneLabel, GUILD_ZONE: GUILD_ZONE, GUILD_ZONE_NAME: GUILD_ZONE_NAME
   };
 })();

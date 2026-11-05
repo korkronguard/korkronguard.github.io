@@ -9,6 +9,7 @@
     ["home", "index.html", "Home"],
     ["lore", "lore.html", "The Lore"],
     ["guard", "players/index.html", "The Guard"],
+    ["conquests", "conquests.html", "Conquests"],
     ["calendar", "calendar.html", "Calendar"],
     ["tools", "index.html#tools", "Guild Tools"],
     ["planner", "planner/index.html", "Planner"],

@@ -254,3 +254,20 @@ a.chip { text-decoration: none; cursor: pointer; }
 a.chip:hover { filter: brightness(1.25); }
 
 .from-game { font-size: 13px; color: var(--faint); font-style: italic; }
+
+/* ---------- Hall of Conquest: first clears ---------- */
+.trophies { display: flex; flex-wrap: wrap; justify-content: center; gap: 28px; margin-top: 34px; }
+.trophies .empty { flex: 0 1 640px; margin: 0; }
+.trophy { flex: 0 1 560px; margin: 0; padding: 14px 14px 22px; border-top: 3px solid var(--blood); text-align: center; }
+.trophy-pic { display: block; border: 1px solid var(--gold-soft); box-shadow: 0 0 0 4px rgba(13, 9, 7, .7), 0 10px 26px rgba(0, 0, 0, .6); }
+.trophy-pic img { display: block; width: 100%; height: auto; }
+.trophy-pic:hover { box-shadow: 0 0 0 4px rgba(13, 9, 7, .7), 0 0 26px rgba(220, 70, 30, .35); }
+.trophy figcaption { padding: 18px 8px 0; }
+.trophy-kind { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--gold-soft); margin: 0; }
+.trophy h3 { font-size: 26px; color: #f3e4c6; letter-spacing: .04em; margin: 4px 0 2px; }
+.trophy-date { font-style: italic; color: var(--muted); margin: 0; }
+.trophy-note { color: #cdbea5; font-size: 16px; margin: 10px 0 0; }
+.trophy-party { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; list-style: none; margin: 16px 0 0; padding: 0; }
+.trophy-party li { font-family: "Cinzel", Georgia, serif; font-size: 13px; letter-spacing: .04em; color: #e9dcc6; padding: 4px 12px; border: 1px solid var(--panel-edge); background: #150e09; }
+.trophy-party a { text-decoration: none; }
+.trophy-party a:hover { text-decoration: underline; }
