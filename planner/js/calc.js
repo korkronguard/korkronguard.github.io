@@ -727,8 +727,9 @@
 
   // ------------------------------------------------------------ rough rotation DPS
 
-  // Classic rage: rage = 7.5 x damage / c, where c depends on level
-  const rageConversion = (L) => 0.0091107836 * L * L + 3.225598133 * L + 4.2652911;
+  // Classic rage: rage = 7.5 x damage / c, where c = a x level² + b x level + c0
+  const RAGE_C = [0.0091107836, 3.225598133, 4.2652911];
+  const rageConversion = (L) => RAGE_C[0] * L * L + RAGE_C[1] * L + RAGE_C[2];
 
   const EXECUTE_PHASE = 0.2; // share of a boss fight spent below 20% health
   const RECKLESS_SWINGS_CD = 15; // seconds (Forever's launch notes; its spell has no cooldown row in the files)
@@ -853,9 +854,14 @@
 
   // Mana regen per second from Spirit (Classic formulas per 2-second tick; estimates until checked in game)
   const SPIRIT_REGEN = { MAGE: [13, 4], PRIEST: [13, 4], WARLOCK: [8, 4] }; // [base, Spirit per point]; others 15 + Spirit/5
+  const regenRule = (token) => SPIRIT_REGEN[token] || [15, 5];
+  // while you haven't spent mana for 5 seconds
+  function spiritRegenOf(token, spirit) {
+    const [b, per] = regenRule(token);
+    return (b + spirit / per) / 2;
+  }
   function manaBudget(ctx, S, talentKeep) {
-    const [b, per] = SPIRIT_REGEN[ctx.cls.token] || [15, 5];
-    const spiritRegen = (b + S.attr.spirit / per) / 2;
+    const spiritRegen = spiritRegenOf(ctx.cls.token, S.attr.spirit);
     const keep = talentKeep(ctx);
     // the leveling model (tools/make_builds.js) sets how much mana per second a fight may use (it pays for it in drinking)
     if (ctx.manaPerSec != null) return { perSec: ctx.manaPerSec, keep, busy: 0, extras: [] };
@@ -1588,7 +1594,7 @@
       const m = /allows? (\d+)% of your Mana Regeneration to continue while casting/i.exec(t.desc[r - 1] || "");
       return m ? parseFloat(m[1]) : 0;
     }));
-    const spiritRegen = (15 + S.attr.spirit / 5) / 2;
+    const spiritRegen = spiritRegenOf(ctx.cls.token, S.attr.spirit);
     const manaPerSec = (withSting) => ctx.manaPerSec != null ? ctx.manaPerSec
       : (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
     const shot = (a, opts = {}) => a && !a.locked && a.expected > 0 && {
@@ -2011,10 +2017,89 @@
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
   function manaInfo(ctx) {
     const S = stats(ctx);
-    const [b, per] = SPIRIT_REGEN[ctx.cls.token] || [15, 5];
-    return { pool: S.mana, regen: S.mp5 / 5 + ((b + S.attr.spirit / per) / 2) * keepWhileCasting(ctx) / 100 };
+    return { pool: S.mana, regen: S.mp5 / 5 + spiritRegenOf(ctx.cls.token, S.attr.spirit) * keepWhileCasting(ctx) / 100 };
+  }
+
+  // ------------------------------------------------------------ formulas
+
+  // The rules behind the character sheet's numbers, written out for the addon's Formulas tab (tools/export_formulas.js),
+  // from the same numbers this file works with. Each: name, text (in words, with the class's numbers), and either expr
+  // (to work out with your own numbers) with game (the game's number to show next to it), digits and unit, or only text
+  // for a rule of combat. expr uses level, str, agi, sta, int, spi, gearArmor (armor on your gear), armor (your armor)
+  // and the game tables baseHealth, baseMana, hpPerSta, with min and max. estimate = the planner's guess, not checked
+  // in game yet. test/calc.test.js checks every expr against this file's own numbers.
+  const INPUT_NAMES = { level: "level", str: "Strength", agi: "Agility", sta: "Stamina", int: "Intellect", spi: "Spirit" };
+  // a sum like "3 × level + 2 × Strength - 20" and the same as an expression; terms = [[how many, of what], ...]
+  function linear(terms, constant) {
+    const used = terms.filter(([n]) => n);
+    const text = used.map(([n, k], i) => `${i ? " + " : ""}${n === 1 ? "" : `${n} × `}${INPUT_NAMES[k]}`).join("") +
+      (constant ? ` ${constant < 0 ? "-" : "+"} ${Math.abs(constant)}` : "");
+    const expr = used.map(([n, k]) => `${n} * ${k}`).concat(constant ? [String(constant)] : []).join(" + ");
+    return { text, expr };
+  }
+  const MELEE = ["WARRIOR", "ROGUE", "PALADIN", "SHAMAN", "DRUID", "HUNTER"];
+  const WANDS = ["PRIEST", "MAGE", "WARLOCK"];
+
+  function formulas(cls) {
+    const t = cls.token, out = [];
+    const hp = [...new Set(rules.healthPerStamina)];
+    out.push({ name: "Health", game: "health", digits: 0, expr: "baseHealth + min(sta, 20) + max(0, sta - 20) * hpPerSta",
+      text: `base health for your level + 1 per Stamina up to 20 + ${hp.length === 1 ? hp[0] : "the game table's amount"} per Stamina above 20` });
+    if (cls.power === 0) {
+      out.push({ name: "Mana", game: "mana", digits: 0, expr: "baseMana + min(int, 20) + max(0, int - 20) * 15",
+        text: "base mana for your level + 1 per Intellect up to 20 + 15 per Intellect above 20" });
+    }
+    const [apL, apC] = BASE_AP[t] || [0, 0];
+    const ap = linear([[apL, "level"], [cls.apPerStr, "str"], [cls.apPerAgi, "agi"]], apC);
+    out.push({ name: "Attack power", game: "ap", digits: 0, expr: `max(0, ${ap.expr})`,
+      text: `${ap.text} (never below 0), before attack power from gear and buffs` });
+    if (BASE_RAP[t]) {
+      const [rapL, rapC] = BASE_RAP[t];
+      const rap = linear([[rapL, "level"], [cls.rapPerAgi, "agi"]], rapC);
+      out.push({ name: "Ranged attack power", game: "rap", digits: 0, expr: `max(0, ${rap.expr})`,
+        text: `${rap.text} (never below 0), before attack power from gear and buffs` });
+    }
+    out.push({ name: "Melee crit", game: "crit", digits: 2, unit: "%", estimate: true,
+      expr: `${BASE_CRIT[t] || 0} + agi / (${AGI_PER_CRIT[t] || 20} * max(10, level) / 60)`,
+      text: `${BASE_CRIT[t] ? `${BASE_CRIT[t]}% + ` : ""}1% per ${AGI_PER_CRIT[t] || 20} Agility at level 60; below 60, 1% per ${AGI_PER_CRIT[t] || 20} × your level ÷ 60 (levels under 10 count as 10)`,
+      note: "The game's number also counts crit from your gear, your weapon skill and buffs." });
+    if (INT_PER_SPELL_CRIT[t]) {
+      out.push({ name: "Spell crit", game: "spellCrit", digits: 2, unit: "%", estimate: true,
+        expr: `${BASE_SPELL_CRIT[t] || 0} + int / (${INT_PER_SPELL_CRIT[t]} * max(10, level) / 60)`,
+        text: `${BASE_SPELL_CRIT[t] ? `${BASE_SPELL_CRIT[t]}% + ` : ""}1% per ${INT_PER_SPELL_CRIT[t]} Intellect at level 60; below 60, 1% per ${INT_PER_SPELL_CRIT[t]} × your level ÷ 60 (levels under 10 count as 10)`,
+        note: "The game's number also counts spell crit from your gear and buffs." });
+    }
+    out.push({ name: "Armor", game: "armor", digits: 0, expr: "gearArmor + 2 * agi",
+      text: "the armor on your gear + 2 per Agility (before talents and buffs)" });
+    out.push({ name: "Physical damage your armor stops", digits: 1, unit: "%", expr: "min(75, armor / (armor + 400 + 85 * level) * 100)",
+      text: "your armor ÷ (your armor + 400 + 85 × the attacker's level), at most 75%. Here: an attacker of your level." });
+    if (cls.power === 0) {
+      const [b, per] = regenRule(t);
+      out.push({ name: "Mana regen from Spirit", game: "regen", digits: 2, unit: " mana per second", estimate: true,
+        expr: `(${b} + spi / ${per}) / 2`,
+        text: `(${b} + Spirit ÷ ${per}) every 2 seconds, while you haven't spent mana for 5 seconds (gear's mana per 5 seconds keeps going)`,
+        note: "Guild members' characters so far show Spirit ÷ 4 per second; the planner changes once more casters confirm it." });
+    }
+    if (t === "WARRIOR") {
+      out.push({ name: "Rage from your hits", digits: 1, expr: `${RAGE_C[0]} * level * level + ${RAGE_C[1]} * level + ${RAGE_C[2]}`,
+        unit: " (c at your level)", text: "7.5 × damage ÷ c, where c = 0.0091 × level² + 3.23 × level + 4.27; crits give twice as much" });
+    }
+    if (t === "ROGUE") out.push({ name: "Energy", text: "10 energy per second; Adrenaline Rush doubles it for 15 seconds." });
+    if (MELEE.includes(t)) {
+      out.push({ name: "White hits", text: "weapon damage + attack power ÷ 14 × weapon speed. Crits do double damage." });
+    }
+    if (t === "HUNTER") out.push({ name: "Shots", text: "weapon damage + ranged attack power ÷ 14 × weapon speed. Crits do double damage." });
+    if (WANDS.includes(t)) out.push({ name: "Wands", text: "the wand's own damage (attack power doesn't add to it); crits do 1.5 times damage." });
+    if (cls.power === 0) {
+      out.push({ name: "Spells", text: "spell power adds to each spell by its own share, from the game files (the planner's Abilities tab lists them). Spell crits do 1.5 times damage or healing." });
+    }
+    const caps = hitCaps({ target: { diff: 3 } });
+    out.push({ name: "Against a raid boss (3 levels above you)",
+      text: `${caps.melee}% hit stops your misses (${caps.dualWhite}% for dual-wield white hits, ${caps.spell}% for spells); ` +
+        `${GLANCE_CHANCE[3]}% of white hits glance for ${Math.round((1 - GLANCE_DAMAGE[3]) * 100)}% less damage; your crit chance is about ${critSuppression({ target: { diff: 3 } })}% lower.` });
+    return out;
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion };
 })();
