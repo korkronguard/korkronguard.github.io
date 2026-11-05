@@ -165,6 +165,9 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
 .tool-grid > .tool:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .howto { max-width: 760px; margin: 30px auto 0; padding: 18px 22px; font-size: 16px; color: #cdbea5; }
 .howto b { color: #f3e4c6; }
+/* addons made by others that the whole guild runs, below the Guard's own */
+.tool-group { margin-top: 70px; }
+.tool-group-title { text-align: center; font-size: 24px; color: #f3e4c6; letter-spacing: .04em; }
 
 /* ---------- join ---------- */
 .join { max-width: 760px; margin: 0 auto; padding: 36px 34px; text-align: center; }
