@@ -481,6 +481,9 @@
     // Classic, confirmed in game (a level 2 Orc Warrior with 25 Stamina has 99 health: 29 base + 20 + 5 x 10): the
     // first 20 Stamina give 1 health each, the rest the game table's amount (10)
     const healthFromStamina = Math.min(attr.stamina, 20) + Math.max(0, attr.stamina - 20) * rules.healthPerStamina[lvl - 1];
+    // the same for mana: the first 20 Intellect give 1 mana each, the rest 15 (Classic; confirmed in game by an Undead
+    // Priest with 26 Intellect: 260 mana at level 6 = 150 base + 20 + 6 x 15)
+    const manaFromIntellect = Math.min(attr.intellect, 20) + Math.max(0, attr.intellect - 20) * 15;
     const sp = g("spellPower") + g("spellDamage");
     const school = { holy: g("holyDamage"), fire: g("fireDamage"), nature: g("natureDamage"),
       frost: g("frostDamage"), shadow: g("shadowDamage"), arcane: g("arcaneDamage") };
@@ -515,7 +518,7 @@
       blockValue: g("blockValue"),
       health: Math.round((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
-      mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana")) * (1 + tal.powerPct / 100)) : 0,
+      mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)
       // in a Druid form the form's own attack replaces the weapon (ctx.formWeaponDps: the weapon's damage per second
       // at the form's speed instead, the guild's bear sheet's rule; only the MCP check asks for it)
