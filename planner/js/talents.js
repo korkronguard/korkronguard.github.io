@@ -342,7 +342,7 @@
     });
 
     const m = DATA.meta || {};
-    $("dataNote").textContent = `Data: WoW: Forever game files, build ${m.build || "?"}, read from wago.tools on ${m.built || "?"}.`;
+    $("dataNote").textContent = `Data: WoW: Forever game files, build ${m.build || "?"}, read from the game client with its server hotfixes on ${m.built || "?"}.`;
   }
 
   // Arrow from talent a down/across to talent b (straight, or across then down).

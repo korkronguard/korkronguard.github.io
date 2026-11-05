@@ -173,7 +173,7 @@
         out.stanceSkipped.push({ name, needs: ok.join(" or ") });
         return null;
       }
-      const item = { name: opts.label || name, icon: opts.icon || b.icon, tag: opts.tag, text: opts.text,
+      const item = { name: opts.label || name, spell: name, icon: opts.icon || b.icon, tag: opts.tag, text: opts.text,
         facts: (opts.facts || []).filter(Boolean), source: opts.source || "data", score: opts.score, why: opts.why,
         res: c.res[name] };
       current.section.items.push(item);
@@ -260,12 +260,19 @@
     L.facts.push(`Stance: ${STANCE_NAME[stance]}` + (stance === "berserker" && berserkerCrit ? ` (+${berserkerCrit}% crit, from the game data)` : "") +
       (stance === "battle" ? " (Overpower, Sweeping Strikes and Spearing Strike only work here)" : ""));
 
+    L.section("Start of the fight", "Out of combat, with an enemy targeted.");
+    addCharge(c, L, stance);
+    L.add("Bloodrage", { tag: "At the pull", text: "For rage: between pulls is best (the rage isn't lost while you wait), or whenever you're short.",
+      facts: [c.talent["Improved Bloodrage"] ? `Improved Bloodrage: +${fmt(talentNumber(c, "Improved Bloodrage"))}% rage from it` : "20 rage over 10 sec for some health"] });
+
     // ---- before and during the fight: buffs and debuffs
     L.section("Keep up", "Buffs and debuffs first: they make everything else hit harder.");
     const bs = c.rank("Battle Shout");
     L.add("Battle Shout", { tag: "Keep up", text: "Refresh before it runs out (lasts " + sec((bs || {}).durMs || 120000) + ").",
       facts: [bs ? `Rank for level ${c.level}: +${fmt(buffNumber("Battle Shout", c.level))} attack power for the group, ${fmt(bs.cost / 10)} rage` +
         (c.talent["Booming Voice"] ? " (Booming Voice: 25% cheaper)" : "") : null] });
+    L.add("Demoralizing Shout", { tag: "If no one else", source: "theory",
+      text: "Early in the fight: enemies near you hit softer, so you (solo) or your tank take less damage. Skip it when another Warrior or a Druid keeps it up." });
     if (!(c.ctx.buffs || {})["Sunder Armor"]) {
       const withSunder = KP.calc.compute({ ...c.ctx, buffs: { ...(c.ctx.buffs || {}), "Sunder Armor": true } });
       const gain = c.R.rotation && withSunder.rotation && c.R.rotation.dps ? (withSunder.rotation.dps / c.R.rotation.dps - 1) * 100 : 0;
@@ -273,22 +280,20 @@
         facts: [`5 stacks: −${fmt(buffNumber("Sunder Armor", c.level) * 5)} armor on the target` + (gain > 0.5 ? `, about +${fmt(gain)}% damage for you` : ""),
           "Switch on \"Sunder Armor ×5\" in the panel if your raid keeps it up."] });
     }
-    if (c.has("Rend") && stance !== "berserker" && (c.talent["Bloodthrill"] || c.talent["Improved Rend"])) {
-      const rend = A["Rend"];
-      L.add("Rend", { tag: "Keep up", text: c.talent["Bloodthrill"] ? "Keep it on the target: Bloodthrill needs it." : "Keep it on the target.",
-        facts: [c.talent["Bloodthrill"] ? `Bloodthrill: your main-hand hits on a Rended target have a ${fmt(talentNumber(c, "Bloodthrill"))}% chance to allow Overpower` : null,
-          dmgLine(rend, unit), "Bleed: armor doesn't reduce it"] });
-    }
+    // with Bloodthrill, Rend lights up Overpower, so it's kept up; without, it's one more attack ranked by damage per rage
+    const bloodthrill = c.talent["Bloodthrill"];
+    if (bloodthrill) L.add("Rend", rendLine(c, A, unit, stance));
 
     // ---- the attacks: on cooldown, ordered by damage per rage
     L.section("Attack priority", "Press the first one that's ready. Within this group the order is damage per rage with your current talents and gear.");
+    const attacks = L.sections[L.sections.length - 1];
     const start = 0;
     const cdHit = (name, text, extra) => {
       const a = A[name];
       return L.add(name, { tag: "On cooldown", text, stance, score: perCost(a) + (extra || 0), facts: [dmgLine(a, unit)] });
     };
-    cdHit("Mortal Strike", "Use every time it's ready.", 1000);
-    cdHit("Bloodthirst", "Use every time it's ready.", 1000);
+    cdHit("Mortal Strike", "Use every time it's ready.");
+    cdHit("Bloodthirst", "Use every time it's ready.");
     cdHit("Whirlwind", "Use every time it's ready (hits up to 4 enemies).");
     if (c.has("Overpower")) {
       const op = A["Overpower"];
@@ -297,21 +302,29 @@
         facts: [dmgLine(op, unit), c.talent["Improved Overpower"] ? `Improved Overpower: +${fmt(talentNumber(c, "Improved Overpower"))}% crit chance on it` : null] });
     }
     const slam = c.rank("Slam");
-    if (slam) {
-      const imp = c.talent["Improved Slam"];
-      const it = cdHit("Slam", imp ? "Use on cooldown: with Improved Slam it no longer delays your swing." :
-        "Has a cast time that delays your next swing; better with Improved Slam.");
-      if (it) it.facts.push(`Cooldown in Forever: ${sec(slam.cdMs - (imp ? 3000 : 0))}${imp ? " (Improved Slam −3 sec)" : ""}`);
+    const impSlam = talentText(c, "Improved Slam");
+    if (slam && (impSlam || !c.hold.dual)) {
+      const it = cdHit("Slam", impSlam ? "Use on cooldown: with Improved Slam it no longer delays your swing." :
+        "Press it right after a swing: its cast delays your next one (until Improved Slam).");
+      if (it && impSlam) it.facts.push(`Improved Slam: −${sec(numberAfter(impSlam, "Slam ability by") * 1000)} cooldown, no swing delay`);
+    } else if (slam) {
+      L.facts.push("Slam left out: with two weapons its cast holds back your swings, which the damage numbers can't show (general class knowledge). Improved Slam removes that.");
     }
     cdHit("Spearing Strike", "On cooldown; much stronger against Giants, Dragonkin and mounted targets.");
     if (c.has("Shield Slam") && c.hold.shield) {
       const it = cdHit("Shield Slam", "Works in any stance (game data), so keep using it while you deal damage.", 900);
       if (it && c.talent["Bastion"]) it.facts.push(`Bastion: +${fmt(talentNumber(c, "Bastion"))}% damage with a shield`);
     }
-    L.add("Victory Rush", { tag: "When it lights up", stance, score: 999, text: "Free: only for 20 sec after you kill something. Great while leveling.",
-      facts: [dmgLine(A["Victory Rush"], unit) || "Costs no rage; also heals you for 10% of your health"] });
+    if (!bloodthrill) L.add("Rend", { ...rendLine(c, A, unit, stance), score: perCost(A["Rend"]) });
+    addVictoryRush(L, A, unit, stance);
     L.sortFrom(start);
-    // rage dump last
+    // spare rage last; Hamstring's own damage is tiny, so it's only there for what its hit or crit sets off
+    const onCrit = ["Deep Wounds", "Flurry"].filter((n) => c.talent[n]);
+    if (onCrit.length) {
+      L.add("Hamstring", { tag: "Spare rage", stance, source: "theory",
+        text: `Only with rage left after the attacks above: a cheap extra hit whose crits set off ${onCrit.join(" and ")} (and a Shaman's Windfury Totem can proc on it).`,
+        facts: [dmgLine(A["Hamstring"], unit)] });
+    }
     const hs = A["Heroic Strike"];
     const swing = (c.R.white || []).find((w) => w.label === "Main hand");
     if (c.has("Heroic Strike")) {
@@ -327,19 +340,22 @@
       L.section("Below 20% health: Execute phase", "The order changes: rage is worth more in Execute than almost anywhere else.");
       const pool = 30; // a typical rage pool when you press it
       const exPerRage = ex && !ex.locked && ex.expected ? (ex.expected + Math.max(0, pool - ex.cost) * ex.perRage) / Math.max(pool, ex.cost) : 0;
-      const big = A["Mortal Strike"] && c.has("Mortal Strike") ? A["Mortal Strike"] : c.has("Bloodthirst") ? A["Bloodthirst"] : null;
-      const bigPerRage = perCost(big);
-      if (big && bigPerRage > exPerRage && exPerRage) {
-        L.add(big.name, { tag: "Still on cooldown", text: `Keep using it: with your gear it beats Execute per rage.`, stance,
-          facts: [`${big.name}: ${fmt(bigPerRage, 1)} damage per rage vs Execute ${fmt(exPerRage, 1)} (at ${pool} rage)`] });
+      // the attacks above that still beat Execute per rage (free ones always do) stay ahead of it, the rest wait
+      const rate = (name) => { const a = A[name]; return a && !a.locked && a.expected ? (a.cost ? a.expected / a.cost : Infinity) : 0; };
+      const scored = attacks.items.filter((it) => it.score != null); // not the spare-rage lines added after the sort
+      const ahead = scored.filter((it) => rate(it.name) > exPerRage);
+      const vsExecute = (name) => (exPerRage && rate(name) ? (rate(name) === Infinity ? "Costs no rage" :
+        `${name}: ${fmt(rate(name), 1)} damage per rage vs Execute ${fmt(exPerRage, 1)} (at ${pool} rage)`) : null);
+      for (const it of ahead) {
+        L.add(it.name, { tag: it.tag === "On cooldown" ? "Still on cooldown" : it.tag, stance,
+          text: "Keep using it: with your gear it beats Execute per rage.", facts: [vsExecute(it.name)] });
       }
       L.add("Execute", { tag: "Spam", stance, text: "Every global cooldown. All your rage goes in: each extra point adds damage.",
         facts: [ex && !ex.locked ? `${fmt(ex.expected)} average + ${fmt(ex.perRage, 1)} per extra rage point · costs ${fmt(ex.cost)} rage` +
           (c.talent["Improved Execute"] ? ` (Improved Execute −${fmt(talentNumber(c, "Improved Execute"))})` : "") : dmgLine(ex, unit),
           exPerRage ? `About ${fmt(exPerRage, 1)} damage per rage at ${pool} rage` : null] });
-      if (big && !(bigPerRage > exPerRage && exPerRage)) {
-        L.add(big.name, { tag: "Skip", stance, text: "Put the rage into Execute instead.",
-          facts: [exPerRage ? `${big.name} ${fmt(bigPerRage, 1)} per rage vs Execute ${fmt(exPerRage, 1)}` : null] });
+      for (const it of scored.filter((x) => !ahead.includes(x))) {
+        L.add(it.name, { tag: "Skip", stance, text: "Put the rage into Execute instead.", facts: [vsExecute(it.name)] });
       }
       if (c.has("Heroic Strike")) L.add("Heroic Strike", { tag: "Stop", text: "Don't: every rage point is worth more in Execute." });
     }
@@ -351,8 +367,6 @@
     L.add("Recklessness", { tag: "Cooldown", text: "Once per fight: at the start of the Execute phase (Berserker Stance).",
       facts: [c.rank("Recklessness") ? `+100% crit for 15 sec, ${sec(c.rank("Recklessness").cdMs)} cooldown; you take 20% more damage` : null] });
     L.add("Reckless Swings", { tag: "On cooldown", text: "Costs a quarter of your base health: your next 4 swings give 5 extra rage each. Every 15 sec." });
-    L.add("Bloodrage", { tag: "Cooldown", text: "For rage: at the pull and whenever you're short.",
-      facts: [c.talent["Improved Bloodrage"] ? `Improved Bloodrage: +${fmt(talentNumber(c, "Improved Bloodrage"))}% rage from it` : "20 rage over 10 sec for some health"] });
 
     // ---- several targets
     L.section("Several targets", null);
@@ -375,6 +389,33 @@
     L.later = L.later.filter((l) => !(["Mortal Strike", "Bloodthirst", "Shield Slam"].includes(l.name) &&
       ["Mortal Strike", "Bloodthirst", "Shield Slam"].some((n) => c.talent[n])));
     return L;
+  }
+
+  // Charge only works out of combat; the stances it needs come from the game data (Vanguard adds Defensive Stance)
+  function addCharge(c, L, stance) {
+    const b = c.spell("Charge");
+    if (!b) return;
+    const vanguard = stance === "defensive" && c.talent["Vanguard"];
+    const needs = Object.keys(STANCE).filter((k) => b.stances & STANCE[k]).map((k) => STANCE_NAME[k]).join(" or ");
+    L.add("Charge", { tag: "Opener", text: "Out of combat only: rush in for rage and a short stun." +
+      (vanguard ? " Vanguard: usable in Defensive Stance." : b.stances & STANCE[stance] ? "" : ` Needs ${needs}: charge, then switch to ${STANCE_NAME[stance]}.`) });
+  }
+
+  // Rend: a bleed, worth it only on a target that lives through most of it; with Bloodthrill it also lights up Overpower
+  function rendLine(c, A, unit, stance) {
+    const bt = c.talent["Bloodthrill"];
+    return { tag: bt ? "Keep up" : "If missing", stance,
+      text: (bt ? "Keep it on the target: Bloodthrill needs it." : `When it isn't on the target and the target will live through most of its ${sec((c.rank("Rend") || {}).durMs || 21000)}.`) +
+        " Don't renew it on a target that's about to die.",
+      facts: [bt ? `Bloodthrill: your main-hand hits on a Rended target have a ${fmt(talentNumber(c, "Bloodthrill"))}% chance to allow Overpower` : null,
+        dmgLine(A["Rend"], unit), "Bleed: armor doesn't reduce it"] };
+  }
+
+  // Victory Rush: free, for 20 sec after a kill that gives experience (game data)
+  function addVictoryRush(L, A, unit, stance) {
+    L.add("Victory Rush", { tag: "When it lights up", stance, score: 999,
+      text: "Free, for 20 sec after a kill: use it when you're missing health, or before it runs out.",
+      facts: [dmgLine(A["Victory Rush"], unit) || "Costs no rage; also heals you for 10% of your health"] });
   }
 
   // Weapons: from the gear unless the player picks a setup (any setup can tank or deal damage).
@@ -903,7 +944,6 @@
         "no blocks, no Shield Slam, Shield Block or Shield Wall (they need a shield, game data), and Revenge only lights up after dodges and parries.");
       if (c.hold.dual) L.facts.push("Theory: while Heroic Strike is queued, your off-hand misses less, so keep one queued when rage allows.");
     }
-    L.section("Threat priority", "Press the first one that's ready. The damage numbers come from your gear; extra threat noted where the game files hold it.");
     const threatLine = (name) => {
       const r = c.rank(name);
       const d = (c.spell(name) || {}).desc || "";
@@ -911,6 +951,21 @@
       if (/threat/i.test(d)) return "Extra threat on top of its damage (worked out by the server, not in the game files)";
       return null;
     };
+    L.section("Start of the fight", "Out of combat, with an enemy targeted.");
+    addCharge(c, L, stance);
+    L.add("Bloodrage", { tag: "At the pull", text: "Rage to start with; between pulls is best, so the rage isn't lost while you wait." });
+    L.section("Keep up", null);
+    L.add("Battle Shout", { tag: "Keep up", text: "Also gives a little threat on every enemy in combat with you." });
+    L.add("Demoralizing Shout", { tag: "Keep up", text: "Lowers the attack power of enemies near you: less damage to you.", facts: [threatLine("Demoralizing Shout")] });
+    L.section("Threat priority", "Press the first one that's ready. The damage numbers come from your gear; extra threat noted where the game files hold it. " +
+      "Solo, the same order kills fastest: finish a nearly dead mob with plain swings and keep the rage for the next one.");
+    addVictoryRush(L, A, unit, stance);
+    const block = c.rank("Shield Block");
+    const spec = talentText(c, "Shield Specialization");
+    const blocks = numberAfter((c.spell("Shield Block") || {}).desc, "only block");
+    L.add("Shield Block", { tag: "On cooldown", stance, text: "Not on the global cooldown (game data): press it alongside your attacks while melee enemies hit you. " +
+      "Fewer big hits and more Revenges; useless against spells.",
+      facts: [spec && block && blocks ? `Shield Specialization: its ${fmt(blocks)} blocks give back up to ${fmt((blocks * numberAfter(spec, "grants you a") / 100) * numberAfter(spec, "generate"))} rage (it costs ${fmt(block.cost / 10)})` : null] });
     L.add("Shield Slam", { tag: "On cooldown", stance, text: "Biggest threat hit. Needs a shield.",
       facts: [dmgLine(A["Shield Slam"], unit), threatLine("Shield Slam")] });
     L.add("Revenge", { tag: "When it lights up", stance, text: (c.hold.shield ? "After you block, dodge or parry." : "After you dodge or parry (no blocks without a shield).") + " Cheap: use every time.",
@@ -920,22 +975,20 @@
       L.add(name, { tag: "On cooldown", stance, text: "Works in Defensive Stance (game data): good threat from big damage.",
         facts: [dmgLine(A[name], unit)] });
     }
+    L.add("Thunder Clap", { tag: "On cooldown", stance, source: "theory",
+      text: "Hits up to 4 enemies near you and slows their attacks (less damage to you). Solo against a single normal mob, only when it hits hard.",
+      facts: [c.spell("Thunder Clap") ? `${fmt(numberAfter(c.spell("Thunder Clap").desc, "attacks by"))}% slower attacks` : null,
+        dmgLine(A["Thunder Clap"], unit),
+        c.talent["Improved Thunder Clap"] ? `Improved Thunder Clap: −${fmt(talentNumber(c, "Improved Thunder Clap"))} rage` : null] });
+    L.add("Rend", { ...rendLine(c, A, unit, stance), source: "theory" });
     const sunder = c.rank("Sunder Armor");
-    L.add("Sunder Armor", { tag: "Build to 5, then filler", stance, text: "Stack it to 5 early (the raid's damage goes up), then use it as a filler.",
+    L.add("Sunder Armor", { tag: "Build to 5, then filler", stance,
+      text: "On bosses and elites, stack it to 5 early (the group's damage goes up), then use it as a filler. Skip it on a mob that's about to die.",
       facts: [sunder ? `−${fmt(buffNumber("Sunder Armor", c.level))} armor per stack, ${fmt(sunder.cost / 10)} rage` +
         (c.talent["Improved Sunder Armor"] ? ` (Improved Sunder Armor −${fmt(talentNumber(c, "Improved Sunder Armor"))})` : "") : null, threatLine("Sunder Armor")] });
-    L.add("Shield Block", { tag: "On cooldown", stance, text: "Against physical hitters: fewer big hits and more Revenges.",
-      facts: [c.talent["Shield Specialization"] ? `Shield Specialization: ${fmt(talentNumber(c, "Shield Specialization"))}% more block chance, rage when you block` : null] });
-    L.add("Heroic Strike", { tag: "Rage dump", text: c.hold.shield ? "Only with spare rage (keep enough for Shield Slam and Revenge)." :
+    L.add("Heroic Strike", { tag: "Rage dump", text: c.hold.shield ? "Only with spare rage (keep enough for Shield Slam, Revenge and Shield Block)." :
       "Your main rage dump without a shield; Cleave instead when you hold 2+ enemies.",
       facts: [dmgLine(A["Heroic Strike"], unit), threatLine("Heroic Strike")] });
-    L.section("Keep up", null);
-    L.add("Thunder Clap", { tag: "Keep up", stance, text: "Slows the boss's attacks (less damage to you).",
-      facts: [c.spell("Thunder Clap") ? `${fmt(numberAfter(c.spell("Thunder Clap").desc, "attacks by"))}% slower attacks` : null,
-        c.talent["Improved Thunder Clap"] ? `Improved Thunder Clap: −${fmt(talentNumber(c, "Improved Thunder Clap"))} rage` : null] });
-    L.add("Demoralizing Shout", { tag: "Keep up", text: "Lowers the boss's attack power.", facts: [threatLine("Demoralizing Shout")] });
-    L.add("Battle Shout", { tag: "Keep up", text: "Also gives a little threat on every enemy in combat with you." });
-    L.add("Bloodrage", { tag: "At the pull", text: "Rage to start with." });
     L.section("When things go wrong", null);
     L.add("Taunt", { tag: "Lost aggro", stance, text: "Pulls the target back to you." });
     L.add("Mocking Blow", { tag: "Taunt on cooldown", stance: "battle", text: "Needs Battle Stance (game data): a second taunt if Taunt is resisted." });
@@ -1170,6 +1223,8 @@
     "Emergency": "Not damage: it keeps you or your group alive. Use it before things go wrong, outside the normal order.",
     "Last resort": "Only when everything else has failed: the cost or cooldown is too high to use casually.",
     "When it lights up": "Only usable for a short window after something triggers it, and cheap or free for what it does, so it jumps ahead while it's available.",
+    "If missing": "Damage over time: only worth a press when it isn't already ticking and the target will live through most of it.",
+    "Spare rage": "Not worth rage the attacks above need; only for rage that would otherwise sit unused.",
     "Rage dump": "The weakest use of rage (it only adds on top of a normal swing), so it gets only what's left after everything above. Rage over 100 is wasted, so dump it rather than sit at the cap.",
     "Totem": "A totem keeps working for minutes: put it down once and replace it when it runs out or you move away.",
     "Opener": "Only usable before the fight (from stealth or at range), and it's your strongest start.",
