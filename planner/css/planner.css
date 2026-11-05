@@ -434,6 +434,8 @@ ul.plain li { padding: 2px 0; }
 .pbase-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .pbase-row label { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); }
 .pbase-row input { width: 58px; }
+.pimport { display: flex; gap: 6px; }
+.pimport input { flex: 1; min-width: 0; }
 .pstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; margin-bottom: 4px; }
 .pstat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .pstat .pl { display: block; font-size: 11px; color: var(--muted); }

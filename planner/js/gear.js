@@ -611,8 +611,8 @@
     const scored = list.map((it) => ({ it, a: linear(it, W.v), b: linear(it, W.e) }));
     scored.sort((x, y) => y.a - x.a || y.b - x.b || y.it.ilvl - x.it.ilvl || y.it.quality - x.it.quality);
     const pick = new Set(scored.slice(0, n).map((x) => x.it));
-    if (weapons) [...list].sort((x, y) => weaponDps(y) - weaponDps(x)).slice(0, n).forEach((it) => pick.add(it));
-    scored.filter((x) => x.it.set || (x.it.effects || []).some((e) => e.auras && e.auras.length)).slice(0, 10).forEach((x) => pick.add(x.it));
+    if (weapons) [...list].sort((x, y) => weaponDps(y) - weaponDps(x)).slice(0, n).forEach((it) => { pick.add(it); });
+    scored.filter((x) => x.it.set || (x.it.effects || []).some((e) => e.auras && e.auras.length)).slice(0, 10).forEach((x) => { pick.add(x.it); });
     return [...pick];
   }
 

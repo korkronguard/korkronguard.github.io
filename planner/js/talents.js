@@ -152,9 +152,16 @@
 
   function encode() {
     const seq = state.seq.map((i) => LINK_CHARS[i]).join("");
-    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t3=${seq}` +
+    return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t4=${seq}` +
       app.encoders.map((f) => f()).join("");
   }
+
+  // Share link versions, oldest first: "t2" (2026-10-27), "t3" (after the 30 Oct 2026 hotfixes), "t4" (Forever's launch
+  // trees, 4 Nov 2026). data/links.js keeps a version's talent order for the classes whose trees changed after it; such
+  // picks are matched by talent name (renamed talents follow, points in a removed talent are dropped). A class with no
+  // saved order for a version had the same order as the next version. Older "t" links pointed into the pre-trait
+  // layout, so their picks are dropped.
+  const LINK_VERSIONS = ["t2", "t3", "t4"];
 
   function decode(hash) {
     const p = new URLSearchParams(hash.replace(/^#/, ""));
@@ -164,19 +171,20 @@
     loadClass(token);
     const lvl = parseInt(p.get("l"), 10);
     state.level = lvl >= 1 && lvl <= 60 ? lvl : 60;
-    // "t3": the trees since the 30 Oct 2026 hotfixes. "t2" (2026-10-27): the same for classes whose trees didn't change;
-    // for the others the old order is kept in data/links.js and picks are matched by talent name (points in a removed
-    // talent are dropped). Older "t" links pointed into the pre-trait layout, so their picks are dropped.
+    const version = LINK_VERSIONS.slice().reverse().find((v) => p.get(v) != null);
+    const code = [...(version ? p.get(version) : "")];
+    const old = DATA.oldLinks || {};
+    const orderOf = version && LINK_VERSIONS.slice(LINK_VERSIONS.indexOf(version)).find((v) => old[v] && old[v][token]);
     let seq;
-    const old = p.get("t3") == null && DATA.oldLinks && DATA.oldLinks.t2[token];
-    if (old) {
-      const renamed = DATA.oldLinks.renamed || {};
-      seq = [...(p.get("t2") || "")].map((ch) => {
-        const name = old[LINK_CHARS.indexOf(ch)];
+    if (orderOf) {
+      const names = old[orderOf][token];
+      const renamed = old.renamed || {};
+      seq = code.map((ch) => {
+        const name = names[LINK_CHARS.indexOf(ch)];
         return flat.findIndex((t) => t.name === (renamed[name] || name));
       }).filter((i) => i >= 0);
     } else {
-      seq = [...(p.get("t3") || p.get("t2") || "")].map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
+      seq = code.map((ch) => LINK_CHARS.indexOf(ch)).filter((i) => i >= 0 && i < flat.length);
     }
     state.seq = reorder(seq.slice(0, MAX_POINTS)) || keepValid(seq);
     return true;
@@ -186,7 +194,7 @@
     history.replaceState(null, "", encode());
     render();
     if (openTip) showTip(openTip.talent, openTip.anchor, openTip.sticky);
-    app.hooks.forEach((f) => f());
+    app.hooks.forEach((f) => { f(); });
   }
 
   // ------------------------------------------------------------ drawing
@@ -232,7 +240,7 @@
   }
 
   function render() {
-    const { ranks, treePts } = tally(state.seq);
+    const { ranks } = tally(state.seq);
     const avail = pointsForLevel(state.level);
     const activeSeq = state.seq.slice(0, avail);
     const live = tally(activeSeq); // what's learned at the chosen level
@@ -511,7 +519,7 @@
     if (location.hash !== encode() && decode(location.hash)) {
       hideTip();
       render();
-      app.hooks.forEach((f) => f());
+      app.hooks.forEach((f) => { f(); });
     }
   });
   if ("ontouchstart" in window) $("hint").textContent = "Tap a talent to see it, then use + and − to add or remove points.";

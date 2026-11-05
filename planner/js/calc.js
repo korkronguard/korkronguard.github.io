@@ -17,7 +17,9 @@
   // Classic: melee attack power from level (per level, constant); ranged attack power likewise
   const BASE_AP = { WARRIOR: [3, -20], PALADIN: [3, -20], HUNTER: [2, -20], ROGUE: [2, -20], SHAMAN: [2, -20],
     DRUID: [0, -20], PRIEST: [0, -10], MAGE: [0, -10], WARLOCK: [0, -10] };
-  const BASE_RAP = { HUNTER: [2, -10], WARRIOR: [1, -10], ROGUE: [1, -10] };
+  // Warrior from a real character (Orc, levels 2 and 3: 18 and 19 with 18 Agility at the client's 2 per Agility); the
+  // others are still Classic's
+  const BASE_RAP = { HUNTER: [2, -10], WARRIOR: [1, -20], ROGUE: [1, -10] };
   // Druid forms, from the game data: Cat Form (Passive) 3025, Bear Form (Passive) 1178, Dire Bear Form (Passive) 9635
   // and SpellShapeshiftForm (attack speed). In a form your weapon's damage is replaced by a base hit that grows with
   // level; that part isn't in the files, so it uses Classic's rule (0.85-1.25 x level per second of attack speed).
@@ -418,7 +420,7 @@
     const SCHOOL_KEYS = { 2: "holyDamage", 4: "fireDamage", 8: "natureDamage", 16: "frostDamage", 32: "shadowDamage", 64: "arcaneDamage" };
     for (const a of gearAuras(ctx)) {
       const add = (k, v) => { gear[k] = (gear[k] || 0) + v; };
-      if (a.aura === 29) { if (a.misc === -1) STATS.forEach((k) => add(k, a.value)); else if (STATS[a.misc]) add(STATS[a.misc], a.value); }
+      if (a.aura === 29) { if (a.misc === -1) STATS.forEach((k) => { add(k, a.value); }); else if (STATS[a.misc]) add(STATS[a.misc], a.value); }
       else if (a.aura === 99) add("attackPower", a.value);
       else if (a.aura === 124) add("rangedAttackPower", a.value);
       else if (a.aura === 135) add("healing", a.value);
@@ -473,7 +475,12 @@
     const per = (key) => rules.ratings[key][Math.max(0, lvl - 1)] || 1;
     const [apL, apC] = BASE_AP[cls.token] || [0, 0];
     const [rapL, rapC] = BASE_RAP[cls.token] || [0, 0];
-    const baseAp = Math.max(0, lvl * apL + apC);
+    // can be below 0 at low levels; only the total is kept at 0 or more (a level 2 Orc Warrior with 27 Strength has
+    // 40 attack power in game: 6 - 20 + 54)
+    const baseAp = lvl * apL + apC;
+    // Classic, confirmed in game (a level 2 Orc Warrior with 25 Stamina has 99 health: 29 base + 20 + 5 x 10): the
+    // first 20 Stamina give 1 health each, the rest the game table's amount (10)
+    const healthFromStamina = Math.min(attr.stamina, 20) + Math.max(0, attr.stamina - 20) * rules.healthPerStamina[lvl - 1];
     const sp = g("spellPower") + g("spellDamage");
     const school = { holy: g("holyDamage"), fire: g("fireDamage"), nature: g("natureDamage"),
       frost: g("frostDamage"), shadow: g("shadowDamage"), arcane: g("arcaneDamage") };
@@ -506,7 +513,7 @@
       parry: g("parry") / per("parry") + tal.parry,
       block: g("block") / per("block") + tal.block,
       blockValue: g("blockValue"),
-      health: Math.round((rules.baseHealth[cls.token][lvl - 1] + attr.stamina * rules.healthPerStamina[lvl - 1] + g("health") +
+      health: Math.round((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + attr.intellect * 15 + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)

@@ -125,6 +125,11 @@
     titles.append(meta);
     head.append(ic, titles);
     box.append(head, el("p", "build-summary", build.summary));
+    if (build.provisional) {
+      const p = el("p", "build-stance");
+      p.append(el("strong", null, "Provisional: "), build.provisional);
+      box.append(p);
+    }
     const stance = stanceNote(build);
     if (stance) {
       const p = el("p", "build-stance");

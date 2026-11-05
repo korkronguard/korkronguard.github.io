@@ -215,7 +215,7 @@
   const critMult = (r) => (isHealing(r) ? r.healCritMult || 1.5 : r.critMult || 2);
   // a placeholder number (Swiftmend's heal is 1 in the files: the server works it out from your HoT)
   const placeholder = (r) => usable(r) && Math.max(r.expected || 0, r.heal || 0) < 2;
-  const valueOf = (r) => (!usable(r) ? 0 : isHealing(r) ? healAvg(r) : r.expected);
+  const rowValue = (r) => (!usable(r) ? 0 : isHealing(r) ? healAvg(r) : r.expected);
   // mana costs given as a share of base mana; a helper "rank" with no cost (Holy Nova's heal) takes the cost of the
   // spell you cast at that level
   function costOf(r) {
@@ -234,7 +234,7 @@
     if (!usable(r) || !usable(one) || placeholder(one)) return null;
     const heal = isHealing(r);
     const hit = heal ? one.heal : (one.dmin + one.dmax) / 2 + one.dot;
-    const avg = valueOf(one), total = valueOf(r);
+    const avg = rowValue(one), total = rowValue(r);
     const cost = costOf(r);
     const timeMs = Math.max(r.rank.gcdMs || 0, channelMs(r), r.castMs || 0);
     return { heal, hit, avg, total, hits: r.hits || 1, cost, power: POWER[r.powerType] || "", perCost: cost ? total / cost : null,
@@ -253,7 +253,7 @@
   function changeText(a, b) {
     if (!usable(a) || !usable(b)) return [usable(b) ? "makes it usable" : "makes it unusable"];
     const out = [];
-    const va = valueOf(a), vb = valueOf(b);
+    const va = rowValue(a), vb = rowValue(b);
     const what = isHealing(b) ? "healing" : "damage";
     if (Math.abs(vb - va) > 0.05) out.push(va > 0 ? `${fmtPct((vb / va - 1) * 100)} ${what}` : `adds ${fmt(vb)} ${what}`);
     const ca = costOf(a), cb = costOf(b);
@@ -290,13 +290,13 @@
     // a talent that changes only a few abilities is "for this ability"; one that changes most of them works through
     // your stats (crit, attack power, Strength...) and is listed apart
     const reach = new Array(flat.length).fill(0);
-    changes.forEach((c) => c.forEach((x) => reach[x.ti]++));
+    changes.forEach((c) => { c.forEach((x) => { reach[x.ti]++; }); });
     const rows = [];
     list.forEach((ab, i) => {
       if (!atN[i]) return;
       const r = atN[i], one = at1[i];
       const ch = changes[i].map((x) => {
-        const va = valueOf(x.zero), vb = valueOf(x.max);
+        const va = rowValue(x.zero), vb = rowValue(x.max);
         return { ...x, gain: va > 0 ? (vb / va - 1) * 100 : 0,
           specific: (x.max && (x.max.mods || []).includes(flat[x.ti].name)) || reach[x.ti] <= 3 };
       });
@@ -750,7 +750,7 @@
     const t = el("table", "lab-sub lab-ctable");
     const hr = el("tr");
     const heads = ["Talents", "Cost", "One hit", "Average", M.n > 1 ? `Total, ${M.n} targets` : "Total", "Per cost", "Per sec", "vs none"];
-    heads.forEach((h, i) => hr.append(el("th", i ? "num" : "", h)));
+    heads.forEach((h, i) => { hr.append(el("th", i ? "num" : "", h)); });
     const th = el("thead");
     th.append(hr);
     t.append(th);

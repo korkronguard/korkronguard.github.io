@@ -187,7 +187,7 @@
     const thead = el("thead"), hr = el("tr");
     const cols = ["Weapon", tank ? "Threat (damage/sec)" : "Damage/sec", ...(tank ? ["Survival vs the MCP"] : []), tank ? "Overall vs the MCP" : "vs the MCP",
       "Beats the MCP", ""];
-    cols.forEach((c, i) => hr.append(el("th", i > 0 && i < cols.length - 2 ? "num" : null, c)));
+    cols.forEach((c, i) => { hr.append(el("th", i > 0 && i < cols.length - 2 ? "num" : null, c)); });
     thead.append(hr);
     t.append(thead);
     const tb = el("tbody");
@@ -335,7 +335,7 @@
     const thead = el("thead"), hr = el("tr");
     const cols = ["Level", "Best other weapon", tank ? "MCP threat" : "MCP dps", tank ? "Other threat" : "Other dps",
       ...(tank ? ["Other survival"] : []), "Other vs MCP", "Other beats the MCP"];
-    cols.forEach((c, i) => hr.append(el("th", i === 0 || (i >= 2 && i < cols.length - 1) ? "num" : null, c)));
+    cols.forEach((c, i) => { hr.append(el("th", i === 0 || (i >= 2 && i < cols.length - 1) ? "num" : null, c)); });
     thead.append(hr);
     t.append(thead);
     const tb = el("tbody");

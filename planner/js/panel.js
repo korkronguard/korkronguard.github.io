@@ -253,9 +253,58 @@
       lab.append(el("span", null, BASE_LABEL[k]), inp);
       row.append(lab);
     }
-    det.append(row);
+    det.append(row, importRow());
     box.append(det);
     return box;
+  }
+
+  // "Import from the addon": the code Kor'kron Planner's /kp export shows in game (format in the addon's
+  // Core/Export.lua: KP1|CLASS|RACE|level|str|agi|sta|int|spi|..., each stat base:effective:plus:minus). It fills the
+  // five base stats (the game's own, with no gear) and sets the race and level. Crit isn't taken: the game's crit
+  // includes gear, which the planner adds on its own.
+  let importNote = ""; // what the last import did; a successful one redraws the panel, which shows this once
+  function importRow() {
+    const wrap = el("div", "pimport");
+    const inp = el("input");
+    inp.type = "text";
+    inp.placeholder = "Paste the code from /kp export (KP1|...)";
+    inp.setAttribute("aria-label", "Code from /kp export");
+    const btn = el("button", "btn small", "Import");
+    btn.type = "button";
+    const status = el("p", "muted small", importNote);
+    importNote = "";
+    btn.addEventListener("click", () => { status.textContent = importCode(inp.value); });
+    wrap.append(inp, btn);
+    const box = el("div");
+    box.append(el("p", "muted small", "Or import them from the Kor'kron Planner addon: type /kp export in game, copy the code and paste it here."),
+      wrap, status);
+    return box;
+  }
+
+  // returns what happened, in words
+  function importCode(text) {
+    const f = text.trim().split("|");
+    if (f[0] !== "KP1" || f.length < 9) return "That isn't a code from /kp export (it starts with KP1|).";
+    const cls = KP.classes.classes.find((c) => c.token === f[1]);
+    if (!cls) return "That code doesn't name a class the planner knows.";
+    if (cls.token !== state.cls.token) return `That code is from a ${cls.name}: choose ${cls.name} at the top first.`;
+    const level = parseInt(f[3], 10);
+    const stats = {};
+    STATS.forEach((k, i) => {
+      const base = parseFloat((f[4 + i] || "").split(":")[0]);
+      if (base > 0) stats[k] = base;
+    });
+    if (!(level >= 1 && level <= 60) || Object.keys(stats).length < STATS.length) return "That code is missing some numbers.";
+    // the two Skyborne races share one game name: keep the one already chosen
+    const races = KP.classes.races.filter((r) => r.token === f[2] && r.classes.includes(cls.id));
+    const race = races.find((r) => r.id === state.race) || races[0];
+    if (race) state.race = race.id;
+    state.level = level;
+    state.base = { ...stats, ...(state.base.crit ? { crit: state.base.crit } : {}),
+      ...(state.base.spellCrit ? { spellCrit: state.base.spellCrit } : {}) };
+    importNote = `Imported: level ${level}${race ? " " + race.name : ""}, ${STATS.map((k) => `${BASE_LABEL[k]} ${stats[k]}`).join(", ")}.`;
+    app.changed();
+    return importNote;
   }
 
   function statGrid(R) {
@@ -294,7 +343,7 @@
       if (S.healing) cell("Healing", fmt(S.healing), "healing");
     }
     cell("Armor", fmt(S.armor), "armor");
-    cell("Health", fmt(S.health), "health", "Base health for your level + 10 per Stamina");
+    cell("Health", fmt(S.health), "health", "Base health for your level + 1 per Stamina for the first 20, then 10 per Stamina");
     if (S.mana) cell("Mana", fmt(S.mana), "mana", "Base mana for your level + 15 per Intellect");
     return grid;
   }

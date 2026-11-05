@@ -625,7 +625,6 @@
     if (!c.gearKnown) L.facts.push("No gear picked: damage numbers need weapons (Gear & Stats tab).");
     const A = c.res, unit = "energy";
     const rot = c.R.rotation || {};
-    const desc = (n) => (c.spell(n) || {}).desc || "";
 
     L.section("Opener", "From Stealth.");
     L.add("Premeditation", { tag: "Before you open", text: "Two free combo points." });
@@ -1243,7 +1242,6 @@
       "come first, then your attacks with cooldowns, strongest first, then what you press with whatever is left. " +
       "Each line says why it sits where it does."));
     box.append(head);
-    let n = 0;
     for (const s of L.sections) {
       if (!s.items.length) continue;
       const sec = el("section", "prio-sec");
@@ -1251,7 +1249,6 @@
       if (s.note) sec.append(el("p", "muted small", s.note));
       const ol = el("ol", "prio-list");
       for (const it of s.items) {
-        n++;
         const li = el("li", "prio-item");
         const ic = el("span", "icon aicon");
         iconStyle(ic, it.icon, 32);

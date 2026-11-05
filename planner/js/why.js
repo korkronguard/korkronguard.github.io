@@ -9,7 +9,7 @@
   const KP = window.KP;
   const app = KP.app;
   const state = app.state;
-  const PER_ROW = 5, FIRST_LEVEL = 10;
+  const FIRST_LEVEL = 10;
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
