@@ -616,15 +616,23 @@
     return [...pick];
   }
 
-  // the best of these items in one slot, the rest of the gear as it is (ties: more survival, then the list's order)
+  // one of each ring / trinket, also by name: some come under two item ids (Insignia of the Horde has two for Warriors)
+  const twinOf = (g, slotKey, it) => {
+    const twin = TWIN[slotKey] && g[TWIN[slotKey]];
+    return !!twin && (twin.id === it.id || twin.name === it.name);
+  };
+
+  // the best of these items in one slot, the rest of the gear as it is (ties: more survival, then the list's order). It
+  // has to beat the empty slot: an item that adds nothing the math counts (a trinket with only a "Use:" effect) leaves
+  // the slot empty.
   function bestFor(g, slotKey, cands, role) {
-    let best = null;
+    let best = bisEval({ ...g, [slotKey]: null }, role), pick = null;
     for (const it of cands) {
-      if (TWIN[slotKey] && g[TWIN[slotKey]] && g[TWIN[slotKey]].id === it.id) continue; // one of each ring / trinket
+      if (twinOf(g, slotKey, it)) continue;
       const r = bisEval({ ...g, [slotKey]: it }, role);
-      if (better(r, best)) best = { it, ...r };
+      if (better(r, best)) { best = r; pick = it; }
     }
-    return best ? best.it : null;
+    return pick;
   }
 
   // Dungeon and raid loot and many quest rewards have no level requirement (0 or 1: Onyxia Tooth Pendant, Darkmantle,
@@ -635,13 +643,14 @@
   const setClass = (it) => it.set && KP.items.sets[it.set] && KP.items.sets[it.set].cls;
   const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;
 
-  // opts (the MCP check): role, ctx = extra character settings, skip = item ids to leave out
+  // opts: role, ctx = extra character settings and skip = item ids to leave out (the MCP check), alternatives = how many
+  // items to rank per slot (the addon's gear lists, tools/export_gear.js)
   function computeBis(opts = {}) {
-    return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2));
+    return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2, opts.alternatives || 0));
   }
   const bisOk = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
     !whyNot(it, slotKey, mh);
-  function bisSearch(role, skip, passes) {
+  function bisSearch(role, skip, passes, alternatives) {
     const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && bisOk(it, slotKey, mh);
     const lists = {};
     for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
@@ -666,7 +675,33 @@
       if (a && (!b || better(a, b))) { g.mainHand = two; g.offHand = null; } else { g.mainHand = one; g.offHand = off; }
       for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, shortlist(lists[s], W, n, s === "ranged"), role);
     }
-    return { g, role };
+    const alts = alternatives ? rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives) : null;
+    return { g, role, alts };
+  }
+
+  // Up to n items per slot, the chosen one first, each with what it adds there as a share of what the chosen one adds
+  // (by the role's number; by survival where that doesn't move, like armor on a caster), the rest of the gear as it is.
+  // Main-hand options keep the chosen kind (two-hander or not); off-hand options fit the chosen main hand.
+  function rankAlternatives(g, role, lists, offFor, W, n) {
+    const out = {};
+    for (const s of [...BIS_SLOTS, "mainHand", "offHand"]) {
+      const pick = g[s];
+      if (!pick) continue;
+      const rest = { ...g, [s]: null };
+      const empty = bisEval(rest, role), chosen = bisEval(g, role);
+      const byV = chosen.v - empty.v > 1e-9 * Math.max(1, Math.abs(empty.v));
+      const share = (r) => (byV ? (r.v - empty.v) / (chosen.v - empty.v)
+        : chosen.e > empty.e ? (r.e - empty.e) / (chosen.e - empty.e) : 0);
+      const pool = s === "offHand" ? offFor(g.mainHand)
+        : s === "mainHand" ? lists.mainHand.filter((it) => (it.inv === 17) === (pick.inv === 17)) : lists[s];
+      const others = shortlist(pool, W, 12, s === "ranged" || s === "mainHand" || s === "offHand")
+        .filter((it) => it.id !== pick.id && !twinOf(g, s, it))
+        .map((it) => ({ id: it.id, pct: Math.round(Math.min(1, share(bisEval({ ...rest, [s]: it }, role))) * 100) }))
+        .filter((a) => a.pct > 0)
+        .sort((a, b) => b.pct - a.pct);
+      out[s] = [{ id: pick.id, pct: 100 }, ...others.slice(0, n - 1)];
+    }
+    return out;
   }
 
   function equipBis() {
