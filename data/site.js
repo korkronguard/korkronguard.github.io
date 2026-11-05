@@ -1,6 +1,5 @@
 // General guild details shown on the site. Leave a value empty ("") to hide it.
 window.KG_SITE = {
   discord: "https://discord.gg/snfeNargmt",   // Never-expiring invite (made 2026-10-25). Empty hides the Discord button.
-  launch: "2026-11-04 17:00",   // WoW: Forever launch, US Central (3pm Pacific). Drives the home-page countdown. Empty hides it.
   recruiting: "All classes. Veterans, adults, and anyone who values discipline and a drama-free Hearth.",
 };
