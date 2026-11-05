@@ -59,10 +59,47 @@
 
   function estimateBase(cls, race, level) {
     const r = RACE_BASE[race] || RACE_BASE.Human;
-    const g = CLASS_GAIN[cls] || [0, 0, 0, 0, 0];
+    const own = classShare(cls, level);
     const out = {};
-    STATS.forEach((k, i) => { out[k] = Math.round(r[i] + (g[i] * (level - 1)) / 59); });
+    STATS.forEach((k, i) => { out[k] = Math.round(r[i] + own[i]); });
     return out;
+  }
+
+  // ---- Measured on real characters: site/data/measured.js, written by tools/snapshots.py from the guild's addon
+  // snapshots (2026-11-05: an Orc Warrior at levels 2-16, an Undead Priest at 6-11) ----
+  // A value by level ({ level: value }): the measured one (a straight line between two measured levels), above the last
+  // measured level a straight line to at60 (the original game's level 60 value), below the first below(first, next)
+  function byLevel(points, level, at60, below) {
+    const levels = Object.keys(points).map(Number).sort((a, b) => a - b);
+    const first = levels[0], last = levels[levels.length - 1];
+    const between = (a, va, b, vb) => va + ((vb - va) * (level - a)) / (b - a);
+    if (level < first) return below(first, levels[1]);
+    if (level >= last) return level === last ? points[last] : between(last, points[last], 60, at60);
+    const b = levels.find((L) => L >= level);
+    const a = levels[levels.indexOf(b) - 1];
+    return b === level ? points[b] : between(a, points[a], b, points[b]);
+  }
+  // A class's own share of the base stats at a level (the race's share goes on top): measured where the guild has a
+  // character of the class (its race's share taken off), else the original game's gains spread evenly over the levels.
+  // Below the first measured level it steps back at the first measured step per level, never below 0.
+  function classShare(cls, level) {
+    const gain = CLASS_GAIN[cls] || [0, 0, 0, 0, 0];
+    const m = KP.measured.classBase[cls];
+    if (!m) return gain.map((g) => (g * (level - 1)) / 59);
+    const race = RACE_BASE[m.race];
+    return gain.map((g, i) => {
+      const points = Object.fromEntries(Object.entries(m.levels).map(([L, v]) => [L, v[i] - race[i]]));
+      return byLevel(points, level, g, (first, next) =>
+        Math.max(0, points[first] - ((points[next] - points[first]) / (next - first)) * (first - level)));
+    });
+  }
+  // Agility per 1% crit at a level: measured where the guild has a character whose crit and dodge come from Agility
+  // alone (a Warrior: from its dodge, which weapon skill doesn't change), then a straight line to the original game's
+  // level 60 value; elsewhere the original game's value scaled by level (an estimate)
+  function agiPerCrit(cls, level) {
+    const at60 = AGI_PER_CRIT[cls] || 20;
+    const m = KP.measured.agiPerCrit[cls];
+    return m ? byLevel(m, level, at60, (first) => m[first]) : perLevel(at60, level);
   }
 
   // Abilities whose damage includes a share of attack power kept in a "dummy" effect: [effect index]
@@ -453,7 +490,7 @@
     }
     const tal = talentEffects(ctx);
     const g = (k) => gear[k] || 0;
-    // base stats: what the player typed in, otherwise Classic estimates
+    // base stats: what the player typed in, otherwise estimateBase (measured classes, else Classic estimates)
     const est = estimateBase(cls.token, ctx.race, lvl);
     const base = {};
     const estimated = [];
@@ -483,7 +520,7 @@
     }
     // crit from Agility (and spell crit from Intellect). A typed-in crit % already includes the base part,
     // so only gear's share is added on top; otherwise it's the class's base crit + all Agility.
-    const agiRatio = perLevel(AGI_PER_CRIT[cls.token] || 20, lvl);
+    const agiRatio = agiPerCrit(cls.token, lvl);
     const intRatio = INT_PER_SPELL_CRIT[cls.token] ? perLevel(INT_PER_SPELL_CRIT[cls.token], lvl) : 0;
     const userCrit = ctx.base && ctx.base.crit, userSpell = ctx.base && ctx.base.spellCrit;
     const critFromStats = userCrit ? userCrit + (attr.agility - attrBase.agility) / agiRatio
@@ -533,7 +570,9 @@
       armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
         (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
       defense: g("defense") / per("defense") + tal.defense,
-      dodge: g("dodge") / per("dodge") + tal.dodge,
+      // dodge from Agility only where it's measured (a Warrior's: the same Agility per 1% as crit); for the other
+      // classes it isn't known yet, so it's left out
+      dodge: g("dodge") / per("dodge") + tal.dodge + (KP.measured.agiPerCrit[cls.token] ? attr.agility / agiRatio : 0),
       parry: g("parry") / per("parry") + tal.parry,
       block: g("block") / per("block") + tal.block,
       blockValue: g("blockValue"),
@@ -875,15 +914,22 @@
   // ------------------------------------------------------------ casters
 
   // Mana regen per second from Spirit (Classic formulas per 2-second tick; estimates until checked in game)
-  const SPIRIT_REGEN = { MAGE: [13, 4], PRIEST: [13, 4], WARLOCK: [8, 4] }; // [base, Spirit per point]; others 15 + Spirit/5
-  const regenRule = (token) => SPIRIT_REGEN[token] || [15, 5];
-  // while you haven't spent mana for 5 seconds
-  function spiritRegenOf(token, spirit) {
-    const [b, per] = regenRule(token);
-    return (b + spirit / per) / 2;
+  // Mana per second from Spirit, while you haven't spent mana for 5 seconds: Spirit ÷ 4 for every class on Forever. The
+  // game's own GetManaRegen on the guild's Priest, Druid and Paladin (levels 6-11, addon snapshots, 2026-11-05) is
+  // exactly that, whatever their Intellect (tools/snapshots.py). The original game had a rule per class
+  // ((13 + Spirit ÷ 4) ÷ 2 for a Priest, (15 + Spirit ÷ 5) ÷ 2 for a Druid...), 25-40% more at those levels.
+  const SPIRIT_PER_MANA = 4;
+  const REGEN_SEEN = ["PRIEST", "DRUID", "PALADIN"]; // classes whose real characters showed it
+  const spiritRegenOf = (spirit) => spirit / SPIRIT_PER_MANA;
+
+  // A stat from the addon's /kp export ("base:effective:plus:minus", UnitStat's four numbers) without gear or buffs.
+  // The game's first number already counts gear: a level 15 Warrior's Strength "52:52:9:0" is 43 without its +9.
+  function bareStat(field) {
+    const [, effective, plus, minus] = field.split(":").map(Number);
+    return effective - plus + minus;
   }
   function manaBudget(ctx, S, talentKeep) {
-    const spiritRegen = spiritRegenOf(ctx.cls.token, S.attr.spirit);
+    const spiritRegen = spiritRegenOf(S.attr.spirit);
     const keep = talentKeep(ctx);
     // the leveling model (tools/make_builds.js) sets how much mana per second a fight may use (it pays for it in drinking)
     if (ctx.manaPerSec != null) return { perSec: ctx.manaPerSec, keep, busy: 0, extras: [] };
@@ -1045,7 +1091,7 @@
     }
     if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
     else if (tapMana) note += "; Life Tap isn't needed: the mana lasts";
-    note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
+    note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
@@ -1152,7 +1198,7 @@
     else if (boundless) note += `; Boundless Light +${boundless}% Holy Shock crit (no Oath of Light)`;
     const hc = heals.find((a) => a.healCritMult > 1.5);
     note += `. Crits heal ${hc ? `${Math.round(hc.healCritMult * 100)}% (Holy Power)` : "150%"}${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
-      `Mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
+      `Mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
       "Group heals (Chain Heal, Prayer of Healing, Wild Growth...) aren't counted.";
     return { hps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
@@ -1617,7 +1663,7 @@
       const cd = Math.max(1, rfRank.cdMs + (cut ? cut.value : 0));
       haste = (pct * (rfRank.durMs || 15000)) / cd;
     }
-    // mana: Classic regen (15 + Spirit/5 every 2 sec) only partly continues while you keep shooting;
+    // mana: Spirit regen (spiritRegenOf) only partly continues while you keep shooting;
     // talents that "allow N% of your Mana Regeneration to continue while casting" (Rapid Recuperation needs Serpent Sting)
     const keepPct = (withSting) => Math.max(0, ...ctx.flat.map((t, i) => {
       const r = ctx.ranks[i];
@@ -1625,7 +1671,7 @@
       const m = /allows? (\d+)% of your Mana Regeneration to continue while casting/i.exec(t.desc[r - 1] || "");
       return m ? parseFloat(m[1]) : 0;
     }));
-    const spiritRegen = spiritRegenOf(ctx.cls.token, S.attr.spirit);
+    const spiritRegen = spiritRegenOf(S.attr.spirit);
     const manaPerSec = (withSting) => ctx.manaPerSec != null ? ctx.manaPerSec
       : (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
     const shot = (a, opts = {}) => a && !a.locked && a.expected > 0 && {
@@ -1704,7 +1750,7 @@
     }
     if (haste) notes.push(`Rapid Fire averages +${haste.toFixed(1)}% attack speed`);
     if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
-    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Classic regen formula); pet not counted; Aspect of the Viper not used`);
+    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever); pet not counted; Aspect of the Viper not used`);
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved, manaSpent };
   }
@@ -2054,7 +2100,7 @@
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
   function manaInfo(ctx) {
     const S = stats(ctx);
-    return { pool: S.mana, regen: S.mp5 / 5 + spiritRegenOf(ctx.cls.token, S.attr.spirit) * keepWhileCasting(ctx) / 100 };
+    return { pool: S.mana, regen: S.mp5 / 5 + spiritRegenOf(S.attr.spirit) * keepWhileCasting(ctx) / 100 };
   }
 
   // ------------------------------------------------------------ formulas
@@ -2143,19 +2189,39 @@
           ["never below 0", "the total stops at 0", rapFrom],
         ].filter(Boolean) });
     }
-    const lowLevels = (stat) => [["× your level ÷ 60", `lower levels need less ${stat} for 1%`, `${FROM.estimate}. Forever's own ` +
-      "character sheet showed about 5.4 Agility per 1% crit on a level 11 Warrior, where this gives 3.7, so it's too generous at " +
-      "low levels; Forever has no function an addon can ask for the game's own rule"],
-    ["levels under 10 count as 10", "keeps the first levels from getting a huge crit chance", FROM.estimate]];
-    out.push({ name: "Melee crit", game: "crit", digits: 2, unit: "%", estimate: true,
-      expr: `${BASE_CRIT[t] || 0} + agi / (${AGI_PER_CRIT[t] || 20} * max(10, level) / 60)`,
-      text: `${BASE_CRIT[t] ? `${BASE_CRIT[t]}% + ` : ""}1% per ${AGI_PER_CRIT[t] || 20} Agility at level 60; below 60, 1% per ${AGI_PER_CRIT[t] || 20} × your level ÷ 60 (levels under 10 count as 10)`,
+    // Agility per 1% crit: measured for some classes (KP.measured.agiPerCrit), the addon looks it up by level
+    // (LevelTables.agiPerCrit from tools/export_formulas.js) as the input agiPerCrit
+    const at60 = AGI_PER_CRIT[t] || 20;
+    const agiMeasured = KP.measured.agiPerCrit[t];
+    const agiLevels = agiMeasured && Object.keys(agiMeasured).map(Number).sort((a, b) => a - b);
+    const lastMeasured = agiLevels && agiLevels[agiLevels.length - 1];
+    const perCritNumber = agiMeasured
+      ? ["the Agility per 1% crit at your level", `measured: ${round(agiMeasured[agiLevels[0]], 1)} at level ${agiLevels[0]}, ` +
+        `${round(agiMeasured[lastMeasured], 1)} at level ${lastMeasured}; above that a straight line to the original game's ` +
+        `${at60} at level 60 (an estimate there)`, FROM.checked(`the owner's Warrior at levels ${agiLevels[0]} to ${lastMeasured}, ` +
+          "from its dodge, which weapon skill doesn't change (its crit gives the same; the game's own Agility tooltip at level " +
+          "11 credits all of the crit to Agility)")]
+      : ["the Agility per 1% crit at your level", `1% per ${at60} Agility at level 60; below 60, ${at60} × your level ÷ 60 ` +
+        "(levels under 10 count as 10)", `${FROM.rule} at level 60; below it ${FROM.estimate}. Forever's own character sheet ` +
+        "showed about 5.4 Agility per 1% crit on a level 11 Warrior where this rule gives 3.7, so it's too generous at low " +
+        "levels; Forever has no function an addon can ask for the game's own rule"];
+    const agiOnly = agiMeasured ? { estimateAbove: lastMeasured } : { estimate: true };
+    out.push({ name: "Melee crit", game: "crit", digits: 2, unit: "%", ...agiOnly,
+      expr: `${BASE_CRIT[t] || 0} + agi / agiPerCrit`,
+      text: `${BASE_CRIT[t] ? `${BASE_CRIT[t]}% + ` : ""}Agility ÷ the Agility per 1% crit at your level`,
       note: "The game's number also counts crit from your gear, your weapon skill and buffs.",
       numbers: [
         BASE_CRIT[t] && [`${BASE_CRIT[t]}%`, "your class's crit chance before Agility", FROM.rule],
-        [`1% per ${AGI_PER_CRIT[t] || 20} Agility at level 60`, "how much Agility buys 1% crit at the level cap", FROM.rule],
-        ...lowLevels("Agility"),
+        perCritNumber,
       ].filter(Boolean) });
+    if (agiMeasured) {
+      out.push({ name: "Dodge from Agility", game: "dodge", digits: 2, unit: "%", ...agiOnly, expr: "agi / agiPerCrit",
+        text: "Agility ÷ the same Agility per 1% as crit (before dodge from gear and talents)",
+        note: "The game's number also counts dodge from your gear, talents and Defense.",
+        numbers: [["the same Agility per 1% as crit", "your class's dodge, like its crit, comes from Agility alone and at the " +
+          "same rate", FROM.checked(`the owner's Warrior: crit and dodge give the same Agility per 1% at levels ${agiLevels[0]} ` +
+            `to ${lastMeasured}`)]] });
+    }
     if (INT_PER_SPELL_CRIT[t]) {
       out.push({ name: "Spell crit", game: "spellCrit", digits: 2, unit: "%", estimate: true,
         expr: `${BASE_SPELL_CRIT[t] || 0} + int / (${INT_PER_SPELL_CRIT[t]} * max(10, level) / 60)`,
@@ -2166,7 +2232,7 @@
           [`1% per ${INT_PER_SPELL_CRIT[t]} Intellect at level 60`, "how much Intellect buys 1% spell crit at the level cap", FROM.rule],
           ["× your level ÷ 60", "lower levels need less Intellect for 1%", `${FROM.estimate}. A guild Priest and Druid at levels ` +
             "6 and 7 showed 4.7 to 4.9% spell crit, where this gives 3.4 to 4.5%"],
-          lowLevels("Intellect")[1],
+          ["levels under 10 count as 10", "keeps the first levels from getting a huge spell crit chance", FROM.estimate],
         ].filter(Boolean) });
     }
     out.push({ name: "Armor", game: "armor", digits: 0, expr: "gearArmor + 2 * agi",
@@ -2194,14 +2260,15 @@
         ["up to 60%", "dodge + parry + block are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
       ] });
     if (cls.power === 0) {
-      const [b, per] = regenRule(t);
-      out.push({ name: "Mana regen from Spirit", game: "regen", digits: 2, unit: " mana per second", estimate: true,
-        expr: `(${b} + spi / ${per}) / 2`,
-        text: `(${b} + Spirit ÷ ${per}) every 2 seconds, while you haven't spent mana for 5 seconds (gear's mana per 5 seconds keeps going)`,
-        note: "Guild members' characters so far show Spirit ÷ 4 per second; the planner changes once more casters confirm it.",
+      const seen = REGEN_SEEN.includes(t);
+      out.push({ name: "Mana regen from Spirit", game: "regen", digits: 2, unit: " mana per second", estimate: !seen,
+        expr: `spi / ${SPIRIT_PER_MANA}`,
+        text: `Spirit ÷ ${SPIRIT_PER_MANA} every second, once you haven't spent mana for 5 seconds (gear's mana per 5 seconds keeps going)`,
         numbers: [
-          [`${b} + Spirit ÷ ${per}`, "the mana each tick gives your class", `${FROM.estimate} (the original game's rule for your class)`],
-          ["every 2 seconds", "the game's mana tick", FROM.rule],
+          [`Spirit ÷ ${SPIRIT_PER_MANA}`, "mana per second from Spirit, whatever your Intellect; the original game had a " +
+            "different rule for each class", seen
+            ? FROM.checked("the game's own mana regen on the guild's Priest, Druid and Paladin at levels 6 to 11 is exactly this")
+            : `${FROM.estimate}: the guild's Priest, Druid and Paladin all showed exactly this, but no ${cls.name} yet`],
           ["5 seconds", "after you spend mana, Spirit stops refilling it for 5 seconds (\"the five-second rule\"); mana per 5 " +
             "seconds from gear keeps going", FROM.rule],
         ] });
@@ -2272,5 +2339,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit };
 })();

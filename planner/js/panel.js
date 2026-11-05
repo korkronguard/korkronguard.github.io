@@ -230,8 +230,12 @@
 
     const det = el("details", "pbase");
     det.open = Object.keys(state.base).length > 0;
-    det.append(el("summary", null, Object.keys(state.base).length ? "Your base stats" : "Base stats: Classic estimates (type your own)"));
-    det.append(el("p", "muted small", "Grey numbers are estimates from Classic for your race, class and level. " +
+    const measured = KP.measured.classBase[state.cls.token];
+    det.append(el("summary", null, Object.keys(state.base).length ? "Your base stats" : `Base stats: ${measured ? "from real characters" : "Classic estimates"} (type your own)`));
+    det.append(el("p", "muted small", (measured
+      ? `Grey numbers come from real Kor'kron ${state.cls.name}s, level by level (shared through the addon), for your race; ` +
+        "above the levels measured so far they head in a straight line to the original game's level 60 values. "
+      : "Grey numbers are estimates from Classic for your race, class and level. ") +
       "Type the stats your character has with no gear on (from the character screen) to replace them. " +
       "Crit % is the crit chance shown with no gear on (it includes crit from Agility). " +
       "The game files don't include any of these, so without them the numbers count only gear, talents and level."));
@@ -291,7 +295,7 @@
     const level = parseInt(f[3], 10);
     const stats = {};
     STATS.forEach((k, i) => {
-      const base = parseFloat((f[4 + i] || "").split(":")[0]);
+      const base = KP.calc.bareStat(f[4 + i] || "");
       if (base > 0) stats[k] = base;
     });
     if (!(level >= 1 && level <= 60) || Object.keys(stats).length < STATS.length) return "That code is missing some numbers.";
@@ -330,7 +334,10 @@
         `Hit cap against your target: ${cap.melee}% for abilities and one-weapon white hits` + (S.oh ? `, ${cap.dualWhite}% for dual-wield white hits` : "") +
         ` (Classic attack table). ${capNote(S.hit, cap.melee, "Abilities")}` + (S.oh ? `. ${capNote(S.hit, cap.dualWhite, "White hits")}` : "") + ".");
       cell("Crit", fmt(S.crit, 1) + "%", "crit", S.estimated.includes("crit")
-        ? "Base crit and crit from Agility are Classic estimates; plus gear ratings and talents." : "Your base crit + gear + talents.");
+        ? (KP.measured.agiPerCrit[state.cls.token]
+          ? "Crit from Agility as real Kor'kron characters of your class show it (dodge too); plus gear ratings and talents."
+          : "Base crit and crit from Agility are Classic estimates; plus gear ratings and talents.")
+        : "Your base crit + gear + talents.");
     }
     if (state.cls.power === 0) {
       cell("Spell damage", fmt(S.sp), "sp");
