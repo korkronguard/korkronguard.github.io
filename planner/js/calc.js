@@ -342,6 +342,11 @@
 
   // Talents whose effect the server works out (a "dummy" aura in the files): their number comes from the tooltip.
   // Shadow Weaving and Shadow and Flame are assumed at full effect (you cast Shadow spells / Conflagrate all fight).
+  const ENRAGE_HIT_SEC = 2.5; // an attacker swinging every 2 sec, 1 swing in 5 dodged, parried or missed
+  const SACRIFICE = {
+    imp: { re: /Imp: Increases your Shadow damage by (\d+)%/, school: 32, what: "Shadow", demon: "the Imp" },
+    succubus: { re: /Succubus\/Incubus: Increases your Fire damage by (\d+)%/, school: 4, what: "Fire", demon: "the Succubus" },
+  };
   function handRules(ctx, out) {
     const text = (name) => { const i = ctx.flat.findIndex((t) => t.name === name); const r = i >= 0 ? ctx.ranks[i] : 0; return r ? ctx.flat[i].desc[r - 1] || "" : ""; };
     const learned = (name) => !!text(name) || ctx.flat.some((t, i) => t.name === name && ctx.ranks[i]);
@@ -357,6 +362,22 @@
       if (sh && learned("Conflagrate")) { out.dmgPct.push({ school: 32, value: +sh[1], name: "Shadow and Flame" }); parts.push(`+${sh[1]}% Shadow (Conflagrate)`); }
       if (fi && learned("Shadowburn")) { out.dmgPct.push({ school: 4, value: +fi[1], name: "Shadow and Flame" }); parts.push(`+${fi[1]}% Fire (Shadowburn)`); }
       if (parts.length) out.lines.push({ name: "Shadow and Flame", text: parts.join(", ") + ", assuming you use them on cooldown" });
+    }
+    // Enrage: "chance to deal 10% increased Physical damage for 12 sec after being the victim of any damaging attack".
+    // Counted while something is hitting you (tanking in Defensive Stance, or alone against a mob), with a hit landing
+    // every ENRAGE_HIT_SEC; a raid's damage dealers aren't hit often enough to count it.
+    const beingHit = (ctx.target && ctx.target.mode === "same") || (ctx.cls.token === "WARRIOR" && warriorStance(ctx) === "defensive");
+    if (beingHit && (m = /(\d+)% chance to deal (\d+)% increased Physical damage for (\d+) sec/.exec(text("Enrage")))) {
+      const uptime = 1 - (1 - m[1] / 100) ** (m[3] / ENRAGE_HIT_SEC);
+      out.dmgPct.push({ school: 1, value: m[2] * uptime, name: "Enrage" });
+      out.lines.push({ name: "Enrage", text: `+${Math.round(m[2] * uptime * 10) / 10}% Physical damage (up ${Math.round(uptime * 100)}% of the time while you're being hit)` });
+    }
+    // Demonic Sacrifice gives what the sacrificed demon decides (ctx.sacrifice; compute() tries both): the Imp Shadow
+    // damage, the Succubus Fire damage. Pets' own damage isn't counted, so giving one up costs nothing here.
+    const sacrifice = text("Demonic Sacrifice") && SACRIFICE[ctx.sacrifice];
+    if (sacrifice && (m = sacrifice.re.exec(text("Demonic Sacrifice")))) {
+      out.dmgPct.push({ school: sacrifice.school, value: +m[1], name: "Demonic Sacrifice" });
+      out.lines.push({ name: "Demonic Sacrifice", text: `+${m[1]}% ${sacrifice.what} damage (${sacrifice.demon} sacrificed: the better of the two for this build)` });
     }
     // Improved Righteous Fury changes Righteous Fury itself: counts while tanking (Righteous Fury on)
     if (ctx.tank && (m = /all damage taken is reduced by (\d+)%/.exec(text("Improved Righteous Fury")))) {
@@ -966,17 +987,26 @@
     }
     // spells with a cooldown (Mind Blast, Lava Burst, Chain Lightning, Fire Blast...): on cooldown when a cast does
     // more per second of casting than the filler. Target-limited spells (Undead/Demons) are left out; "20% health or
-    // less" ones count for the last 20% of the fight.
+    // less" ones count for the last 20% of the fight. One whose damage over time outlasts its cooldown (Flame Shock)
+    // can instead be recast as it runs out ("kept up"): a recast before then cuts off the ticks left. Only one of the
+    // two is used.
     const cds = usable.filter((a) => a.cdMs > 0 && (a.directExpected > 0 || a.dotExpected > 0) && !/Undead|Demon/.test(a.rank.desc || ""))
-      .map((a) => {
+      .flatMap((a) => {
         const execute = /20% (?:health )?or less|20% or less health|less than 20% health/i.test(a.rank.desc || "");
-        const rate = (execute ? 0.2 : 1) / Math.max(castTime(a), a.cdMs / 1000);
-        return { a, rate, per: a.expected, time: castTime(a), mps: manaOf(a) * rate, execute };
+        const variant = (every, kept) => {
+          const rate = (execute ? 0.2 : 1) / every;
+          const dot = a.durMs > 0 ? a.dotExpected * Math.min(1, (every * 1000) / a.durMs) : a.dotExpected;
+          return { a, rate, per: a.expected - a.dotExpected + dot, time: castTime(a), mps: manaOf(a) * rate, execute, kept };
+        };
+        const onCooldown = Math.max(castTime(a), a.cdMs / 1000);
+        return a.dotExpected > 0 && a.durMs / 1000 > onCooldown
+          ? [variant(onCooldown, false), variant(a.durMs / 1000, true)] : [variant(onCooldown, false)];
       })
       .filter((x) => x.per / x.time > best.dps)
       .sort((x, y) => y.per / y.time - x.per / x.time);
+    const used = new Set();
     for (const x of cds) {
-      if (busy + x.rate * x.time > 0.95) continue;
+      if (used.has(x.a) || busy + x.rate * x.time > 0.95) continue;
       const f = x.mps > mana ? Math.max(0, mana / x.mps) : 1; // only as often as the mana allows
       if (f < 0.05) continue;
       // worth it only if it beats spending that time and mana on the filler
@@ -986,7 +1016,8 @@
       busy += x.rate * x.time * f;
       mana -= x.mps * f;
       dps += x.per * x.rate * f;
-      parts.push({ name: `${x.a.name} (on cooldown${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f });
+      used.add(x.a);
+      parts.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f });
     }
     const free = 1 - busy;
     let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
@@ -1991,6 +2022,12 @@
   }
 
   function compute(ctx) {
+    // Demonic Sacrifice: whichever demon does more for this build (handRules)
+    if (ctx.sacrifice == null && learnedTalent(ctx, "Demonic Sacrifice")) {
+      const [imp, succubus] = Object.keys(SACRIFICE).map((s) => compute({ ...ctx, sacrifice: s }));
+      const dps = (R) => (R.rotation && R.rotation.dps) || 0;
+      return dps(imp) >= dps(succubus) ? imp : succubus;
+    }
     const S = stats(ctx);
     const white = whiteHits(ctx, S);
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
