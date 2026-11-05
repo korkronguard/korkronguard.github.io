@@ -2072,7 +2072,8 @@
     }
     out.push({ name: "Armor", game: "armor", digits: 0, expr: "gearArmor + 2 * agi",
       text: "the armor on your gear + 2 per Agility (before talents and buffs)" });
-    out.push({ name: "Physical damage your armor stops", digits: 1, unit: "%", expr: "min(75, armor / (armor + 400 + 85 * level) * 100)",
+    out.push({ name: "Physical damage your armor stops", game: "armorStops", digits: 1, unit: "%",
+      expr: "min(75, armor / (armor + 400 + 85 * level) * 100)",
       text: "your armor ÷ (your armor + 400 + 85 × the attacker's level), at most 75%. Here: an attacker of your level." });
     out.push({ name: "Effective health", digits: 0,
       expr: "health / ((1 - min(0.75, armor / (armor + 400 + 85 * (level + 3)))) * (1 - min(0.6, (dodge + parry + block) / 100)))",
