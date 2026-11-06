@@ -10,6 +10,13 @@
 window.KG_CONQUESTS = [
   {
     kind: "dungeon",
+    place: "Ruins of Lordaeron",
+    date: "2026-11-05",
+    image: "ruins-of-lordaeron.jpg",
+    party: ["Smoking Peacebloom", "Grimscar Greystone", "Sliver Skylance", "Anathema Hallowfall", "Sullen Blightfall"]
+  },
+  {
+    kind: "dungeon",
     place: "Ragefire Chasm",
     date: "2026-11-05",
     image: "ragefire-chasm.jpg",
