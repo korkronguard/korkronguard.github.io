@@ -89,6 +89,10 @@
     fistSkill: "Fist Weapon Skill", attackPowerVsUndead: "Attack Power against Undead",
     attackPowerVsDemons: "Attack Power against Demons", attackPowerVsBeasts: "Attack Power against Beasts",
     spellDamageVsUndead: "Spell Damage against Undead", mana: "Mana", health: "Health",
+    attackPowerVsHumanoids: "Attack Power against Humanoids", attackPowerVsElementals: "Attack Power against Elementals",
+    attackPowerVsMechanicals: "Attack Power against Mechanicals", spellDamageVsElementals: "Spell Damage against Elementals",
+    spellDamageVsDemons: "Spell Damage against Demons", spellDamageVsBeasts: "Spell Damage against Beasts",
+    physicalDamage: "Physical Damage", resistAll: "All Resistances", cooking: "Cooking",
   };
   const RATING = { hit: "meleeHit", crit: "meleeCrit", haste: "meleeHaste", dodge: "dodge", parry: "parry",
     block: "block", defense: "defense", expertise: "expertise" };
@@ -637,10 +641,8 @@
     return pick;
   }
 
-  // Dungeon and raid loot and many quest rewards have no level requirement (0 or 1: Onyxia Tooth Pendant, Darkmantle,
-  // Forever's Discarded Circlet at item level 43), so the game would let a level 1 wear them; nobody gets them that early.
-  // For BiS such an item counts from 5 levels below its item level (most Classic items' requirement), at most 60.
-  const bisLevel = (it) => (it.req > 1 ? it.req : Math.min(60, Math.max(1, it.ilvl - 5)));
+  // items without a level requirement (dungeon loot, quest rewards) count from item level - 5 (KP.calc.wearableFrom)
+  const bisLevel = KP.calc.wearableFrom;
   // another class's tier set (the data lets anyone wear it, but the game hands it out through class-locked tokens)
   const setClass = (it) => it.set && KP.items.sets[it.set] && KP.items.sets[it.set].cls;
   const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;

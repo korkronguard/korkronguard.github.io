@@ -54,6 +54,10 @@
   const BASE_CRIT = { WARRIOR: 0, PALADIN: 0.7, HUNTER: 0, ROGUE: 0, SHAMAN: 1.7, DRUID: 0.9, PRIEST: 3, MAGE: 3.2, WARLOCK: 2 };
   const INT_PER_SPELL_CRIT = { MAGE: 59.5, PRIEST: 59.2, WARLOCK: 60.6, DRUID: 60, SHAMAN: 59.2, PALADIN: 54 };
   const BASE_SPELL_CRIT = { MAGE: 0.2, PRIEST: 0.8, WARLOCK: 1.7, DRUID: 1.8, SHAMAN: 2.3, PALADIN: 0 };
+  // Base parry (from the level it's learned) and block (with a shield), %: the guild's Orc Warrior's character sheet
+  // shows 5% each, a little less while defense skill catches up with the level (addon snapshots, levels 2-16: parry 0
+  // until level 6). Other classes aren't measured yet: theirs come from gear and talents only.
+  const BASE_AVOID = { WARRIOR: { parry: 5, parryFrom: 6, block: 5 } };
   // lower levels need less Agility/Intellect per 1% (Classic); scaled by level, from level 10 up
   const perLevel = (at60, level) => at60 * Math.max(10, level) / 60;
 
@@ -118,6 +122,12 @@
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const overlap = (a, b) => a.some((v, k) => (v & b[k]) !== 0);
+
+  // The level from which you can have an item. Dungeon and raid loot and many quest rewards have no level requirement (0
+  // or 1: Onyxia Tooth Pendant, Darkmantle, Forever's Discarded Circlet at item level 43): the quest or the dungeon is
+  // the gate, and that's on the server. Such an item counts from 5 levels below its item level (3,708 of the 4,521 items
+  // with stats and a requirement have exactly that), at most 60.
+  const wearableFrom = (it) => (it.req > 1 ? it.req : Math.min(60, Math.max(1, it.ilvl - 5)));
 
   // ------------------------------------------------------------ talents
 
@@ -550,6 +560,8 @@
     const fromStats = statTalents(ctx, attr);
     const formAp = form ? form.ap + attr.agility * form.apPerAgi +
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
+    const shield = !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6);
+    const baseAvoid = BASE_AVOID[cls.token] || {};
     const S = {
       gear, tal, attr, baseAp, form: formKey,
       ap: (Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
@@ -573,8 +585,8 @@
       // dodge from Agility only where it's measured (a Warrior's: the same Agility per 1% as crit); for the other
       // classes it isn't known yet, so it's left out
       dodge: g("dodge") / per("dodge") + tal.dodge + (KP.measured.agiPerCrit[cls.token] ? attr.agility / agiRatio : 0),
-      parry: g("parry") / per("parry") + tal.parry,
-      block: g("block") / per("block") + tal.block,
+      parry: g("parry") / per("parry") + tal.parry + (lvl >= (baseAvoid.parryFrom || 1) ? baseAvoid.parry || 0 : 0),
+      block: g("block") / per("block") + tal.block + (shield ? baseAvoid.block || 0 : 0),
       blockValue: g("blockValue"),
       health: Math.round((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
@@ -586,7 +598,7 @@
         : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
       oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
-      shield: !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6),
+      shield,
     };
     // "Use:" buffs a tool asks for, averaged over the fight (ctx.useBuffs: [{ auras, share }], share = the part of the
     // fight it's up). Only the MCP check passes them; elsewhere "Use:" effects aren't in the math. Haste multiplies.
@@ -802,6 +814,160 @@
     return on.length > 3 ? ` With ${on.length} group buffs and debuffs on.` : ` With ${on.join(" and ")}.`;
   };
 
+  const RAGE_TAKEN_PER_C = 2.5; // rage for taking a hit of c damage (the original game's rule)
+  const REVENGE_WINDOW = 5; // seconds Revenge stays usable after a block, dodge or parry (the original game's)
+  // whether a Warrior can use an ability in the stance it fights in (the game's stance list; none = any stance)
+  const inStance = (ctx, name) => {
+    const b = ((KP.spellbook || {}).WARRIOR || []).find((x) => x.name === name);
+    return !b || !b.stances || inMask(b.stances, STANCE_FORM[warriorStance(ctx)]);
+  };
+
+  // A tank's rage from the enemy's swings (one every MOB_SWING seconds): the hits that land, only against an enemy of
+  // your level (a raid boss's damage isn't known), Shield Specialization on blocks and Master of Defense on dodges and
+  // parries (with a shield). Also how the swings end, for Shield Block and Revenge.
+  function tankRage(ctx, S) {
+    const o = swingOutcomes(S), swings = 1 / MOB_SWING;
+    const perBlock = (talentNumber(ctx, "Shield Specialization", /(\d+)% chance to generate/) / 100) *
+      talentNumber(ctx, "Shield Specialization", /generate (\d+) Rage when you Block/);
+    const perDodge = S.shield ? (talentNumber(ctx, "Master of Defense", /(\d+)% chance to generate/) / 100) *
+      talentNumber(ctx, "Master of Defense", /generate (\d+) Rage when you Dodge/) : 0;
+    const hits = ctx.target && ctx.target.mode === "same" ? (RAGE_TAKEN_PER_C * meleeTaken(S, ctx.level)) / rageConversion(ctx.level) : 0;
+    return { o, swings, perBlock, rage: hits + swings * (o.block * perBlock + (o.dodge + o.parry) * perDodge),
+      from: [hits && "the hits you take", perBlock && "Shield Specialization's blocks", perDodge && "Master of Defense's dodges and parries"].filter(Boolean) };
+  }
+
+  // A Warrior: rage in, then attacks in order, each only if your stance allows it (the game's stance lists). Rage from
+  // your white hits (Classic formula with Forever's double rage from crits), Charge at each pull when the fight's length
+  // is known (leveling: ctx.fightSec) and, tanking in Defensive Stance, from the enemy's swings (tankRage). A tank
+  // spends it on Shield Slam, Shield Block and Revenge first (the Priority tab's threat order); everyone then on Mortal
+  // Strike or Bloodthirst, Whirlwind and Heroic Strike with what's left, and below 20% health on Execute.
+  function warriorRotation(ctx, S, white, byName, parts, dps) {
+    const L = ctx.level, stance = warriorStance(ctx), tank = stance === "defensive";
+    const use = (name) => (byName[name] && inStance(ctx, name) ? byName[name] : null);
+    const unbridled = talentValue(ctx, "Unbridled Wrath") / 100; // chance per hit of 1 extra rage
+    // Forever's server rules (patch notes, 1 Oct 2026): critical strikes give 100% more rage (the crit part of a
+    // swing's damage counts twice), and Dual Wield Specialization makes the off hand give more (its tooltip's %)
+    const offhandRage = 1 + talentNumber(ctx, "Dual Wield Specialization", /Rage generated by your off-hand attacks by (\d+)%/) / 100;
+    const swingRage = (w) => rageFromDamage(w.perSwing + w.avg * (w.crit / 100) * 2, L) * (w.label === "Off hand" ? offhandRage : 1);
+    let rage = 0;
+    for (const w of white.filter((x) => x.label !== "Ranged" && x.label !== "Wand")) {
+      rage += (swingRage(w) + unbridled) / w.effSpeed;
+    }
+    if (rankOf(ctx, "Anger Management")) rage += 1 / 3;
+    const from = ["white hits (Classic formula with Forever's double rage from crits" + (offhandRage > 1 ? " and more from the off hand)" : ")")];
+    // Reckless Swings: the next few swings give extra rage; its 15 sec cooldown is in the patch notes, not the files
+    const reckless = talentNumber(ctx, "Reckless Swings", /next (\d+) melee attacks/) *
+      talentNumber(ctx, "Reckless Swings", /generate (\d+) additional Rage/);
+    rage += reckless / RECKLESS_SWINGS_CD;
+    if (reckless) from.push("Reckless Swings");
+    // Bloodrage on cooldown: its tooltip's rage at once and over 10 sec, plus Improved Bloodrage's %, for a share of
+    // your base health (the game's spell data). ctx.bloodrage false: not used (leveling tries both)
+    const blood = ctx.bloodrage !== false && bookRank("WARRIOR", "Bloodrage", L);
+    const bloodRage = blood ? (/(\d+) rage at the cost of health.* additional (\d+) rage/.exec(bookDesc("WARRIOR", "Bloodrage")) || [])
+      .slice(1).reduce((a, n) => a + +n, 0) * (1 + talentNumber(ctx, "Improved Bloodrage", /by (\d+)%/) / 100) : 0;
+    if (bloodRage) {
+      rage += bloodRage / (blood.cdMs / 1000);
+      from.push("Bloodrage");
+    }
+    // Charge: Battle Stance, or Defensive with Vanguard (its rage from the game's spell data, by rank)
+    const charge = bookRank("WARRIOR", "Charge", L);
+    const pullRage = charge && (stance === "battle" || (tank && learnedTalent(ctx, "Vanguard")))
+      ? (charge.rage || 0) + talentNumber(ctx, "Improved Charge", /Charge ability by (\d+)/) : 0;
+    if (pullRage && ctx.fightSec) {
+      rage += pullRage / ctx.fightSec;
+      from.push(`Charge at the pull (${pullRage} rage a fight)`);
+    }
+    const t = tank ? tankRage(ctx, S) : null;
+    if (t) {
+      rage += t.rage;
+      from.push(...t.from);
+    }
+    const rageIncome = rage, firstAbilityPart = parts.length, spentOn = [];
+    const spend = (a) => {
+      if (!a || !a.cdMs || rage <= 0) return;
+      const perSec = a.cost / (a.cdMs / 1000);
+      const f = perSec ? Math.min(1, rage / perSec) : 1;
+      rage -= perSec * f;
+      const d = (f * a.expected) / (a.cdMs / 1000);
+      dps += d;
+      parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
+      spentOn.push(a.name);
+    };
+    if (t) {
+      spend(use("Shield Slam"));
+      const moreBlocks = shieldBlock(ctx, S, t, rage);
+      rage -= moreBlocks.rage;
+      if (moreBlocks.perSec) spentOn.push("Shield Block");
+      const rv = use("Revenge");
+      if (rv && rv.cdMs && rage > 0) {
+        const r = revengeRate(t, moreBlocks.perSec, rv.cdMs / 1000);
+        const f = rv.cost ? Math.min(1, rage / (rv.cost * r)) : 1;
+        rage -= f * rv.cost * r;
+        dps += f * r * rv.expected;
+        parts.push({ name: `Revenge (every ${(1 / r).toFixed(1)} sec${f < 1 ? ", when rage allows" : ""})`, dps: f * r * rv.expected });
+        spentOn.push("Revenge when it lights up");
+      }
+    }
+    spend(use("Mortal Strike") || use("Bloodthirst"));
+    spend(use("Whirlwind"));
+    // leftover rage: Heroic Strike replaces a main-hand swing
+    const hs = use("Heroic Strike"), mh = white.find((w) => w.label === "Main hand");
+    if (hs && mh && rage > 0) {
+      const perSec = Math.min(rage / (hs.cost + swingRage(mh)), 1 / mh.effSpeed);
+      const d = perSec * Math.max(0, hs.expected - mh.perSwing);
+      dps += d;
+      parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
+      spentOn.push("Heroic Strike with what's left");
+    }
+    // Execute phase: the last 20% of the boss's health, all rage goes into Execute (one per 1.5 sec at most)
+    const ex = use("Execute");
+    if (ex && ex.cost >= 0 && ex.expected) {
+      const rate = ex.cost ? Math.min(1 / 1.5, rageIncome / ex.cost) : 1 / 1.5;
+      const leftover = Math.max(0, rageIncome - rate * ex.cost);
+      const exDps = rate * ex.expected + leftover * ex.perRage;
+      let normal = 0;
+      for (const p of parts.slice(firstAbilityPart)) {
+        normal += p.dps;
+        p.dps *= 1 - EXECUTE_PHASE;
+        p.name += " (first 80%)";
+      }
+      dps += -normal * EXECUTE_PHASE + exDps * EXECUTE_PHASE;
+      parts.push({ name: "Execute (last 20%)", dps: exDps * EXECUTE_PHASE });
+      spentOn.push("below 20% health, every rage point on Execute");
+    }
+    const note = `Rage from ${from.join(", ")}. Spent on ${spentOn.join(", ") || "nothing yet"}.` +
+      (t ? " Not counted: Thunder Clap, Rend, Sunder Armor, Shield Slam's bonus from Block Value, and threat." : "") + buffNote(ctx);
+    // healthSpent: health per second Reckless Swings and Bloodrage cost (leveling counts it as eaten back, like Life
+    // Tap's); pullRage: Charge's rage at each pull (a caller that knows the fight's length passes it back as ctx.fightSec)
+    const baseHealth = rules.baseHealth.WARRIOR[L - 1];
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage,
+      healthSpent: (reckless ? (baseHealth * RECKLESS_SWINGS_HEALTH) / RECKLESS_SWINGS_CD : 0) +
+        (bloodRage ? (baseHealth * blood.costPct) / 100 / (blood.cdMs / 1000) : 0) };
+  }
+
+  // Shield Block on cooldown (off the global cooldown, needs a shield): until the next one it blocks up to its number of
+  // the swings that aren't missed, dodged or parried, instead of the usual block chance. Shield Specialization's rage
+  // on those blocks pays for it in part or all. { perSec: extra blocks per second, rage: rage per second it costs }
+  function shieldBlock(ctx, S, t, rage) {
+    const sb = S.shield && bookRank("WARRIOR", "Shield Block", ctx.level);
+    const max = +((/only block (\d+) attacks/.exec(bookDesc("WARRIOR", "Shield Block")) || [])[1] || 0);
+    if (!sb || !max || !sb.cdMs) return { perSec: 0, rage: 0 };
+    const cd = sb.cdMs / 1000;
+    const swingsIn = Math.min(sb.durMs / 1000, cd) * t.swings;
+    const blocked = Math.min(max, swingsIn * Math.max(0, 1 - t.o.miss - t.o.dodge - t.o.parry));
+    const extra = Math.max(0, blocked - swingsIn * t.o.block); // blocks it adds over the usual chance
+    const net = (sb.cost / 10 - extra * t.perBlock) / cd;
+    const f = net <= 0 ? 1 : Math.min(1, Math.max(0, rage) / net);
+    return { perSec: (f * extra) / cd, rage: f * net };
+  }
+
+  // Revenge's uses per second: after its cooldown it's ready at once if a block, dodge or parry came in the last
+  // REVENGE_WINDOW seconds (or since it was used), else at the next one
+  function revengeRate(t, moreBlocks, cd) {
+    const procs = t.swings * (t.o.dodge + t.o.parry + t.o.block) + moreBlocks;
+    return procs > 0 ? 1 / (cd + Math.exp(-procs * Math.min(REVENGE_WINDOW, cd)) / procs) : 0;
+  }
+
   function rotation(ctx, S, white, abilities) {
     const byName = Object.fromEntries(abilities.filter((a) => !a.locked).map((a) => [a.name, a]));
     const whiteDps = white.reduce((x, w) => x + w.dps, 0);
@@ -811,64 +977,7 @@
     const token = ctx.cls.token;
     const result = (dps, note) => ({ dps, parts: parts.filter((p) => p.dps > 0.05), note });
 
-    if (token === "WARRIOR" && white.length) {
-      const unbridled = talentValue(ctx, "Unbridled Wrath") / 100; // chance per hit of 1 extra rage
-      // Forever's server rules (patch notes, 1 Oct 2026): critical strikes give 100% more rage (the crit part of a
-      // swing's damage counts twice), and Dual Wield Specialization makes the off hand give more (its tooltip's %)
-      const offhandRage = 1 + talentNumber(ctx, "Dual Wield Specialization", /Rage generated by your off-hand attacks by (\d+)%/) / 100;
-      const swingRage = (w) => rageFromDamage(w.perSwing + w.avg * (w.crit / 100) * 2, ctx.level) * (w.label === "Off hand" ? offhandRage : 1);
-      let rage = 0;
-      for (const w of white.filter((x) => x.label !== "Ranged" && x.label !== "Wand")) {
-        rage += (swingRage(w) + unbridled) / w.effSpeed;
-      }
-      if (rankOf(ctx, "Anger Management")) rage += 1 / 3;
-      // Reckless Swings: the next few swings give extra rage; its 15 sec cooldown is in the patch notes, not the files
-      const reckless = talentNumber(ctx, "Reckless Swings", /next (\d+) melee attacks/) *
-        talentNumber(ctx, "Reckless Swings", /generate (\d+) additional Rage/);
-      rage += reckless / RECKLESS_SWINGS_CD;
-      let dps = whiteDps + extra;
-      const rageIncome = rage, firstAbilityPart = parts.length;
-      const spend = (a) => {
-        if (!a || !a.cdMs || rage <= 0) return;
-        const perSec = a.cost / (a.cdMs / 1000);
-        const f = perSec ? Math.min(1, rage / perSec) : 1;
-        rage -= perSec * f;
-        const d = (f * a.expected) / (a.cdMs / 1000);
-        dps += d;
-        parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
-      };
-      spend(byName["Mortal Strike"] || byName["Bloodthirst"]);
-      spend(byName["Whirlwind"]);
-      // leftover rage: Heroic Strike replaces a main-hand swing
-      const hs = byName["Heroic Strike"], mh = white.find((w) => w.label === "Main hand");
-      if (hs && mh && rage > 0) {
-        const perSec = Math.min(rage / (hs.cost + swingRage(mh)), 1 / mh.effSpeed);
-        const d = perSec * Math.max(0, hs.expected - mh.perSwing);
-        dps += d;
-        parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
-      }
-      // Execute phase: the last 20% of the boss's health, all rage goes into Execute (one per 1.5 sec at most)
-      const ex = byName["Execute"];
-      if (ex && ex.cost >= 0 && ex.expected) {
-        const rate = ex.cost ? Math.min(1 / 1.5, rageIncome / ex.cost) : 1 / 1.5;
-        const leftover = Math.max(0, rageIncome - rate * ex.cost);
-        const exDps = rate * ex.expected + leftover * ex.perRage;
-        let normal = 0;
-        for (const p of parts.slice(firstAbilityPart)) {
-          normal += p.dps;
-          p.dps *= 1 - EXECUTE_PHASE;
-          p.name += " (first 80%)";
-        }
-        dps += -normal * EXECUTE_PHASE + exDps * EXECUTE_PHASE;
-        parts.push({ name: "Execute (last 20%)", dps: exDps * EXECUTE_PHASE });
-      }
-      // healthSpent: health per second Reckless Swings costs (leveling counts it as eaten back, like Life Tap's)
-      return { ...result(dps, "Rage from white hits (Classic formula with Forever's double rage from crits" +
-        (offhandRage > 1 ? " and more from the off hand" : "") + (reckless ? ", plus Reckless Swings" : "") +
-        "), then Mortal Strike/Bloodthirst, Whirlwind, Heroic Strike with what's left; " +
-        "below 20% health, every rage point goes into Execute." + buffNote(ctx)),
-      healthSpent: reckless ? (rules.baseHealth.WARRIOR[ctx.level - 1] * RECKLESS_SWINGS_HEALTH) / RECKLESS_SWINGS_CD : 0 };
-    }
+    if (token === "WARRIOR" && white.length) return warriorRotation(ctx, S, white, byName, parts, whiteDps + extra);
 
     if (token === "ROGUE" && white.length) {
       const r = rogueRotation(ctx, S, white, byName);
@@ -2089,12 +2198,32 @@
     return { S, results };
   }
 
+  // A melee swing at you: the chance (0-1) that it misses, is dodged, parried or blocked (blocks need a shield). Each
+  // point of defense skill adds 0.04% to each of the four (the original game's rule).
+  const BASE_MISS = 0.05;
+  function swingOutcomes(S) {
+    const d = Math.max(0, S.defense) * 0.0004;
+    return { miss: BASE_MISS + d, dodge: S.dodge / 100 + d, parry: S.parry / 100 + d, block: S.shield ? S.block / 100 + d : 0 };
+  }
+  // the share of swings that don't land in full (a block counted as avoided), at most 60%
+  const avoidance = (S) => { const o = swingOutcomes(S); return Math.min(0.6, o.miss + o.dodge + o.parry + o.block); };
+
+  // A normal mob of your level (the original game's numbers: mobs live on the server, not in the files): its melee
+  // damage per second before your armor (~23 at 30, ~70 at 60) and the seconds between its swings
+  const mobDps = (L) => 0.014 * L * L + 0.35 * L;
+  const MOB_SWING = 2;
+  // the damage per second its swings do to you: through your misses, dodges, parries, blocks and armor, and changes to
+  // the damage you take (Defensive Stance)
+  function meleeTaken(S, level) {
+    const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * level));
+    return mobDps(level) * (1 - avoidance(S)) * (1 - armorDR) * (1 + (S.damageTaken || 0) / 100);
+  }
+
   // survival: health through armor and avoidance against a raid boss (the measure the builds, "why" and Equip BiS use)
   function ehp(R, level) {
     const S = R.S;
     const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * (level + 3)));
-    const avoid = Math.min(0.6, (S.dodge + S.parry + S.block) / 100 + Math.max(0, S.defense) * 0.0004);
-    return S.health / ((1 - armorDR) * (1 - avoid)) / (1 + (S.damageTaken || 0) / 100);
+    return S.health / ((1 - armorDR) * (1 - avoidance(S))) / (1 + (S.damageTaken || 0) / 100);
   }
 
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
@@ -2251,13 +2380,15 @@
         ["an attacker of your level", "who hits you on this line; Effective health below uses a raid boss", FROM.planner],
       ] });
     out.push({ name: "Effective health", digits: 0,
-      expr: "health / ((1 - min(0.75, armor / (armor + 400 + 85 * (level + 3)))) * (1 - min(0.6, (dodge + parry + block) / 100)))",
+      expr: `health / ((1 - min(0.75, armor / (armor + 400 + 85 * (level + 3)))) * (1 - min(0.6, ${BASE_MISS} + (dodge + parry + block) / 100)))`,
       text: "how much damage you can take before you die, what the planner calls survival: health ÷ (the share of a raid " +
-        "boss's hits that gets through your armor × the share you don't dodge, parry or block). The boss is 3 levels above " +
-        "you; dodge, parry and block count up to 60% together.",
+        "boss's hits that gets through your armor × the share that doesn't miss and you don't dodge, parry or block). " +
+        `The boss is 3 levels above you; its ${BASE_MISS * 100}% misses, your dodge, parry and block (with a shield) ` +
+        "count up to 60% together.",
       numbers: [
         ["3 levels above you", "a raid boss: the planner measures every tank against one", FROM.planner],
-        ["up to 60%", "dodge + parry + block are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
+        [`${BASE_MISS * 100}%`, "an attack's base chance to miss you", FROM.rule],
+        ["up to 60%", "misses + dodge + parry + block are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
       ] });
     if (cls.power === 0) {
       const seen = REGEN_SEEN.includes(t);
@@ -2291,7 +2422,8 @@
           ["crits: 4 times", "a crit does double damage, so it gives double rage, and Forever adds 100% more rage from crits: " +
             "4 times a normal hit's rage (the planner's reading of the patch note)",
           `${FROM.patch("1 Oct 2026")}; not checked in game, because Forever hides your rage from addons during a fight`],
-          ["2.5 × damage taken ÷ c", "rage from the hits you take; the planner's damage numbers don't count it", FROM.rule],
+          [`${RAGE_TAKEN_PER_C} × damage taken ÷ c`, "rage from the hits you take: the planner counts it while you tank in " +
+            "Defensive Stance against an enemy of your level (a raid boss's damage isn't known)", FROM.rule],
         ] });
     }
     if (t === "ROGUE") {
@@ -2339,5 +2471,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, meleeTaken };
 })();
