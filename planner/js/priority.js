@@ -461,6 +461,9 @@
     const unit = "mana";
     const desc = (n) => (c.spell(n) || {}).desc || "";
     if (role === "heal") return healer(c, L.title, `Talents: ${holy} / ${prot} / ${ret}`, L.toggles);
+    // the damage math has no Judgement (its damage is the Seal's): its cooldown with Improved Judgement, for the helper
+    const judgementMs = (c.rank("Judgement") || {}).cdMs || 10000;
+    const judgementRes = { cdMs: judgementMs - (c.talent["Improved Judgement"] ? talentNumber(c, "Improved Judgement") * 1000 : 0) };
 
     if (tank) {
       L.facts.push("No taunt in the Paladin spellbook (game data): you hold threat with damage, so open strong.");
@@ -472,7 +475,12 @@
         facts: [`+${fmt(numberAfter(desc("Seal of Fury"), "additional"))} Holy damage per hit (max rank)`] });
       L.add("Devotion Aura", { tag: "Keep up", text: "Armor for you and your party.", facts: [`+${fmt(numberAfter(desc("Devotion Aura"), "Gives"))} armor (max rank)`] });
       L.add("Blessing of Kings", { tag: "On yourself", text: "Or Might if another Paladin gives Kings." });
-      L.section("Threat priority", "Press the first one that's ready. Holy damage is boosted by Righteous Fury, so your Holy abilities lead.");
+      L.section("Threat priority", "Press the first one that's ready. Judgements first: they don't use the global cooldown (game data), so they never hold anything back. " +
+        "Holy damage is boosted by Righteous Fury, so your Holy abilities lead.");
+      L.add("Judgement", { tag: "On cooldown", text: "Judges your Seal on the target (the Seal stays).", res: judgementRes,
+        facts: [`${sec(judgementMs)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : "")] });
+      L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement with its own cooldown: it doesn't wait for Judgement and costs no mana (game data).",
+        facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
       L.add("Holy Shield", { tag: "Keep up", text: "Refresh it as it runs out: more blocks, and every block hits back.",
         facts: [`+${fmt(numberAfter(desc("Holy Shield"), "block by"))}% block chance for 10 sec, ${fmt(numberAfter(desc("Holy Shield"), "deals"))} Holy damage per block at max rank, +20% threat on that damage`,
           c.talent["Redoubt"] ? "Redoubt: more blocks still" : null, c.talent["Reckoning"] ? "Reckoning: blocks can give you extra attacks" : null] });
@@ -485,10 +493,6 @@
         facts: [dmgLine(A["Holy Strike"], unit),
           c.talent["Iron Creed"] ? `Iron Creed: +${fmt(talentNumber(c, "Iron Creed"))}% threat, and with Righteous Fury ${fmt(numberAfter(talentText(c, "Iron Creed"), "damage taken by"))}% less damage taken for 6 sec` : null,
           c.talent["Shieldsworn"] ? `Shieldsworn: ${fmt(Math.abs(numberAfter(talentText(c, "Shieldsworn"), "ability by")))} sec shorter cooldown` : null] });
-      L.add("Judgement", { tag: "On cooldown", text: "Judges your Seal on the target (the Seal stays).",
-        facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : "")] });
-      L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement with its own cooldown: it doesn't wait for Judgement and costs no mana (game data).",
-        facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
       L.add("Consecration", { tag: "Packs", text: "Holy damage on the ground: best when you hold several enemies (mana heavy).",
         facts: [c.rank("Consecration") ? `${fmt(c.rank("Consecration").cost)} mana, ${sec(c.rank("Consecration").cdMs)} cooldown` : null,
           c.talent["Consecrated Ground"] ? "Consecrated Ground: +10% Holy damage against the first 4 enemies in it" : null] });
@@ -528,10 +532,7 @@
       facts: [`+${fmt(buffNumber("Blessing of Might", c.level))} attack power at your level`] });
     L.add("Retribution Aura", { tag: "Aura", text: "If no other Paladin runs an aura, otherwise Devotion." });
     L.section("Attack priority", "Press the first one that's ready.");
-    // the damage math has no Judgement (its damage is the Seal's): its cooldown with Improved Judgement, for the helper
-    const judgementMs = (c.rank("Judgement") || {}).cdMs || 10000;
-    L.add("Judgement", { tag: "On cooldown", text: "Judge your Seal, then keep the Seal up.",
-      res: { cdMs: judgementMs - (c.talent["Improved Judgement"] ? talentNumber(c, "Improved Judgement") * 1000 : 0) },
+    L.add("Judgement", { tag: "On cooldown", text: "Judge your Seal, then keep the Seal up.", res: judgementRes,
       facts: [`${sec(judgementMs)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : ""),
         c.talent["Sanctified Judgement"] ? `Sanctified Judgement: ${fmt(numberAfter(talentText(c, "Sanctified Judgement"), "chance to return"))}% of the Seal's mana back` : null] });
     L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement on its own cooldown, free (game data).",
@@ -794,7 +795,8 @@
       L.add("Rage of the Farseer", { tag: "Cooldown", text: "On cooldown: +30% attack speed for 25 sec, every 3 min." });
     } else {
       L.section("Keep up", null);
-      L.add("Flame Shock", { tag: "Keep up", text: "Its burn is worth keeping on the target.", facts: [dmgLine(A["Flame Shock"], unit)] });
+      L.add("Flame Shock", { tag: "If missing", text: "Its burn is worth keeping on the target: cast it again once the burn has run out (a new Flame Shock replaces the burn still going).",
+        facts: [dmgLine(A["Flame Shock"], unit)] });
       L.section("Spell priority", "Press the first one that's ready.");
       // Lightning Overload: a server rule (its tooltip's chance of a free half-damage copy), counted in the numbers
       const overload = c.talent["Lightning Overload"] ? `Lightning Overload: ${fmt(talentNumber(c, "Lightning Overload"))}% chance of a free second bolt at half damage (counted)` : null;
