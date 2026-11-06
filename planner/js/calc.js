@@ -1139,7 +1139,7 @@
       busy += d.time;
       mana -= d.mps;
       dps += d.dps;
-      parts.push({ name: `${d.a.name} (kept up)`, dps: d.dps });
+      parts.push({ name: `${d.a.name} (kept up)`, dps: d.dps, spell: d.a.name, kind: "keep" });
     }
     // spells with a cooldown (Mind Blast, Lava Burst, Chain Lightning, Fire Blast...): on cooldown when a cast does
     // more per second of casting than the filler. Target-limited spells (Undead/Demons) are left out; "20% health or
@@ -1173,7 +1173,8 @@
       mana -= x.mps * f;
       dps += x.per * x.rate * f;
       used.add(x.a);
-      parts.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f });
+      parts.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f,
+        spell: x.a.name, kind: x.kept ? "keep" : "cooldown", execute: x.execute });
     }
     const free = 1 - busy;
     let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
@@ -1190,12 +1191,15 @@
       parts.push({ name: `Wand (${Math.round(idle * 100)}% of the time, out of mana)`, dps: wandDps * idle });
       dps += wandDps * idle;
     }
+    // spell and kind say what each part is for the Priority tab (keep, cooldown, filler, cheap = the cheaper filler);
+    // instead = the filler that would hit harder if the mana lasted
+    const instead = pick.A !== best ? best.a.name : undefined;
     if (pick.f >= 0.999 || pick.A === pick.B) {
-      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd });
-      if (pick.A !== best) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
+      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd, spell: pick.A.a.name, kind: "filler", instead });
+      if (instead) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
     } else {
-      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: pick.f * pick.A.dps * free },
-        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free });
+      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: pick.f * pick.A.dps * free, spell: pick.A.a.name, kind: "filler", instead },
+        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free, spell: pick.B.a.name, kind: "cheap" });
       note += `; mixes ${pick.A.a.name} with the cheaper ${pick.B.a.name} so the mana lasts`;
     }
     if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
