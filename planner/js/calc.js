@@ -119,6 +119,8 @@
   // attack power per combo point (the rule from the next expansion). Flagged in the notes.
   const EVISCERATE_AP_PER_POINT = 0.03;
   const POISON_CHANCE = 20; // % chance per hit to apply a poison: Classic's; not in the files
+  // ranged weapon subclasses (item class 2): 2 bow, 3 gun, 16 thrown, 18 crossbow, 19 wand
+  const RANGED_SUBCLASSES = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const overlap = (a, b) => a.some((v, k) => (v & b[k]) !== 0);
@@ -244,6 +246,9 @@
       statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 },
       mods: [],       // ability modifiers: { op, pct, value, mask, name }
       dmgPct: [],     // damage done %: { school, value, name }
+      rangedPct: [],  // damage % with a ranged weapon only (a talent that needs one): { mask = weapon subclasses, value, name }
+      offhandHit: 0,  // % hit for off-hand attacks only (a talent that needs an off-hand weapon)
+      upkeep: [],     // spells the plan casts on cooldown because a counted bonus needs them (Shadow and Flame)
       healCrit: [],   // critical healing bonus %: { school, value } (Holy Power)
       costSchool: [], // mana cost % for a school's spells: { school, value } (Shadowform -50% Shadow)
       damageTaken: 0, // % physical damage taken (Molten Skin -10, Shadowform -15): survival and leveling rest
@@ -283,8 +288,8 @@
         if (formAura) how = " (a form you stay in)";
         else if (book && book.durMs > 0 && book.cdMs > 0 && book.durMs >= book.cdMs) how = " (kept up)";
         else if (book && book.durMs > 0 && book.cdMs >= 60000) {
-          share = book.durMs / book.cdMs;
-          how = ` (averaged: ${Math.round(book.durMs / 1000)} sec every ${Math.round(book.cdMs / 6000) / 10} min)`;
+          share = cooldownShare(ctx, book.durMs, book.cdMs);
+          how = averagedText(ctx, book.durMs, book.cdMs, share);
         } else return;
         const parts = [];
         for (const e of self) {
@@ -312,9 +317,19 @@
         return;
       }
       const parts = [];
+      // a talent for one kind of weapon counts only for that weapon's attacks (its requirement says which): Ranged
+      // Weapon and Wand Specialization's damage for the ranged slot, Furious Precision's hit for the off hand
+      const rangedOnly = t.needs && t.needs.class === 2 && !(t.needs.subclassMask & ~RANGED_SUBCLASSES);
+      const offHandOnly = t.needs && t.needs.invTypes & (1 << 22);
       for (const e of t.effects[r - 1] || []) {
         if (e.effect !== 6) continue;
         const v = e.value;
+        if (rangedOnly && e.aura === 79) {
+          out.rangedPct.push({ mask: t.needs.subclassMask, value: v, name: t.name });
+          parts.push(`+${v}% damage with ${t.needs.subclassMask === 1 << 19 ? "your wand" : "your ranged weapon"}`);
+          continue;
+        }
+        if (offHandOnly && e.aura === 54) { out.offhandHit += v; parts.push(`+${v}% off-hand hit`); continue; }
         switch (e.aura) {
           case 52: out.crit += v; parts.push(`+${v}% crit`); break;
           case 290: out.crit += v; out.spellCrit += v; parts.push(`+${v}% crit`); break;
@@ -402,13 +417,15 @@
       out.dmgPct.push({ school: 32, value: m[1] * m[2], name: "Shadow Weaving" });
       out.lines.push({ name: "Shadow Weaving", text: `+${m[1] * m[2]}% Shadow damage (${m[2]} stacks kept up)` });
     }
-    const snf = text("Shadow and Flame");
+    // Shadow and Flame: its bonuses count when the plan casts Conflagrate and Shadowburn on cooldown (out.upkeep);
+    // compute() also tries it without (ctx.shadowAndFlame false) and keeps the better plan
+    const snf = ctx.shadowAndFlame !== false && text("Shadow and Flame");
     if (snf) {
       const sh = /Conflagrate increases all Shadow damage you deal by (\d+)%/.exec(snf), fi = /Shadowburn increases all Fire damage you deal by (\d+)%/.exec(snf);
       const parts = [];
-      if (sh && learned("Conflagrate")) { out.dmgPct.push({ school: 32, value: +sh[1], name: "Shadow and Flame" }); parts.push(`+${sh[1]}% Shadow (Conflagrate)`); }
-      if (fi && learned("Shadowburn")) { out.dmgPct.push({ school: 4, value: +fi[1], name: "Shadow and Flame" }); parts.push(`+${fi[1]}% Fire (Shadowburn)`); }
-      if (parts.length) out.lines.push({ name: "Shadow and Flame", text: parts.join(", ") + ", assuming you use them on cooldown" });
+      if (sh && learned("Conflagrate")) { out.dmgPct.push({ school: 32, value: +sh[1], name: "Shadow and Flame" }); out.upkeep.push("Conflagrate"); parts.push(`+${sh[1]}% Shadow (Conflagrate)`); }
+      if (fi && learned("Shadowburn")) { out.dmgPct.push({ school: 4, value: +fi[1], name: "Shadow and Flame" }); out.upkeep.push("Shadowburn"); parts.push(`+${fi[1]}% Fire (Shadowburn)`); }
+      if (parts.length) out.lines.push({ name: "Shadow and Flame", text: parts.join(", ") + ", with them cast on cooldown" });
     }
     // Enrage: "chance to deal 10% increased Physical damage for 12 sec after being the victim of any damaging attack".
     // Counted while something is hitting you (tanking in Defensive Stance, or alone against a mob), with a hit landing
@@ -440,7 +457,7 @@
     const r1 = (v) => Math.round(v * 100) / 100;
     for (const rc of (race && race.racials) || []) {
       if (rc.classMask && !(rc.classMask & (1 << (ctx.cls.id - 1)))) continue; // the other classes' version
-      const share = rc.passive ? 1 : rc.cdMs > 0 && rc.durMs > 0 ? Math.min(1, rc.durMs / rc.cdMs) : 0;
+      const share = rc.passive ? 1 : rc.cdMs > 0 && rc.durMs > 0 ? cooldownShare(ctx, rc.durMs, rc.cdMs) : 0;
       const parts = [];
       for (const a of rc.auras || []) {
         const v = a.value * share;
@@ -470,7 +487,7 @@
             break;
         }
       }
-      const how = rc.passive ? "" : ` (averaged: ${Math.round(rc.durMs / 1000)} sec every ${Math.round(rc.cdMs / 60000 * 10) / 10} min)`;
+      const how = rc.passive ? "" : averagedText(ctx, rc.durMs, rc.cdMs, share);
       out.racials.push({ name: rc.name, desc: rc.desc, text: parts.length ? [...new Set(parts)].join(", ") + how : "not part of the damage or healing math", off: !parts.length });
     }
   }
@@ -489,7 +506,9 @@
     for (const a of gearAuras(ctx)) {
       const add = (k, v) => { gear[k] = (gear[k] || 0) + v; };
       if (a.aura === 29) { if (a.misc === -1) STATS.forEach((k) => { add(k, a.value); }); else if (STATS[a.misc]) add(STATS[a.misc], a.value); }
-      else if (a.aura === 99) add("attackPower", a.value);
+      // an effect's attack power is melee only (aura 99); a ranged one comes as its own effect (124), often beside it.
+      // An item's "attack power" stat counts for both.
+      else if (a.aura === 99) add("meleeAttackPower", a.value);
       else if (a.aura === 124) add("rangedAttackPower", a.value);
       else if (a.aura === 135) add("healing", a.value);
       else if (a.aura === 85 && a.misc === 0) add("manaRegen", a.value);
@@ -558,13 +577,16 @@
     const worn = (slot) => ctx.worn.find((w) => w.slot === slot);
     // talents that turn Intellect or Spirit into power (Careful Aim, Mental Dexterity, Spiritual Guidance...)
     const fromStats = statTalents(ctx, attr);
+    // Arcane Blast's stacks over its window (ctx.blastCycle Blasts, chosen by compute()): spell damage for everything else
+    const blast = ctx.blastCycle ? stackingSpell(ctx) : null;
+    const blastSp = blast ? (blast.pct / 100) * attr.intellect * Math.min(ctx.blastCycle, blast.max) : 0;
     const formAp = form ? form.ap + attr.agility * form.apPerAgi +
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
     const shield = !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6);
     const baseAvoid = BASE_AVOID[cls.token] || {};
     const S = {
       gear, tal, attr, baseAp, form: formKey,
-      ap: (Math.max(0, baseAp + g("attackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
+      ap: (Math.max(0, baseAp + g("attackPower") + g("meleeAttackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
         buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp + fromStats.ap) * (1 + tal.apPct / 100),
       rap: (Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
@@ -577,7 +599,8 @@
       spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit + buffValue(ctx, "Leader of the Pack"),
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
         spellCrit: intRatio ? (BASE_SPELL_CRIT[cls.token] || 0) + attrBase.intellect / intRatio : 0 },
-      sp: (sp + fromStats.sp) * (1 + tal.spPct / 100), school,
+      sp: (sp + fromStats.sp + blastSp) * (1 + tal.spPct / 100), school,
+      blast: blast && { ...blast, k: ctx.blastCycle, perStack: (blast.pct / 100) * attr.intellect * (1 + tal.spPct / 100) },
       healing: (g("healing") + g("spellPower") + fromStats.sp + fromStats.healing) * (1 + tal.spPct / 100),
       armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
         (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
@@ -633,6 +656,10 @@
 
   function damagePct(S, schoolMask) {
     return sum(S.tal.dmgPct.filter((d) => d.school & schoolMask).map((d) => d.value));
+  }
+  // damage % from talents for one ranged weapon (Ranged Weapon Specialization, Wand Specialization)
+  function rangedPct(S, item) {
+    return item ? sum(S.tal.rangedPct.filter((d) => d.mask & (1 << item.subclass)).map((d) => d.value)) : 0;
   }
 
   // a group buff or target debuff the player switched on: the highest rank a same-level Warrior would have
@@ -866,7 +893,7 @@
     const bloodRage = blood ? (/(\d+) rage at the cost of health.* additional (\d+) rage/.exec(bookDesc("WARRIOR", "Bloodrage")) || [])
       .slice(1).reduce((a, n) => a + +n, 0) * (1 + talentNumber(ctx, "Improved Bloodrage", /by (\d+)%/) / 100) : 0;
     if (bloodRage) {
-      rage += bloodRage / (blood.cdMs / 1000);
+      rage += bloodRage * cooldownUses(ctx, blood.cdMs);
       from.push("Bloodrage");
     }
     // Charge: Battle Stance, or Defensive with Vanguard (its rage from the game's spell data, by rank)
@@ -883,11 +910,13 @@
       from.push(...t.from);
     }
     const rageIncome = rage, firstAbilityPart = parts.length, spentOn = [];
+    let gcdUsed = 0; // share of each second spent on global cooldowns and casts
     const spend = (a) => {
       if (!a || !a.cdMs || rage <= 0) return;
       const perSec = a.cost / (a.cdMs / 1000);
       const f = perSec ? Math.min(1, rage / perSec) : 1;
       rage -= perSec * f;
+      gcdUsed += (f * 1.5) / (a.cdMs / 1000);
       const d = (f * a.expected) / (a.cdMs / 1000);
       dps += d;
       parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
@@ -903,13 +932,13 @@
         const r = revengeRate(t, moreBlocks.perSec, rv.cdMs / 1000);
         const f = rv.cost ? Math.min(1, rage / (rv.cost * r)) : 1;
         rage -= f * rv.cost * r;
+        gcdUsed += f * r * 1.5;
         dps += f * r * rv.expected;
         parts.push({ name: `Revenge (every ${(1 / r).toFixed(1)} sec${f < 1 ? ", when rage allows" : ""})`, dps: f * r * rv.expected });
         spentOn.push("Revenge when it lights up");
       }
     }
-    spend(use("Mortal Strike") || use("Bloodthirst"));
-    spend(use("Whirlwind"));
+    warriorAttacks(ctx, white, use, () => rage, (r) => { rage = r; }, gcdUsed, (p) => { dps += p.dps; parts.push(p); spentOn.push(p.spell); });
     // leftover rage: Heroic Strike replaces a main-hand swing
     const hs = use("Heroic Strike"), mh = white.find((w) => w.label === "Main hand");
     if (hs && mh && rage > 0) {
@@ -929,6 +958,7 @@
       for (const p of parts.slice(firstAbilityPart)) {
         normal += p.dps;
         p.dps *= 1 - EXECUTE_PHASE;
+        if (p.perSec) p.perSec *= 1 - EXECUTE_PHASE; // uses per second over the whole fight, like its damage
         p.name += " (first 80%)";
       }
       dps += -normal * EXECUTE_PHASE + exDps * EXECUTE_PHASE;
@@ -936,13 +966,58 @@
       spentOn.push("below 20% health, every rage point on Execute");
     }
     const note = `Rage from ${from.join(", ")}. Spent on ${spentOn.join(", ") || "nothing yet"}.` +
-      (t ? " Not counted: Thunder Clap, Rend, Sunder Armor, Shield Slam's bonus from Block Value, and threat." : "") + buffNote(ctx);
+      (t ? " Not counted: Shield Slam's bonus from Block Value, and threat (Sunder Armor deals no damage)." : "") + buffNote(ctx);
     // healthSpent: health per second Reckless Swings and Bloodrage cost (leveling counts it as eaten back, like Life
-    // Tap's); pullRage: Charge's rage at each pull (a caller that knows the fight's length passes it back as ctx.fightSec)
+    // Tap's); pullRage: Charge's rage at each pull (counted when the fight's length is known: compute() against a
+    // same-level mob)
     const baseHealth = rules.baseHealth.WARRIOR[L - 1];
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage,
       healthSpent: (reckless ? (baseHealth * RECKLESS_SWINGS_HEALTH) / RECKLESS_SWINGS_CD : 0) +
-        (bloodRage ? (baseHealth * blood.costPct) / 100 / (blood.cdMs / 1000) : 0) };
+        (bloodRage ? ((baseHealth * blood.costPct) / 100) * cooldownUses(ctx, blood.cdMs) : 0) };
+  }
+
+  // A Warrior's attacks besides Heroic Strike and Execute, most damage per rage first (the Priority tab's order), each as
+  // often as its cooldown, trigger or upkeep allows while rage and the global cooldown leave room. Rend: its bleed
+  // renewed as it runs out. Slam: its cast pauses your swings (that white damage lost) unless a talent says it no longer
+  // does (Improved Slam). Overpower: after the target dodges one of your swings, and with Bloodthrill after main-hand hits
+  // on a target with your Rend (Rend is then kept up first). Sunder Armor deals no damage (its armor is the target
+  // debuff level 60 builds count). Each part: { dps, spell, perSec = uses per second }.
+  function warriorAttacks(ctx, white, use, getRage, setRage, gcdUsed, add) {
+    const melee = white.filter((w) => w.label === "Main hand" || w.label === "Off hand");
+    const mh = melee.find((w) => w.label === "Main hand");
+    const busy = (a) => Math.max(1.5, (a.castMs || 0) / 1000);
+    const perCd = (a) => (a && a.cdMs ? 1000 / a.cdMs : 0);
+    let gcd = Math.max(0, 1 - gcdUsed);
+    const take = (a, perSec, dmg) => {
+      const needRage = perSec * a.cost, needTime = perSec * busy(a);
+      const f = Math.max(0, Math.min(1, needRage ? getRage() / needRage : 1, needTime ? gcd / needTime : 1));
+      if (f < 0.01) return 0;
+      setRage(getRage() - f * needRage);
+      gcd -= f * needTime;
+      add({ name: `${a.name} (every ${(1 / (f * perSec)).toFixed(1)} sec)`, dps: f * perSec * dmg, spell: a.name, perSec: f * perSec });
+      return f;
+    };
+    const rend = use("Rend"), op = use("Overpower"), slam = use("Slam");
+    const rendCast = rend && rend.durMs ? dotRecast(ctx, rend.durMs, rend.ticks) : null;
+    const rendEvery = rendCast ? 1000 / rendCast.everyMs : 0;
+    const rendLost = rendCast ? rend.dotExpected * (1 - rendCast.landed) : 0; // its bleed after the mob dies
+    const bloodthrill = talentNumber(ctx, "Bloodthrill", /a (\d+)% chance to allow an activation of Overpower/) / 100;
+    const rendUp = !!(rend && rend.expected && bloodthrill && op) && take(rend, rendEvery, rend.expected - rendLost) > 0.99;
+    const list = [];
+    const push = (a, perSec, loss = 0) => { if (a && a.expected > 0 && perSec > 0) list.push({ a, perSec, dmg: a.expected - loss }); };
+    push(use("Mortal Strike") || use("Bloodthirst"), perCd(use("Mortal Strike") || use("Bloodthirst")));
+    push(use("Whirlwind"), perCd(use("Whirlwind")));
+    push(use("Thunder Clap"), perCd(use("Thunder Clap")));
+    if (rend && !rendUp) push(rend, rendEvery, rendLost);
+    const slamFree = talentNumber(ctx, "Improved Slam", /cooldown of your Slam ability by (\d+) sec[\s\S]*no longer interrupts or delays your melee swing/) > 0;
+    if (slam) push(slam, perCd(slam), slamFree ? 0 : sum(melee.map((w) => w.perSwing / w.effSpeed)) * (slam.castMs / 1000));
+    if (op && op.cdMs) {
+      const dodges = sum(melee.map((w) => w.dodge / 100 / w.effSpeed));
+      const fromRend = rendUp && mh ? bloodthrill * (Math.max(0, 100 - mh.miss - mh.dodge) / 100) / mh.effSpeed : 0;
+      push(op, Math.min(1000 / op.cdMs, dodges + fromRend));
+    }
+    list.sort((x, y) => y.dmg / (y.a.cost || 1e-9) - x.dmg / (x.a.cost || 1e-9));
+    for (const c of list) take(c.a, c.perSec, c.dmg);
   }
 
   // Shield Block on cooldown (off the global cooldown, needs a shield): until the next one it blocks up to its number of
@@ -970,8 +1045,10 @@
 
   function rotation(ctx, S, white, abilities) {
     const byName = Object.fromEntries(abilities.filter((a) => !a.locked).map((a) => [a.name, a]));
-    const whiteDps = white.reduce((x, w) => x + w.dps, 0);
-    const parts = white.map((w) => ({ name: `${w.label} (white)`, dps: w.dps }));
+    // melee swings only: a gun or wand doesn't auto-shoot while you melee (a Hunter's and a caster's plans use theirs)
+    const melee = white.filter((w) => w.label === "Main hand" || w.label === "Off hand");
+    const whiteDps = melee.reduce((x, w) => x + w.dps, 0);
+    const parts = melee.map((w) => ({ name: `${w.label} (white)`, dps: w.dps }));
     const extra = white.filter((w) => w.deepWounds).reduce((x, w) => x + w.deepWounds, 0);
     if (extra) parts.push({ name: "Deep Wounds", dps: extra });
     const token = ctx.cls.token;
@@ -1089,8 +1166,68 @@
 
   // Damage-over-time spells worth keeping up, then the best filler you can afford over a fight: the strongest
   // spell, or a mix of a strong one and an efficient one when the strong one would run you out of mana.
-  // A Warlock also tries spending some of the fight on Life Tap (one global cooldown each) and keeps the best.
+  // A spell that consumes another's damage over time is tried both ways (consumeVariants), and the best plan is kept.
   function casterRotation(ctx, S, abilities, wandDps = 0) {
+    let best = null;
+    for (const list of consumeVariants(ctx, abilities)) {
+      const r = withAfflictedBonus(ctx, S, list, wandDps);
+      if (r && (!best || r.dps > best.dps + 0.01)) best = r;
+    }
+    return best;
+  }
+
+  // A spell that consumes another's damage over time (Conflagrate: "afflicted by your Immolate spell ... consuming your
+  // Immolate effect"): left out, or used with the other recast after each one, its burn cut short at the cooldown. A
+  // talent can spare it ("Conflagrate has a 100% chance not to consume Immolate"); a partial chance counts as consumed.
+  const CONSUMES = /afflicted by your ([\w ]+?) spell[\s\S]*?consuming your \1 effect/;
+  function consumeVariants(ctx, abilities) {
+    for (const a of abilities) {
+      const m = CONSUMES.exec(a.rank.desc || "");
+      const target = m && abilities.find((x) => x.name === m[1]);
+      if (!target || a.locked || target.locked || !a.cdMs || !(target.durMs > a.cdMs)) continue;
+      const spared = new RegExp(`${a.name} has a (\\d+)% chance not to consume ${target.name}`);
+      if (ctx.flat.some((t, i) => ctx.ranks[i] && +((spared.exec(t.desc[ctx.ranks[i] - 1] || "") || [])[1] || 0) >= 100)) continue;
+      const share = a.cdMs / target.durMs;
+      const cut = { ...target, durMs: a.cdMs, ticks: target.ticks * share, dotExpected: target.dotExpected * share,
+        expected: target.directExpected + target.dotExpected * share };
+      return [abilities.filter((x) => x !== a), abilities.map((x) => (x === target ? cut : x))];
+    }
+    return [abilities];
+  }
+
+  // "an additional 25% damage if the target is afflicted by Immolate" (Incinerate): counted while the plan keeps that
+  // spell up; when it doesn't, the plan is made again without the bonus
+  const AFFLICTED = /additional (\d+)% damage if the target is afflicted by ([\w ]+?)\./;
+  function withAfflictedBonus(ctx, S, abilities, wandDps) {
+    const needs = new Set();
+    const boosted = abilities.map((a) => {
+      const m = AFFLICTED.exec(a.rank.desc || "");
+      if (!m || a.locked || !abilities.some((x) => x.name === m[2] && !x.locked)) return a;
+      needs.add(m[2]);
+      const f = 1 + m[1] / 100;
+      return { ...a, expected: a.expected * f, directExpected: a.directExpected * f };
+    });
+    if (!needs.size) return tappedRotation(ctx, S, abilities, wandDps);
+    const r = tappedRotation(ctx, S, boosted, wandDps);
+    const kept = (n) => r && r.parts.some((p) => p.spell === n && p.kind === "keep");
+    return [...needs].every(kept) ? r : tappedRotation(ctx, S, abilities, wandDps);
+  }
+
+  // Spells the game allows only one of on a target ("Only one Bane per Warlock can be active on any one target"): the
+  // one that does the most per second it holds the target (of what lands before a leveling mob dies) is the one used
+  const ONE_OF_A_KIND = /Only one (\w+) per \w+ can be active on any one target/i;
+  function oneOfAKind(ctx, list) {
+    const kind = (a) => (ONE_OF_A_KIND.exec(a.rank.desc || "") || [])[1];
+    const rate = (a) => {
+      const { everyMs, landed } = dotRecast(ctx, a.durMs, a.ticks, a.cdMs || 0);
+      return (a.expected - a.dotExpected * (1 - landed)) / Math.max(everyMs, a.cdMs || 0, 1);
+    };
+    const beats = (b, a) => rate(b) > rate(a) || (rate(b) === rate(a) && list.indexOf(b) < list.indexOf(a));
+    return list.filter((a) => !kind(a) || !list.some((b) => b !== a && kind(b) === kind(a) && beats(b, a)));
+  }
+
+  // A Warlock also tries spending some of the fight on Life Tap (one global cooldown each) and keeps the best.
+  function tappedRotation(ctx, S, abilities, wandDps) {
     const tap = lifeTapMana(ctx, S);
     let best = casterRotationWith(ctx, S, abilities, 0, 0, wandDps);
     if (!best || !tap) return best;
@@ -1102,7 +1239,10 @@
   }
 
   function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0) {
-    const usable = abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic");
+    // Arcane Blast is cast in its windows (below), not as a filler, once compute() picks how many per window
+    const stack = ctx.blastCycle != null && stackingSpell(ctx);
+    const usable = oneOfAKind(ctx, abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic" &&
+      !(stack && a.name === stack.name)));
     const castTime = (a) => Math.max(1.5, (a.channelMs || a.castMs) / 1000);
     const baseMana = (rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0;
     // talents that make casts cheaper on average: Clearcasting procs (Arcane Concentration), Master of Elements refunds
@@ -1123,10 +1263,31 @@
     let mana = budget.perSec + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0;
     const parts = [];
     const best = fillers[0];
+    // Arcane Blast's window: k Blasts first, Blast i with i - 1 stacks (its own damage: the full stacks' spell damage is
+    // in its expected, stats) and costing 100% more per stack; booked before anything else
+    const blast = S.blast && S.blast.k > 0 && abilities.find((a) => a.name === S.blast.name && !a.locked);
+    if (blast) {
+      const { k, max, sec, costUp, perStack } = S.blast;
+      const e = (blast.rank.effects || []).find((x) => x.coef) || { base: 0, coef: 0 };
+      const sp = spellPowerFor(S, blast.school);
+      let dmg = 0, cost = 0;
+      for (let i = 1; i <= k; i++) {
+        const stacks = Math.min(i - 1, max);
+        dmg += blast.expected * (e.base + e.coef * (sp - perStack * (Math.min(k, max) - stacks))) / (e.base + e.coef * sp || 1);
+        cost += manaOf(blast) * (1 + (stacks * costUp) / 100);
+      }
+      const d = dmg / sec, mps = cost / sec;
+      busy += (k * castTime(blast)) / sec;
+      mana -= mps;
+      dps += d;
+      parts.push({ name: `${blast.name} (${k} per ${sec} sec)`, dps: d, spell: blast.name, kind: "keep", blasts: k, mps });
+    }
     const dots = usable.filter((a) => !a.channeled && a.dotExpected > 0 && a.durMs > 0 && !a.cdMs)
       .map((a) => {
-        const every = Math.max(a.durMs / 1000, castTime(a));
-        return { a, every, dps: a.expected / every, time: castTime(a) / every, mps: manaOf(a) / every };
+        const { everyMs, landed } = dotRecast(ctx, a.durMs, a.ticks);
+        const every = Math.max(everyMs / 1000, castTime(a));
+        const per = a.expected - a.dotExpected * (1 - landed);
+        return { a, every, dps: per / every, time: castTime(a) / every, mps: manaOf(a) / every };
       })
       .filter((d) => d.dps / d.time > best.dps) // better than casting the filler in that time
       .sort((x, y) => y.dps / y.time - x.dps / x.time);
@@ -1146,20 +1307,24 @@
     // less" ones count for the last 20% of the fight. One whose damage over time outlasts its cooldown (Flame Shock)
     // can instead be recast as it runs out ("kept up"): a recast before then cuts off the ticks left. Only one of the
     // two is used.
+    const forced = (a) => S.tal.upkeep.includes(a.name);
     const cds = usable.filter((a) => a.cdMs > 0 && (a.directExpected > 0 || a.dotExpected > 0) && !/Undead|Demon/.test(a.rank.desc || ""))
       .flatMap((a) => {
         const execute = /20% (?:health )?or less|20% or less health|less than 20% health/i.test(a.rank.desc || "");
-        const variant = (every, kept) => {
+        // landed = the share of each cast's damage over time that counts (cut off by the next cast, or by the mob dying)
+        const variant = (every, kept, landed) => {
           const rate = (execute ? 0.2 : 1) / every;
-          const dot = a.durMs > 0 ? a.dotExpected * Math.min(1, (every * 1000) / a.durMs) : a.dotExpected;
-          return { a, rate, per: a.expected - a.dotExpected + dot, time: castTime(a), mps: manaOf(a) * rate, execute, kept };
+          return { a, rate, per: a.expected - a.dotExpected * (1 - landed), time: castTime(a), mps: manaOf(a) * rate, execute, kept };
         };
         const onCooldown = Math.max(castTime(a), a.cdMs / 1000);
-        return a.dotExpected > 0 && a.durMs / 1000 > onCooldown
-          ? [variant(onCooldown, false), variant(a.durMs / 1000, true)] : [variant(onCooldown, false)];
+        const cut = variant(onCooldown, false, a.durMs > 0 ? Math.min(1, (onCooldown * 1000) / a.durMs) : 1);
+        if (!(a.dotExpected > 0 && a.durMs / 1000 > onCooldown)) return [cut];
+        const kept = dotRecast(ctx, a.durMs, a.ticks, onCooldown * 1000);
+        return [cut, variant(kept.everyMs / 1000, true, kept.landed)];
       })
-      .filter((x) => x.per / x.time > best.dps)
-      .sort((x, y) => y.per / y.time - x.per / x.time);
+      // a spell a counted bonus needs (S.tal.upkeep: Shadow and Flame) is cast on cooldown, first, worth it or not
+      .filter((x) => (forced(x.a) ? !x.kept : x.per / x.time > best.dps))
+      .sort((x, y) => forced(y.a) - forced(x.a) || y.per / y.time - x.per / x.time);
     const used = new Set();
     for (const x of cds) {
       if (used.has(x.a) || busy + x.rate * x.time > 0.95) continue;
@@ -1168,7 +1333,7 @@
       // worth it only if it beats spending that time and mana on the filler
       const without = fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy);
       const withIt = x.per * x.rate * f + fillerPick(fillers, best, mana - x.mps * f, 1 - busy - x.rate * x.time * f).d * (1 - busy - x.rate * x.time * f);
-      if (withIt <= without) continue;
+      if (!forced(x.a) && withIt <= without) continue;
       busy += x.rate * x.time * f;
       mana -= x.mps * f;
       dps += x.per * x.rate * f;
@@ -1188,7 +1353,7 @@
     // out of mana: the time you can't afford to cast goes to the wand (Mage, Priest, Warlock), which costs nothing
     const idle = pick.starved ? free * (1 - pick.f) : 0;
     if (wandDps && idle > 0.01) {
-      parts.push({ name: `Wand (${Math.round(idle * 100)}% of the time, out of mana)`, dps: wandDps * idle });
+      parts.push({ name: `Wand (${Math.round(idle * 100)}% of the time, out of mana)`, dps: wandDps * idle, kind: "wand", share: idle });
       dps += wandDps * idle;
     }
     // spell and kind say what each part is for the Priority tab (keep, cooldown, filler, cheap = the cheaper filler);
@@ -1345,7 +1510,7 @@
     const level = ctx.level;
     // energy: 10 per second, Adrenaline Rush doubles it for 15 sec every 5 min
     const ar = learnedTalent(ctx, "Adrenaline Rush") && bookRank("ROGUE", "Adrenaline Rush", level);
-    const regen = 10 * (1 + (ar ? (ar.durMs || 15000) / ar.cdMs : 0));
+    const regen = 10 * (1 + (ar ? cooldownShare(ctx, ar.durMs || 15000, ar.cdMs) : 0));
     const sealFate = talentNumber(ctx, "Seal Fate", /(\d+)% chance/) / 100;
     const ruthless = talentNumber(ctx, "Ruthlessness", /(\d+)% chance/) / 100;          // free point after a finisher
     const rsChance = Math.min(1, talentNumber(ctx, "Relentless Strikes", /(\d+)% chance per Combo Point/) * COMBO_POINTS / 100);
@@ -1372,14 +1537,29 @@
     }
     const energy = regen + shankEnergy; // energy per second for builders and finishers
     const bfRank = learnedTalent(ctx, "Blade Flurry") && bookRank("ROGUE", "Blade Flurry", level);
-    const bf = bfRank ? 20 * (bfRank.durMs || 15000) / bfRank.cdMs : 0; // +20% attack speed, averaged
+    const bf = bfRank ? 20 * cooldownShare(ctx, bfRank.durMs || 15000, bfRank.cdMs) : 0; // +20% attack speed, averaged
     const parts = [{ name: "White hits", dps: whiteDps * (1 + bf / 100) }];
     const notes = [];
     let dps;
     const snd = bookRank("ROGUE", "Slice and Dice", level);
     const haste = rankValue("Slice and Dice", level);
     const shankDps = shankCd ? shank.expected / shankCd : 0;
-    const noSnd = whiteDps * (1 + bf / 100) + (energy / pick.energy) * pick.dmg - replaced * pick.b.expected + shankDps;
+    // Instant Poison on both weapons: a chance per hit of Nature damage (spell hit table; poisons don't crit). Venom:
+    // each Shank raises poison damage and chance for a few seconds (its tooltip's numbers), counted for its uptime.
+    // Worked out per hit first, since Slice and Dice's faster swings apply it more often.
+    const poison = procRank("Instant Poison", level);
+    const venomUp = shankCd ? Math.min(1, talentNumber(ctx, "Venom", /for (\d+) sec/) / shankCd) : 0;
+    const chance = (POISON_CHANCE + talentNumber(ctx, "Improved Poisons", /apply Poisons to your target by (\d+)%/) +
+      venomUp * talentNumber(ctx, "Venom", /chance to apply Poisons by (\d+)%/)) / 100;
+    const vile = (1 + talentNumber(ctx, "Vile Poisons", /dealt by your poisons by (\d+)%/) / 100) *
+      (1 + venomUp * talentNumber(ctx, "Venom", /Poison damage by (\d+)%/) / 100);
+    const perHit = poison ? chance * procAt(poison, level) * vile * ((100 - table(ctx, S, "magic").miss) / 100) * (1 + damagePct(S, 8) / 100) : 0;
+    const swings = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) * (1 + bf / 100);
+    // poison damage per second with this many ability casts per second and this much extra attack speed (Shank can't miss)
+    const poisonDps = (casts, haste) => perHit * (swings * (1 + haste / 100) + Math.max(0, casts) * 0.9 + (shankCd ? 1 / shankCd : 0));
+    const noSndCasts = (energy / pick.energy) * (pick.n + 1) - replaced;
+    const noSnd = whiteDps * (1 + bf / 100) + (energy / pick.energy) * pick.dmg - replaced * pick.b.expected + shankDps + poisonDps(noSndCasts, 0);
+    let poisonPart = poisonDps(noSndCasts, 0);
     let sndPoints = null; // combo points to refresh Slice and Dice at (0 = not worth it), for the Priority tab
     if (snd && haste) {
       // try Slice and Dice at 1-5 combo points: short and cheap, or long and expensive
@@ -1393,12 +1573,14 @@
         const k = Math.max(0, (energy * D - sndEnergy) / pick.energy); // Eviscerates per Slice and Dice
         const builderDps = ((nSnd + pick.n * k) * pick.b.expected) / D - replaced * pick.b.expected;
         const evisDps = (k * evis.expected) / D;
-        const total = whiteDps * (1 + bf / 100) * (1 + haste / 100) + builderDps + evisDps + shankDps;
-        if (!best || total > best.total) best = { points, D, builderDps, evisDps, total };
+        const poisoned = poisonDps((nSnd + (pick.n + 1) * k) / D - replaced, haste);
+        const total = whiteDps * (1 + bf / 100) * (1 + haste / 100) + builderDps + evisDps + shankDps + poisoned;
+        if (!best || total > best.total) best = { points, D, builderDps, evisDps, poisoned, total };
       }
       sndPoints = best.total >= noSnd ? best.points : 0;
       if (best.total >= noSnd) {
         dps = best.total;
+        poisonPart = best.poisoned;
         parts.push({ name: `Slice and Dice (+${haste}% attack speed)`, dps: whiteDps * (1 + bf / 100) * (haste / 100) });
         parts.push({ name: `${pick.b.name} (builder)`, dps: best.builderDps }, { name: "Eviscerate (5 points)", dps: best.evisDps });
         notes.push(`Slice and Dice kept up at ${best.points} combo point${best.points > 1 ? "s" : ""} (${best.D.toFixed(0)} sec; the best length for your numbers), ` +
@@ -1414,21 +1596,8 @@
       notes.push(`${pick.b.name} to 5 combo points, then Eviscerate` + (snd ? "" : " (Slice and Dice comes at level 10)"));
     }
     if (shankDps) parts.push({ name: `Shank (every ${shankCd} sec)`, dps: shankDps });
-    // Instant Poison on both weapons: a chance per hit of Nature damage (spell hit table; poisons don't crit). Venom:
-    // each Shank raises poison damage and chance for a few seconds (its tooltip's numbers), counted for its uptime.
-    const poison = procRank("Instant Poison", level);
     if (poison) {
-      const venomUp = shankCd ? Math.min(1, talentNumber(ctx, "Venom", /for (\d+) sec/) / shankCd) : 0;
-      const chance = (POISON_CHANCE + talentNumber(ctx, "Improved Poisons", /apply Poisons to your target by (\d+)%/) +
-        venomUp * talentNumber(ctx, "Venom", /chance to apply Poisons by (\d+)%/)) / 100;
-      const vile = (1 + talentNumber(ctx, "Vile Poisons", /dealt by your poisons by (\d+)%/) / 100) *
-        (1 + venomUp * talentNumber(ctx, "Venom", /Poison damage by (\d+)%/) / 100);
-      const land = (100 - table(ctx, S, "magic").miss) / 100;
-      const hits = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) +
-        ((energy / pick.energy) * (pick.n + 1) - replaced) * 0.9 + (shankCd ? 1 / shankCd : 0); // ability hits (Shank can't miss)
-      const d = hits * chance * procAt(poison, level) * vile * land * (1 + damagePct(S, 8) / 100);
-      parts.push({ name: "Instant Poison (both weapons)", dps: d });
-      dps += d;
+      parts.push({ name: "Instant Poison (both weapons)", dps: poisonPart });
       notes.push(`Instant Poison on both weapons, ${Math.round(chance * 100)}% chance per hit (the base 20% is Classic's; not in the files)`);
     }
     notes.push(`${regen.toFixed(1)} energy per second` + (ar ? " (Adrenaline Rush averaged in)" : "") +
@@ -1579,7 +1748,7 @@
     // Rage of the Farseer: +30% attack speed for 25 sec, every 3 min
     const rof = learnedTalent(ctx, "Rage of the Farseer") && bookRank("SHAMAN", "Rage of the Farseer", level);
     const rofDesc = ((((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === "Rage of the Farseer")) || {}).desc || "";
-    const haste = rof ? parseFloat((/speed by (\d+)%/.exec(rofDesc) || [])[1] || 0) * ((rof.durMs || 25000) / rof.cdMs) : 0;
+    const haste = rof ? parseFloat((/speed by (\d+)%/.exec(rofDesc) || [])[1] || 0) * cooldownShare(ctx, rof.durMs || 25000, rof.cdMs) : 0;
     const swingsPerSec = (1 + haste / 100) / mh.effSpeed;
     let dps = mh.perSwing * swingsPerSec;
     parts.push({ name: "White hits", dps });
@@ -1611,8 +1780,9 @@
     const fs = usableShock("Flame Shock");
     const direct = ["Earth Shock", "Frost Shock"].map(usableShock).filter(Boolean).sort((a, b) => b.expected - a.expected)[0];
     const shockCd = Math.max(1.5, (((direct || fs) || {}).cdMs || 6000) / 1000);
-    const fsRate = fs ? Math.min(1 / shockCd, 1 / Math.max(shockCd, (fs.durMs || 0) / 1000)) : 0;
-    if (fs) shots.push({ name: "Flame Shock", perUse: fs.expected, rate: fsRate, mana: manaOf(fs), busy: 1.5, cast: 0, keptUp: fs.durMs / 1000 > shockCd });
+    const fsCast = fs && dotRecast(ctx, fs.durMs, fs.ticks, shockCd * 1000);
+    const fsRate = fs ? Math.min(1 / shockCd, 1000 / fsCast.everyMs) : 0;
+    if (fs) shots.push({ name: "Flame Shock", perUse: fs.expected - fs.dotExpected * (1 - fsCast.landed), rate: fsRate, mana: manaOf(fs), busy: 1.5, cast: 0, keptUp: fs.durMs / 1000 > shockCd });
     if (direct && 1 / shockCd - fsRate > 1e-9) {
       const rate = 1 / shockCd - fsRate;
       const buffed = direct.name === "Earth Shock" ? Math.min(1, ssRate / rate) * 0.2 : 0;
@@ -1651,11 +1821,14 @@
     const rip = ok("Rip") ? byName["Rip"] : null;
     const rnt = talentNumber(ctx, "Rend and Tear", /by (\d+)%/) / 100;
     const regen = 10;
+    // each bleed renewed as it runs out (once a fight when the mob dies sooner): its damage per use that lands
+    const rakeCast = rake && dotRecast(ctx, rake.durMs || 9000, rake.ticks), ripCast = rip && dotRecast(ctx, rip.durMs || 12000, rip.ticks);
+    const landedOf = (a, cast) => a.expected - a.dotExpected * (1 - cast.landed);
     let best = null;
     for (const useRake of rake ? [false, true] : [false]) {
       for (const useRip of rip ? [false, true] : [false]) {
-        let rakeRate = useRake ? 1 / Math.max(1, (rake.durMs || 9000) / 1000) : 0;
-        let ripRate = useRip ? 1 / Math.max(1, (rip.durMs || 12000) / 1000) : 0;
+        let rakeRate = useRake ? 1 / Math.max(1, rakeCast.everyMs / 1000) : 0;
+        let ripRate = useRip ? 1 / Math.max(1, ripCast.everyMs / 1000) : 0;
         // energy for the bleeds and the builders that pay for Rip's 5 points (Rake gives a point too);
         // if that's more than you regenerate, they can't be kept up all the time
         const need = rakeRate * (useRake ? rake.cost : 0) + Math.max(0, COMBO_POINTS * ripRate - rakeRate) * builder.cost +
@@ -1672,8 +1845,8 @@
         const mult = 1 + rnt * bleedUp;
         const parts = [{ name: "White hits (Cat Form)", dps: whiteDps }];
         const up = (rate, dur) => Math.round(upFrac(rate, dur) * 100);
-        if (useRake) parts.push({ name: `Rake (up ${up(rakeRate, rake.durMs || 9000)}%)`, dps: rakeRate * rake.expected * mult });
-        if (useRip) parts.push({ name: `Rip (5 points, up ${up(ripRate, rip.durMs || 12000)}%)`, dps: ripRate * rip.expected * mult });
+        if (useRake) parts.push({ name: `Rake (up ${up(rakeRate, rake.durMs || 9000)}%)`, dps: rakeRate * landedOf(rake, rakeCast) * mult });
+        if (useRip) parts.push({ name: `Rip (5 points, up ${up(ripRate, rip.durMs || 12000)}%)`, dps: ripRate * landedOf(rip, ripCast) * mult });
         parts.push({ name: `${builder.name} (builder)`, dps: builderRate * builder.expected * mult });
         if (bite) parts.push({ name: "Ferocious Bite (5 points)", dps: biteRate * bite.expected * mult });
         const dps = sum(parts.map((p) => p.dps));
@@ -1774,7 +1947,7 @@
       const pct = parseFloat((/speed by (\d+)/.exec(rf.desc) || [])[1] || 0);
       const cut = talentEffect("Rapid Killing", (e) => e.aura === 107 && e.misc === 11);
       const cd = Math.max(1, rfRank.cdMs + (cut ? cut.value : 0));
-      haste = (pct * (rfRank.durMs || 15000)) / cd;
+      haste = pct * cooldownShare(ctx, rfRank.durMs || 15000, cd);
     }
     // mana: Spirit regen (spiritRegenOf) only partly continues while you keep shooting;
     // talents that "allow N% of your Mana Regeneration to continue while casting" (Rapid Recuperation needs Serpent Sting)
@@ -1808,8 +1981,10 @@
       if (!auto) return null;
       const aimed = byName["Aimed Shot"], multi = byName["Multi-Shot"];
       const big = aimed && (!multi || aimed.expected >= multi.expected) ? aimed : multi; // they share a cooldown
+      const sting = byName["Serpent Sting"];
+      const stingCast = sting && sting.durMs ? dotRecast(ctx, sting.durMs, sting.ticks) : null;
       const shots = [shot(big), shot(hawkUp ? hawk : arcane), shot(byName["Sniper Shot"]),
-        shot(byName["Serpent Sting"], { every: byName["Serpent Sting"] && byName["Serpent Sting"].durMs })].filter(Boolean);
+        shot(sting, stingCast ? { every: stingCast.everyMs, perUse: sting.expected - sting.dotExpected * (1 - stingCast.landed) } : {})].filter(Boolean);
       const fitted = fitShots(shots, manaPerSec(shots.some((s) => s.name === "Serpent Sting")));
       manaSpent = manaUsed(fitted);
       starved.push(...fitted.filter((s) => s.manaCut).map((s) => s.name));
@@ -1881,11 +2056,12 @@
       const isWand = item.subclass === 19;
       const physical = !w.school;
       const apBonus = isWand ? 0 : (ap / 14) * w.speed;
-      const scale = mult * (1 + (physical ? physPct : damagePct(S, 1 << w.school)) / 100) * (physical ? 1 - mit : 1);
+      const scale = mult * (1 + (physical ? physPct : damagePct(S, 1 << w.school)) / 100) * (physical ? 1 - mit : 1) *
+        (ranged ? 1 + rangedPct(S, item) / 100 : 1);
       const min = (w.min + apBonus) * scale, max = (w.max + apBonus) * scale;
       const avg = (min + max) / 2;
       const t = isWand ? table(ctx, S, "magic") : table(ctx, S, ranged ? "ranged" : "melee");
-      let miss = t.miss + (dual && !ranged ? 19 : 0);
+      let miss = Math.max(0, t.miss + (dual && !ranged ? 19 : 0) - (label === "Off hand" ? S.tal.offhandHit : 0));
       const glance = !ranged ? GLANCE_CHANCE[d] : 0;
       const critBase = isWand ? S.spellCrit : S.crit - critSuppression(ctx);
       const crit = Math.max(0, Math.min(critBase, 100 - miss - t.dodge - glance));
@@ -2065,9 +2241,8 @@
     const needs = (((KP.spellbook || {})[ctx.cls.token] || []).find((b) => b.name === ab.name) || {}).needs;
     if (needs && ctx.worn.length) {
       if (needs.class === 4 && needs.subclassMask & (1 << 6) && !S.shield) return { ...base, rank, locked: "Needs a shield" };
-      // ranged weapon types: 2 bow, 3 gun, 16 thrown, 18 crossbow, 19 wand; shots check the ranged slot
-      const RANGED = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
-      const rangedOnly = needs.class === 2 && (needs.subclassMask & RANGED) && !(needs.subclassMask & ~RANGED);
+      // shots check the ranged slot
+      const rangedOnly = needs.class === 2 && (needs.subclassMask & RANGED_SUBCLASSES) && !(needs.subclassMask & ~RANGED_SUBCLASSES);
       const item = rangedOnly ? S.rg : S.mh;
       if (needs.class === 2 && item && !(needs.subclassMask & (1 << item.subclass))) {
         return { ...base, rank, locked: needs.subclassMask === 1 << 15 ? "Needs a dagger in the main hand" :
@@ -2115,7 +2290,8 @@
     if (!r.hasDirect && !r.dot && !r.heal) return null; // nothing we can put a number on
 
     // talents: damage %, damage over time %, crit chance, crit damage, cast time, cost, cooldown
-    const dmgMult = (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100) * (1 + damagePct(S, rank.school || 1) / 100);
+    const dmgMult = (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100) * (1 + damagePct(S, rank.school || 1) / 100) *
+      (r.kind === "ranged" && r.physical ? 1 + rangedPct(S, S.rg) / 100 : 1); // a ranged weapon shot
     const flatDmg = mods.flat(0);
     const dotMult = (1 + mods.pct(22) / 100) * (1 + damagePct(S, rank.school || 1) / 100);
     const physicalHit = r.physical && r.kind !== "magic";
@@ -2180,12 +2356,66 @@
     };
   }
 
+  // Arcane Blast (game data): "Each time you cast Arcane Blast, you gain 12% of your Intellect as Spell Damage and the
+  // mana cost of Arcane Blast is increased by 100%. Effect stacks up to 4 times and lasts 18 sec from time of initial
+  // application." The plan opens each window with ctx.blastCycle Blasts (compute() tries 0 to one past the most stacks);
+  // the rest of the window has the stacks' spell damage (stats). Null when no such spell is learned.
+  const STACKING = /you gain (\d+)% of your Intellect as Spell Damage and the mana cost of ([\w ]+?) is increased by (\d+)%\. Effect stacks up to (\d+) times and lasts (\d+) sec/;
+  function stackingSpell(ctx) {
+    for (const b of (KP.spellbook || {})[ctx.cls.token] || []) {
+      const m = STACKING.exec(b.desc || "");
+      if (m && m[2] === b.name && bookRank(ctx.cls.token, b.name, ctx.level) && (!b.talent || learnedTalent(ctx, b.name))) {
+        return { name: b.name, pct: +m[1], costUp: +m[3], max: +m[4], sec: +m[5] };
+      }
+    }
+    return null;
+  }
+
   function compute(ctx) {
+    const dps = (R) => (R.rotation && R.rotation.dps) || 0;
+    // A same-level mob: the fight lasts as long as the mob takes to die at the damage you do in a fight that long
+    // (fightMs). A long fight's damage gives the first guess, the damage in that fight the second; then the secant with
+    // the latest guess on the other side of the answer, until one is within 1% (the guesses swing around the answer:
+    // damage over time does more in a longer fight, and the plan can change spells at some length).
+    if (ctx.fightSec === undefined && ctx.target && ctx.target.mode === "same") {
+      const hp = mobHealth(ctx.level);
+      const long = compute({ ...ctx, fightSec: null });
+      if (!(dps(long) > 0)) return long;
+      // a guessed length, and how much longer the mob lives than that (negative: it dies sooner)
+      const guess = (T) => { const R = compute({ ...ctx, fightSec: T }); return { T, R, miss: dps(R) > 0 ? hp / dps(R) - T : Infinity }; };
+      const tried = [guess(hp / dps(long))];
+      if (Number.isFinite(tried[0].miss)) tried.push(guess(tried[0].T + tried[0].miss));
+      for (let i = 0; i < 2 && tried.length > 1; i++) {
+        const last = tried[tried.length - 1];
+        if (!Number.isFinite(last.miss) || Math.abs(last.miss) <= 0.01 * last.T) break;
+        const other = tried.slice(0, -1).reverse().find((p) => Math.sign(p.miss) !== Math.sign(last.miss)) || tried[tried.length - 2];
+        const T = last.T - (last.miss * (last.T - other.T)) / (last.miss - other.miss);
+        if (!(T > 0 && Number.isFinite(T))) break;
+        tried.push(guess(T));
+      }
+      const { R, T: fightSec } = tried.reduce((a, b) => (Math.abs(b.miss) < Math.abs(a.miss) ? b : a));
+      if (R.rotation) R.rotation.note += ` A mob of your level lives about ${Math.round(fightSec)} sec against this: damage over time counts only the ticks before it dies.`;
+      return { ...R, fightSec };
+    }
+    // Arcane Blast: the number of Blasts per window that does the most (stackingSpell)
+    const stacking = ctx.blastCycle == null && stackingSpell(ctx);
+    if (stacking) {
+      let best = null;
+      for (let k = 0; k <= stacking.max + 1; k++) {
+        const R = compute({ ...ctx, blastCycle: k });
+        if (!best || dps(R) > dps(best)) best = R;
+      }
+      return best;
+    }
     // Demonic Sacrifice: whichever demon does more for this build (handRules)
     if (ctx.sacrifice == null && learnedTalent(ctx, "Demonic Sacrifice")) {
       const [imp, succubus] = Object.keys(SACRIFICE).map((s) => compute({ ...ctx, sacrifice: s }));
-      const dps = (R) => (R.rotation && R.rotation.dps) || 0;
       return dps(imp) >= dps(succubus) ? imp : succubus;
+    }
+    // Shadow and Flame: with its bonuses (and the spells they need cast on cooldown) or without, whichever does more
+    if (ctx.shadowAndFlame == null && learnedTalent(ctx, "Shadow and Flame")) {
+      const [on, off] = [true, false].map((v) => compute({ ...ctx, shadowAndFlame: v }));
+      return dps(on) >= dps(off) ? on : off;
     }
     const S = stats(ctx);
     const white = whiteHits(ctx, S);
@@ -2216,6 +2446,39 @@
   // damage per second before your armor (~23 at 30, ~70 at 60) and the seconds between its swings
   const mobDps = (L) => 0.014 * L * L + 0.35 * L;
   const MOB_SWING = 2;
+  // and its health (~1,200 at 30, ~4,000 at 60): how long a fight against it lasts
+  const mobHealth = (L) => 0.9 * L * L + 12 * L;
+
+  // Leveling fights end when the mob dies: ctx.fightSec seconds (compute() works it out against a same-level mob;
+  // null = a long fight, as against a raid boss), then ctx.restSec of eating and drinking (the leveling model's).
+  const fightMs = (ctx) => (ctx.fightSec ? ctx.fightSec * 1000 : Infinity);
+  // A damage-over-time spell recast as it runs out: once a fight when the fight is shorter than the spell (no sooner
+  // than its cooldown), and the share of each cast's damage that lands before the mob dies. Its ticks come one tick
+  // apart from one tick after the cast, so about half a tick of each fight is lost (Bane of Doom's single tick after
+  // 1 min: nothing in a short fight).
+  function dotRecast(ctx, durMs, ticks, cdMs = 0) {
+    if (!(durMs > 0)) return { everyMs: cdMs, landed: 1 };
+    const half = ticks > 0 ? durMs / ticks / 2 : 0, T = fightMs(ctx);
+    return { everyMs: Math.max(cdMs, Math.min(durMs, T)), landed: T >= durMs ? 1 : Math.max(0, T - half) / (durMs - half) };
+  }
+  // A long cooldown's uses per second of fighting. A long fight: once per cooldown. Leveling: used at the pull when
+  // ready, then every cooldown while the fight lasts, and it comes back during the eating and drinking too.
+  function cooldownUses(ctx, cdMs) {
+    if (!ctx.fightSec || ctx.restSec == null) return 1000 / cdMs;
+    const T = ctx.fightSec, C = cdMs / 1000;
+    return Math.min(Math.max(1, 0.5 + T / C), (T + ctx.restSec) / C) / T;
+  }
+  // The share of the fighting a cooldown's buff is up. A buff on you outlives the mob: each use covers its length within
+  // one fight, or, when it lasts longer than a fight and the rest after it, the fighting in the fights it spans.
+  function cooldownShare(ctx, durMs, cdMs) {
+    if (!ctx.fightSec || ctx.restSec == null) return Math.min(1, durMs / cdMs);
+    const T = ctx.fightSec, D = durMs / 1000;
+    const covered = Math.max(Math.min(D, T), (D * T) / (T + ctx.restSec));
+    return Math.min(1, cooldownUses(ctx, cdMs) * covered);
+  }
+  // how a cooldown's buff is counted, for the Talents and Racials lists
+  const averagedText = (ctx, durMs, cdMs, share) => ` (averaged: ${Math.round(durMs / 1000)} sec every ${Math.round(cdMs / 6000) / 10} min` +
+    (ctx.fightSec && ctx.restSec != null ? `; leveling: up ${Math.round(share * 100)}% of the fighting, counting the rest between fights)` : ")");
   // the damage per second its swings do to you: through your misses, dodges, parries, blocks and armor, and changes to
   // the damage you take (Defensive Stance)
   function meleeTaken(S, level) {
@@ -2475,5 +2738,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, meleeTaken };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, mobHealth, meleeTaken };
 })();

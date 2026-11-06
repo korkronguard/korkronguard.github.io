@@ -578,13 +578,22 @@
   let bisCtx = null;
   const withCtx = (extra, fn) => { const prev = bisCtx; bisCtx = extra; try { return fn(); } finally { bisCtx = prev; } };
 
-  // the score of a set of gear (slot -> item): v = what the role wants, e = survival (breaks ties)
-  function bisEval(g, role) {
+  // the character wearing a set of gear (slot -> item)
+  function gearCtx(g, role) {
     const c = app.ctx();
     c.worn = Object.entries(g).filter(([, it]) => it).map(([slot, item]) => ({ slot, item }));
     if (role === "tank") c.tank = true; // a Druid tanks in Bear Form
     if (bisCtx) Object.assign(c, bisCtx);
-    const R = KP.calc.compute(c);
+    return c;
+  }
+  // Against a mob of your level the fight lasts until it dies, so its length depends on your damage: worked out once
+  // with this gear, then kept for fn's comparisons (better gear shortens it a little; working it out again for every
+  // item would take several times as long)
+  const withFightOf = (g, role, fn) => withCtx({ ...(bisCtx || {}), fightSec: KP.calc.compute(gearCtx(g, role)).fightSec }, fn);
+
+  // the score of a set of gear (slot -> item): v = what the role wants, e = survival (breaks ties)
+  function bisEval(g, role) {
+    const R = KP.calc.compute(gearCtx(g, role));
     const dps = (R.rotation && R.rotation.dps) || 0;
     const e = KP.calc.ehp(R, state.level);
     const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? 0.7 * Math.log(e) + 0.3 * Math.log(1 + dps) : dps;
@@ -665,7 +674,8 @@
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};
-    for (let pass = 0; pass < passes; pass++) {
+    // each pass in a fight as long as with the gear it starts from (withFightOf)
+    for (let pass = 0; pass < passes; pass++) withFightOf(g, role, () => {
       const W = bisWeights(g, role, [...keys]);
       const n = pass ? 8 : 12;
       // weapons: a two-hander, or a one-hander with the best off hand for it
@@ -678,8 +688,9 @@
       const b = one ? bisEval({ ...rest, mainHand: one, offHand: off }, role) : null;
       if (a && (!b || better(a, b))) { g.mainHand = two; g.offHand = null; } else { g.mainHand = one; g.offHand = off; }
       for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, shortlist(lists[s], W, n, s === "ranged"), role);
-    }
-    const alts = alternatives ? rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives) : null;
+    });
+    const alts = alternatives
+      ? withFightOf(g, role, () => rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives)) : null;
     return { g, role, alts };
   }
 
@@ -782,7 +793,7 @@
 
   // what the MCP check (mcp.js) borrows from Equip BiS
   app.gearKit = { items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
-    equipped,
+    withFightOf, equipped,
     // put these weapons on (the MCP check's "Wear" buttons)
     wear(mh, oh) {
       gear.mainHand = mh.id;
@@ -861,8 +872,8 @@
       ["Block value", S.blockValue || null],
     ]);
     section("Health and mana", [
-      ["Health", S.health, "Base health for your class and level, plus 10 per Stamina."],
-      ["Mana", S.mana || null, "Base mana plus 15 per Intellect."],
+      ["Health", S.health, "Base health for your class and level, plus 1 per Stamina for the first 20, then 10 per Stamina."],
+      ["Mana", S.mana || null, "Base mana plus 1 per Intellect for the first 20, then 15 per Intellect."],
     ]);
     const res = ["fire", "frost", "nature", "shadow", "arcane"].filter((r) => g(r + "Resist"));
     if (res.length) section("Resistances", res.map((r) => [r[0].toUpperCase() + r.slice(1), g(r + "Resist")]));

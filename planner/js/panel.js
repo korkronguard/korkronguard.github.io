@@ -351,7 +351,7 @@
     }
     cell("Armor", fmt(S.armor), "armor");
     cell("Health", fmt(S.health), "health", "Base health for your level + 1 per Stamina for the first 20, then 10 per Stamina");
-    if (S.mana) cell("Mana", fmt(S.mana), "mana", "Base mana for your level + 15 per Intellect");
+    if (S.mana) cell("Mana", fmt(S.mana), "mana", "Base mana for your level + 1 per Intellect for the first 20, then 15 per Intellect");
     return grid;
   }
 

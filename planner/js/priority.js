@@ -307,14 +307,19 @@
         text: "Only after the target dodges" + (c.talent["Bloodthrill"] ? " or Bloodthrill procs" : "") + ". Cheap and can't be dodged.",
         facts: [dmgLine(op, unit), c.talent["Improved Overpower"] ? `Improved Overpower: +${fmt(talentNumber(c, "Improved Overpower"))}% crit chance on it` : null] });
     }
+    // Slam as the damage estimate plays it: its cast pauses your swings (the white damage lost counts against it) until
+    // Improved Slam says it no longer does
     const slam = c.rank("Slam");
     const impSlam = talentText(c, "Improved Slam");
-    if (slam && (impSlam || !c.hold.dual)) {
-      const it = cdHit("Slam", impSlam ? "Use on cooldown: with Improved Slam it no longer delays your swing." :
-        "Press it right after a swing: its cast delays your next one (until Improved Slam).");
+    const slamPart = ((c.R.rotation || {}).parts || []).find((p) => p.spell === "Slam");
+    if (slam && slamPart) {
+      const perUse = slamPart.dps / slamPart.perSec;
+      const it = L.add("Slam", { tag: "On cooldown", stance, score: A["Slam"] && A["Slam"].cost ? perUse / A["Slam"].cost : 0, facts: [dmgLine(A["Slam"], unit)],
+        text: impSlam ? "Use on cooldown: with Improved Slam it no longer delays your swing." : "Press it right after a swing: its cast holds back your next one." });
       if (it && impSlam) it.facts.push(`Improved Slam: −${sec(numberAfter(impSlam, "Slam ability by") * 1000)} cooldown, no swing delay`);
+      if (it && !impSlam && A["Slam"]) it.facts.push(`${fmt(A["Slam"].expected - perUse)} of white damage lost to its cast each time (counted)`);
     } else if (slam) {
-      L.facts.push("Slam left out: with two weapons its cast holds back your swings, which the damage numbers can't show (general class knowledge). Improved Slam removes that.");
+      L.facts.push("Slam left out: after the white damage its cast holds back, the estimate does more with your rage elsewhere. Improved Slam removes the delay.");
     }
     cdHit("Spearing Strike", "On cooldown; much stronger against Giants, Dragonkin and mounted targets.");
     if (c.has("Shield Slam") && c.hold.shield) {
@@ -574,13 +579,7 @@
     const role = tank ? "dps" : roleOf(c);
     if (!tank) L.toggles.push(roleToggle(c));
     if (role === "heal") return healer(c, "Restoration Druid", `Talents: ${bal} / ${feral} / ${resto}`, L.toggles);
-    if (!isFeral && !tank) {
-      // casting for damage: Wrath, Moonfire, Starfire (Balance, Restoration while leveling, or no talents yet)
-      const G = generic(c, L.toggles);
-      G.title = bal > resto ? "Balance Druid" : resto > 0 ? "Restoration Druid, dealing damage" : "Druid";
-      G.facts.unshift(`Talents: ${bal} / ${feral} / ${resto}`);
-      return G;
-    }
+    if (!isFeral && !tank) return druidCaster(c, L);
     L.title = `Feral Druid, ${tank ? "Bear Form tank" : "Cat Form damage"}`;
     L.facts.push(`Talents: ${bal} / ${feral} / ${resto}`);
     L.facts.push("Form attacks use Classic's base-attack rule (the game files don't hold it); everything else is Forever's data.");
@@ -772,6 +771,9 @@
       L.add("Strength of Earth Totem", { tag: "Totem", text: "Strength for your melee group.", facts: [`+${fmt(buffNumber("Strength of Earth", c.level))} Strength at your level`] });
       L.add("Grace of Air Totem", { tag: "Totem", text: "Agility for your melee group.", facts: [`+${fmt(buffNumber("Grace of Air", c.level))} Agility at your level`] });
       L.add("Windfury Totem", { tag: "Totem", text: "For the rest of your melee group (your own Windfury Weapon replaces it for you)." });
+      const searing = numbersIn(desc("Searing Totem"), /for (\d+) sec that repeatedly attacks an enemy[\s\S]*?for (\d+) to (\d+) Fire damage/);
+      L.add("Searing Totem", { tag: "Totem", source: "theory", text: "Your Fire totem against one target (Magma Totem instead for packs).",
+        facts: [searing ? `Attacks an enemy for ${searing[1]} to ${searing[2]} Fire damage for ${searing[0]} sec (game data; how often isn't in the files, so it's not in the estimate)` : null] });
       L.section("Attack priority", "Press the first one that's ready.");
       L.add("Stormstrike", { tag: "On cooldown", score: 1000, text: "Weapon damage, and your next Earth Shock, Lightning Bolt or Chain Lightning hits 20% harder.",
         facts: [dmgLine(A["Stormstrike"], unit), c.talent["Improved Stormstrike"] ? "Improved Stormstrike: 50% mana regeneration while casting for 15 sec after it" : null] });
@@ -797,6 +799,9 @@
       L.sortFrom(0);
       L.section("Cooldowns", null);
       L.add("Rage of the Farseer", { tag: "Cooldown", text: "On cooldown: +30% attack speed for 25 sec, every 3 min." });
+      L.section("Several targets", null);
+      L.add("Magma Totem", { tag: "Packs", text: "Your Fire totem when several enemies stand around you." });
+      L.add("Fire Nova", { tag: "Packs", text: "Hits the enemies near your Fire totem: drop one first." });
     } else {
       L.section("Keep up", null);
       L.add("Flame Shock", { tag: "If missing", text: "Its burn is worth keeping on the target: cast it again once the burn has run out (a new Flame Shock replaces the burn still going).",
@@ -817,6 +822,48 @@
     return L;
   }
 
+  // A Druid casting for damage (Balance, Restoration while leveling, or no talents yet): Moonkin Form and buffs, then
+  // the damage estimate's plan, with Eclipse's Starfires from its tooltip (the estimate doesn't count them)
+  function druidCaster(c, L) {
+    const [bal, feral, resto] = c.treePts;
+    const A = c.res, unit = "mana";
+    const desc = (n) => (c.spell(n) || {}).desc || "";
+    L.title = bal > resto ? "Balance Druid" : resto > 0 ? "Restoration Druid, dealing damage" : "Druid";
+    L.facts.push(`Talents: ${bal} / ${feral} / ${resto}` + ["Eclipse", "Nature's Grace", "Moonkin Form"].filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
+    const note = (c.R.rotation || {}).note;
+    if (note) L.facts.push("Estimate: " + note.split(". ")[0] + ".");
+
+    L.section("Before the fight", null);
+    const moonkin = numbersIn(desc("Moonkin Form"), /Armor contribution from items by (\d+)%, and all party or raid members within \d+ yards have their Critical Strike chance increased by (\d+)%/);
+    L.add("Moonkin Form", { tag: "Always", text: "Your casting form.",
+      facts: [moonkin ? `+${moonkin[0]}% armor from items, +${moonkin[1]}% crit for your group (game data)` : null] });
+    L.add("Mark of the Wild", { tag: "Keep up", text: "Armor, stats and resistances for you and your group." });
+
+    L.section("Keep up", "Damage over time worth keeping on the target.");
+    casterLines(c, L, unit, ["keep"]);
+
+    L.section("Spell priority", "Press the first one that's ready.");
+    const eclipse = c.talent["Eclipse"] && numbersIn(talentText(c, "Eclipse"), /next (\d+) Starfire spells by ([\d.]+) sec\. Stores up to (\d+) charges\. Lasts (\d+) sec/);
+    if (c.talent["Eclipse"]) {
+      L.add("Starfire", { tag: "With Eclipse", score: 990, source: "theory", text: "After a Wrath, your next Starfires cast faster: one Wrath, then two Starfires.",
+        facts: [dmgLine(A["Starfire"], unit), eclipse ? `Eclipse: each Wrath takes ${eclipse[1]} sec off your next ${eclipse[0]} Starfires, up to ${eclipse[2]} ` +
+          `charges, for ${eclipse[3]} sec (game data; not counted in the estimate)` : null] });
+    }
+    const fromMath = casterLines(c, L, unit, ["cooldown", "filler", "cheap"]);
+    if (fromMath["Wrath"] && c.talent["Eclipse"]) fromMath["Wrath"].facts.push("Eclipse: each Wrath speeds up your next Starfires (game data)");
+    spareMana(c, L, unit, fromMath);
+    L.sortFrom(0);
+
+    L.section("Mana", null);
+    const innervate = numbersIn(desc("Innervate"), /regeneration by (\d+)%.*?Lasts (\d+) sec/);
+    L.add("Innervate", { tag: "When mana runs low", text: "On yourself when your mana runs low, or on a healer who needs it more.",
+      facts: [innervate ? `+${innervate[0]}% mana regeneration, also while casting, for ${innervate[1]} sec (game data)` : null] });
+
+    L.section("Several targets", null);
+    L.add("Hurricane", { tag: "Packs", text: "Channel it on a pack that stays put; it also slows their attacks." });
+    return L;
+  }
+
   // ------------------------------------------------------------ Priest
 
   function priest(c) {
@@ -824,19 +871,29 @@
     const role = roleOf(c);
     const line = `Talents: ${disc} / ${holy} / ${shadow}`;
     if (role === "heal") return healer(c, disc > holy ? "Discipline Priest" : "Holy Priest", line, [roleToggle(c)]);
-    // dealing damage: Shadow, or Holy/Discipline while leveling (Smite, Holy Fire, Shadow Word: Pain, Mind Blast)
+    // dealing damage: Shadow, or Holy/Discipline while leveling: buffs, then the damage estimate's plan
     const shadowSpec = shadow > Math.max(disc, holy) || c.talent["Shadowform"];
-    const L = generic(c, [roleToggle(c)], (G) => {
-      G.section("Buffs and protection", null);
-      if (shadowSpec) {
-        G.add("Shadowform", { tag: "Always", text: "Stay in it: more Shadow damage, Shadow spells cost half the mana, and you take less damage (you can't cast Holy spells in it)." });
-        G.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
-      }
-      G.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
-      G.add("Power Word: Shield", { tag: "Before you're hit", text: "Solo: shield yourself before the mob reaches you, then keep casting." });
-    });
+    const L = list(c);
+    L.toggles.push(roleToggle(c));
     L.title = shadowSpec ? "Shadow Priest" : disc + holy > 0 ? `${disc > holy ? "Discipline" : "Holy"} Priest, dealing damage` : "Priest";
-    L.facts.unshift(line);
+    L.facts.push(line);
+    const note = (c.R.rotation || {}).note;
+    if (note) L.facts.push("Estimate: " + note.split(". ")[0] + ".");
+    L.section("Buffs and protection", null);
+    if (shadowSpec) {
+      const form = numbersIn((c.spell("Shadowform") || {}).desc,
+        /Shadow damage by (\d+)%, reducing the Mana cost of all Shadow spells by (\d+)%[\s\S]*?Physical damage taken by you by (\d+)%/);
+      L.add("Shadowform", { tag: "Always", text: "Stay in it (you can't cast healing spells in it).",
+        facts: [form ? `+${form[0]}% Shadow damage, Shadow spells ${form[1]}% cheaper, ${form[2]}% less Physical damage taken (game data)` : null] });
+      L.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
+    }
+    L.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
+    L.add("Power Word: Shield", { tag: "Before you're hit", text: "Solo: shield yourself before the mob reaches you, then keep casting." });
+    L.section("Keep up", "Damage over time worth keeping on the target.");
+    casterLines(c, L, "mana", ["keep"]);
+    L.section("Spell priority", "Press the first one that's ready.");
+    spareMana(c, L, "mana", casterLines(c, L, "mana", ["cooldown", "filler", "cheap"]));
+    L.sortFrom(0);
     return L;
   }
 
@@ -1156,10 +1213,16 @@
   // ------------------------------------------------------------ casters (the damage estimate's own plan)
 
   // The parts of the damage estimate's caster plan (calc.js casterRotationWith) of the given kinds ("keep",
-  // "cooldown", "filler", "cheap") as lines, leaving out `skip`; returns the lines by spell name
+  // "cooldown", "filler", "cheap") as lines, leaving out `skip`; returns the lines by spell name. With the fillers comes
+  // the wand, when the plan runs out of mana (no spell of its own in the spellbook: your wand's icon)
   function casterLines(c, L, unit, kinds, skip = []) {
     const out = {};
     for (const p of (c.R.rotation || {}).parts || []) {
+      if (p.kind === "wand" && kinds.includes("filler")) {
+        L.add("Wand", { always: true, icon: (c.ranged || {}).icon, tag: "Out of mana", score: 80,
+          text: `When your mana is gone: the estimate has you on your wand ${Math.round(p.share * 100)}% of the fight (it costs nothing).` });
+        continue;
+      }
       if (!p.spell || !kinds.includes(p.kind) || skip.includes(p.spell)) continue;
       const line = {
         keep: { tag: "Keep up", score: 700, text: "Its damage over time is worth keeping on the target: cast it again as it runs out." },
@@ -1176,6 +1239,24 @@
 
   // numbers read from a tooltip with a pattern, or null when the text doesn't match (a later patch reworded it)
   const numbersIn = (text, re) => { const m = re.exec(text || ""); return m ? m.slice(1).map(Number) : null; };
+  // damage per second spent casting (a channel's whole length; an instant takes the 1.5 sec global cooldown)
+  const perCastSec = (a) => perUse(a) / Math.max(1.5, ((a && (a.channelMs || a.castMs)) || 0) / 1000);
+
+  // Spells the estimate leaves out on mana: more damage per second of casting than its filler but less per mana,
+  // listed with that reason for when your mana can spare them
+  function spareMana(c, L, unit, fromMath) {
+    const name = Object.keys(fromMath).find((n) => fromMath[n].tag === "Filler");
+    const filler = name && c.res[name];
+    if (!filler) return;
+    const planned = new Set(((c.R.rotation || {}).parts || []).map((p) => p.spell));
+    for (const a of c.R.abilities) {
+      if (a.locked || !a.expected || a.aoe || a.cc || a.heal || a.kind !== "magic" || planned.has(a.name) || !c.has(a.name)) continue;
+      if (perCastSec(a) > perCastSec(filler) && perCost(a) < perCost(filler)) {
+        L.add(a.name, { tag: "Mana to spare", score: 50, facts: [dmgLine(a, unit)],
+          text: `More damage per second of casting than ${name}, but less per mana: cast it when your mana can spare it.` });
+      }
+    }
+  }
 
   // ------------------------------------------------------------ Mage
 
@@ -1214,12 +1295,16 @@
     if (c.talent["Arcane Blast"]) {
       const [int, cost, max, dur] = numbersIn(desc("Arcane Blast"),
         /gain (\d+)% of your Intellect as Spell Damage and the mana cost of Arcane Blast is increased by (\d+)%\. Effect stacks up to (\d+) times and lasts (\d+) sec/) || [];
-      L.add("Arcane Blast", { tag: max ? `Keep ${max} stacks` : "Keep the stacks", source: "theory",
-        text: "Build the stacks, then one Arcane Blast before they run out. Each stack raises its next cost, so cast your other spells in between.",
-        facts: [max ? `Each stack: +${int}% of your Intellect as spell damage and +${cost}% on Arcane Blast's next cost, up to ${max} stacks, for ${dur} sec (game data)` : null,
-          "The estimate doesn't count the rising cost or the stacking spell damage yet"] });
+      // the estimate's window (calc.js: the number of Blasts per window that does the most for your mana)
+      const blasts = ((rot.parts || []).find((p) => p.spell === "Arcane Blast") || {}).blasts;
+      const window = dur || 18;
+      L.add("Arcane Blast", { tag: blasts ? `${blasts} per ${window} sec` : "Skip", facts: [dmgLine(A["Arcane Blast"], unit),
+        max ? `Each stack: +${int}% of your Intellect as spell damage and +${cost}% on Arcane Blast's next cost, up to ${max} stacks, for ${dur} sec (game data)` : null],
+        text: blasts ? `Open every ${window} sec with ${blasts === 1 ? "an Arcane Blast" : `${blasts} Arcane Blasts`}: the stacks give your other spells spell damage ` +
+          "for the rest of that time. Each one costs more than the last: that many is the estimate's best for your mana."
+          : "Each one costs more than the last: the estimate does more with your mana without it." });
     }
-    casterLines(c, L, unit, ["keep"]);
+    casterLines(c, L, unit, ["keep"], c.talent["Arcane Blast"] ? ["Arcane Blast"] : []);
 
     L.section("Spell priority", "Press the first one that's ready.");
     if (c.talent["Heating Up"]) {
@@ -1252,17 +1337,13 @@
         text: "When Missile Barrage lights up, your next Arcane Missiles is free and twice as fast: use it.",
         facts: [dmgLine(A["Arcane Missiles"], unit), mb ? `Missile Barrage: ${mb[0]}% chance from Arcane Blast, ${mb[1]}% from your other bolts (game data)` : null] });
     }
-    // the estimate's cooldowns and filler (a spell with a proc line above can still be the filler: cast without the
-    // proc); with the talent, Arcane Blast has its stacks line instead
-    const blastStacks = !!c.talent["Arcane Blast"];
-    const fromMath = casterLines(c, L, unit, ["cooldown", "filler", "cheap"], blastStacks ? ["Arcane Blast"] : []);
+    // the estimate's cooldowns and filler (a spell with a proc line above can still be the filler: cast without the proc)
+    const fromMath = casterLines(c, L, unit, ["cooldown", "filler", "cheap"]);
     if (c.talent["Heating Up"]) {
       if (fromMath["Fire Blast"]) fromMath["Fire Blast"].facts.push("Heating Up: every Fire Blast adds a stack (game data)");
       else L.add("Fire Blast", { tag: "On cooldown", score: 500, source: "theory", text: "Every Fire Blast adds a Heating Up stack for your next Pyroblast.",
         facts: [dmgLine(A["Fire Blast"], unit), "The estimate leaves it out on its own numbers: it doesn't count the Pyroblasts Heating Up brings"] });
     }
-    const mathFiller = (rot.parts || []).find((p) => p.kind === "filler");
-    if (blastStacks && mathFiller && mathFiller.spell === "Arcane Blast") betweenBlasts(c, L, unit, ["Arcane Blast", ...Object.keys(fromMath)]);
     L.sortFrom(0);
 
     L.section("Cooldowns", null);
@@ -1307,10 +1388,6 @@
       "Incinerate"].filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
     const note = (c.R.rotation || {}).note;
     if (note) L.facts.push("Estimate: " + note.split(". ")[0] + ".");
-    // what the estimate still counts that the game doesn't allow (its damage number runs high until calc.js is fixed)
-    const high = [BANES.every((n) => inMath(n)) && "both Banes at once",
-      !c.talent["Shadow and Flame"] && inMath("Conflagrate") && inMath("Immolate", "keep") && "Immolate's whole burn although Conflagrate consumes it"].filter(Boolean);
-    if (high.length) L.facts.push(`The estimate still counts ${high.join(" and ")}: its damage number runs high.`);
 
     L.section("Before the fight", null);
     const armor = ["Demon Armor", "Demon Skin"].find((n) => c.has(n));
@@ -1339,12 +1416,15 @@
       facts: [elements ? `+${elements[0]}% Magic damage taken by the target, Shadow and Fire included (game data)` : null] });
     const perSec = (n) => { const r = c.rank(n); return c.has(n) && r && r.durMs > 0 ? perUse(A[n]) / (r.durMs / 1000) : 0; };
     const agony = perSec("Bane of Agony"), doom = perSec("Bane of Doom");
-    if (doom > agony) {
+    // the Bane the damage estimate keeps (against a mob of your level, one that dies before Doom's minute is up)
+    const planned = parts.find((p) => /^Bane of/.test(p.spell || ""));
+    if (planned ? planned.spell === "Bane of Doom" : doom > agony) {
       L.add("Bane of Doom", { tag: "Keep up", text: "Your Bane while the target will live another minute: its damage lands after 1 min.",
         facts: [dmgLine(A["Bane of Doom"], unit), `${fmt(doom, 1)} damage per second vs Bane of Agony's ${fmt(agony, 1)}`] });
       L.add("Bane of Agony", { tag: "Short fights", text: "Your Bane instead when the target won't live another minute.", facts: [dmgLine(A["Bane of Agony"], unit)] });
     } else {
-      L.add("Bane of Agony", { tag: "Keep up", text: "Your Bane: recast it as it runs out.", facts: [dmgLine(A["Bane of Agony"], unit)] });
+      L.add("Bane of Agony", { tag: "Keep up", text: "Your Bane: recast it as it runs out.", facts: [dmgLine(A["Bane of Agony"], unit),
+        c.has("Bane of Doom") && c.R.fightSec ? `Bane of Doom's damage comes after 1 min; a mob of your level lives about ${Math.round(c.R.fightSec)} sec` : null] });
     }
     const kept = casterLines(c, L, unit, ["keep"], BANES);
     if (kept["Immolate"] && c.has("Conflagrate") && !c.talent["Shadow and Flame"]) kept["Immolate"].facts.push("Conflagrate consumes it: cast Immolate again right after (game data)");
@@ -1372,13 +1452,22 @@
       fromMath["Conflagrate"].facts.push(snf ? `Shadow and Flame: it doesn't consume Immolate, and gives +${snf[0]}% Shadow damage for ${snf[1]} sec (game data)`
         : "It consumes your Immolate: cast Immolate again right after (game data)");
     }
-    if (fromMath["Shadowburn"] && snf) fromMath["Shadowburn"].facts.push(`Shadow and Flame: +${snf[2]}% Fire damage for ${snf[1]} sec (game data)`);
+    if (snf) {
+      // the estimate counts both Shadow and Flame bonuses as if Conflagrate and Shadowburn are used on cooldown
+      // (calc.js handRules), so a spell its plan leaves out is listed for its bonus
+      for (const [n, pct, school] of [["Conflagrate", snf[0], "Shadow"], ["Shadowburn", snf[2], "Fire"]]) {
+        const it = fromMath[n] || L.add(n, { tag: "On cooldown", score: 500, source: "theory", text: `Keeps Shadow and Flame's ${school} bonus up.`,
+          facts: [dmgLine(A[n], unit)] });
+        if (it && n === "Shadowburn") it.facts.push(`Shadow and Flame: +${pct}% ${school} damage for ${snf[1]} sec (game data, counted)`);
+      }
+    }
     const wrack = numbersIn(desc("Wrack"), /by (\d+)% for (\d+) sec/);
     if (fromMath["Wrack"] && wrack) fromMath["Wrack"].facts.push(`+${wrack[0]}% to your other Shadow damage over time while it lasts (game data; not counted in the estimate)`);
+    // the estimate counts Incinerate's bonus while it keeps Immolate up (calc.js withAfflictedBonus); the line's
+    // damage figure is the plain hit
     const incinerate = numbersIn(desc("Incinerate"), /additional (\d+)% damage if the target is afflicted by Immolate/);
-    const filler = Object.values(fromMath).find((it) => it.tag === "Filler");
-    if (filler && incinerate && c.has("Incinerate") && inMath("Immolate", "keep")) {
-      filler.facts.push(`Incinerate does +${incinerate[0]}% on a target with your Immolate (game data); the estimate doesn't count that yet`);
+    if (fromMath["Incinerate"] && incinerate && inMath("Immolate", "keep")) {
+      fromMath["Incinerate"].facts.push(`+${incinerate[0]}% on a target with your Immolate (game data, counted in its place here)`);
     }
     L.sortFrom(0);
 
@@ -1400,45 +1489,6 @@
     return L;
   }
 
-  // Between Arcane Blasts (the estimate fills with Arcane Blast itself: it doesn't count the rising cost yet): the
-  // other filler with the most damage per second of casting, and the cooldown spells that beat it
-  function betweenBlasts(c, L, unit, covered) {
-    const perCastSec = (a) => perUse(a) / Math.max(1.5, (a.channelMs || a.castMs || 0) / 1000);
-    const spells = c.R.abilities.filter((a) => !a.locked && a.expected && !a.aoe && !a.cc && !a.heal && a.kind === "magic" &&
-      !covered.includes(a.name) && c.has(a.name));
-    const filler = spells.filter((a) => !a.cdMs).sort((x, y) => perCastSec(y) - perCastSec(x))[0];
-    if (!filler) return;
-    for (const a of spells.filter((x) => x.cdMs)) {
-      const beats = perCastSec(a) > perCastSec(filler);
-      L.add(a.name, { tag: beats ? "On cooldown" : "Skip", score: beats ? 500 : 0, source: "theory",
-        text: `${beats ? "More" : "Less"} damage per second of casting than ${filler.name} for you.`, facts: [dmgLine(a, unit)] });
-    }
-    L.add(filler.name, { tag: "Filler", score: 100, source: "theory", text: "Between Arcane Blasts: your other spell with the most damage per second of casting.",
-      facts: [dmgLine(filler, unit)] });
-  }
-
-  function generic(c, switches = [], first = null) {
-    const L = list(c);
-    L.toggles.push(...switches);
-    L.title = `${state.cls.name}: basic list`;
-    if (first) first(L); // class sections that come before the attacks (buffs, forms)
-    L.facts.push("A full priority for this class is coming. Until then: your damage abilities by the numbers.");
-    const unit = { 0: "mana", 1: "rage", 3: "energy" }[state.cls.power] || "mana";
-    const ready = c.R.abilities.filter((a) => !a.locked && a.expected && !a.cc && !a.aoe);
-    if (c.R.abilities.some((a) => a.locked === "Needs a weapon")) L.facts.push("Equip a weapon (Gear & Stats tab) to rank your weapon attacks too.");
-    const dots = ready.filter((a) => a.dotExpected > a.directExpected);
-    if (dots.length) {
-      L.section("Keep up", "Damage over time: keep it on the target.");
-      for (const a of dots) L.add(a.name, { tag: "Keep up", facts: [dmgLine(a, unit)] });
-    }
-    L.section("Then", state.cls.power === 0 ? "Ordered by damage per second of casting." : `Ordered by damage per ${unit}.`);
-    for (const a of ready.filter((x) => !dots.includes(x))) {
-      const score = state.cls.power === 0 ? a.expected / Math.max(1.5, (a.channelMs || a.castMs) / 1000) : perCost(a) * 100 + (a.cdMs ? 1000 : 0);
-      L.add(a.name, { tag: a.cdMs ? "On cooldown" : "Filler", score, facts: [dmgLine(a, unit)] });
-    }
-    L.sortFrom(0);
-    return L;
-  }
 
   // ------------------------------------------------------------ data helpers
 
@@ -1646,7 +1696,7 @@
     WARLOCK: warlock };
   app.priorityList = () => {
     const c = character();
-    return (RULES[c.token] || generic)(c);
+    return RULES[c.token](c);
   };
 
   function render() {
