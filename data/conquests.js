@@ -10,6 +10,13 @@
 window.KG_CONQUESTS = [
   {
     kind: "dungeon",
+    place: "Shadowfang Keep",
+    date: "2026-11-06",
+    image: "shadowfang-keep.jpg",
+    party: ["Grimscar Greystone", "Maltstorm Kegbreaker", "Svannis Everclear", "Sullen Blightfall", "Nerrfed Forever"]
+  },
+  {
+    kind: "dungeon",
     place: "Ruins of Lordaeron",
     date: "2026-11-05",
     image: "ruins-of-lordaeron.jpg",

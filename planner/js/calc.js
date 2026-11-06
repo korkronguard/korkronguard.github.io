@@ -885,7 +885,7 @@
     // Reckless Swings: the next few swings give extra rage; its 15 sec cooldown is in the patch notes, not the files
     const reckless = talentNumber(ctx, "Reckless Swings", /next (\d+) melee attacks/) *
       talentNumber(ctx, "Reckless Swings", /generate (\d+) additional Rage/);
-    rage += reckless / RECKLESS_SWINGS_CD;
+    rage += reckless * cooldownUses(ctx, RECKLESS_SWINGS_CD * 1000);
     if (reckless) from.push("Reckless Swings");
     // Bloodrage on cooldown: its tooltip's rage at once and over 10 sec, plus Improved Bloodrage's %, for a share of
     // your base health (the game's spell data). ctx.bloodrage false: not used (leveling tries both)
@@ -913,11 +913,12 @@
     let gcdUsed = 0; // share of each second spent on global cooldowns and casts
     const spend = (a) => {
       if (!a || !a.cdMs || rage <= 0) return;
-      const perSec = a.cost / (a.cdMs / 1000);
+      const uses = cooldownUses(ctx, a.cdMs);
+      const perSec = a.cost * uses;
       const f = perSec ? Math.min(1, rage / perSec) : 1;
       rage -= perSec * f;
-      gcdUsed += (f * 1.5) / (a.cdMs / 1000);
-      const d = (f * a.expected) / (a.cdMs / 1000);
+      gcdUsed += f * 1.5 * uses;
+      const d = f * a.expected * uses;
       dps += d;
       parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
       spentOn.push(a.name);
@@ -972,7 +973,7 @@
     // same-level mob)
     const baseHealth = rules.baseHealth.WARRIOR[L - 1];
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage,
-      healthSpent: (reckless ? (baseHealth * RECKLESS_SWINGS_HEALTH) / RECKLESS_SWINGS_CD : 0) +
+      healthSpent: (reckless ? baseHealth * RECKLESS_SWINGS_HEALTH * cooldownUses(ctx, RECKLESS_SWINGS_CD * 1000) : 0) +
         (bloodRage ? ((baseHealth * blood.costPct) / 100) * cooldownUses(ctx, blood.cdMs) : 0) };
   }
 
@@ -986,7 +987,7 @@
     const melee = white.filter((w) => w.label === "Main hand" || w.label === "Off hand");
     const mh = melee.find((w) => w.label === "Main hand");
     const busy = (a) => Math.max(1.5, (a.castMs || 0) / 1000);
-    const perCd = (a) => (a && a.cdMs ? 1000 / a.cdMs : 0);
+    const perCd = (a) => (a && a.cdMs ? cooldownUses(ctx, a.cdMs) : 0);
     let gcd = Math.max(0, 1 - gcdUsed);
     const take = (a, perSec, dmg) => {
       const needRage = perSec * a.cost, needTime = perSec * busy(a);
@@ -1187,8 +1188,9 @@
       if (!target || a.locked || target.locked || !a.cdMs || !(target.durMs > a.cdMs)) continue;
       const spared = new RegExp(`${a.name} has a (\\d+)% chance not to consume ${target.name}`);
       if (ctx.flat.some((t, i) => ctx.ranks[i] && +((spared.exec(t.desc[ctx.ranks[i] - 1] || "") || [])[1] || 0) >= 100)) continue;
-      const share = a.cdMs / target.durMs;
-      const cut = { ...target, durMs: a.cdMs, ticks: target.ticks * share, dotExpected: target.dotExpected * share,
+      const everyMs = 1000 / cooldownUses(ctx, a.cdMs); // the time between two uses, on average
+      const share = everyMs / target.durMs;
+      const cut = { ...target, durMs: everyMs, ticks: target.ticks * share, dotExpected: target.dotExpected * share,
         expected: target.directExpected + target.dotExpected * share };
       return [abilities.filter((x) => x !== a), abilities.map((x) => (x === target ? cut : x))];
     }
@@ -1312,35 +1314,47 @@
       .flatMap((a) => {
         const execute = /20% (?:health )?or less|20% or less health|less than 20% health/i.test(a.rank.desc || "");
         // landed = the share of each cast's damage over time that counts (cut off by the next cast, or by the mob dying)
-        const variant = (every, kept, landed) => {
-          const rate = (execute ? 0.2 : 1) / every;
-          return { a, rate, per: a.expected - a.dotExpected * (1 - landed), time: castTime(a), mps: manaOf(a) * rate, execute, kept };
-        };
+        const share = execute ? 0.2 : 1;
+        const variant = (rate, kept, landed) =>
+          ({ a, rate, per: a.expected - a.dotExpected * (1 - landed), time: castTime(a), mps: manaOf(a) * rate, execute, kept });
         const onCooldown = Math.max(castTime(a), a.cdMs / 1000);
-        const cut = variant(onCooldown, false, a.durMs > 0 ? Math.min(1, (onCooldown * 1000) / a.durMs) : 1);
+        const each = cooldownCasts(ctx, a.durMs, onCooldown * 1000, share);
+        const cut = variant(each.rate, false, each.landed);
         if (!(a.dotExpected > 0 && a.durMs / 1000 > onCooldown)) return [cut];
         const kept = dotRecast(ctx, a.durMs, a.ticks, onCooldown * 1000);
-        return [cut, variant(kept.everyMs / 1000, true, kept.landed)];
+        return [cut, variant((share * 1000) / kept.everyMs, true, kept.landed)];
       })
       // a spell a counted bonus needs (S.tal.upkeep: Shadow and Flame) is cast on cooldown, first, worth it or not
-      .filter((x) => (forced(x.a) ? !x.kept : x.per / x.time > best.dps))
-      .sort((x, y) => forced(y.a) - forced(x.a) || y.per / y.time - x.per / x.time);
-    const used = new Set();
-    for (const x of cds) {
-      if (used.has(x.a) || busy + x.rate * x.time > 0.95) continue;
-      const f = x.mps > mana ? Math.max(0, mana / x.mps) : 1; // only as often as the mana allows
-      if (f < 0.05) continue;
-      // worth it only if it beats spending that time and mana on the filler
-      const without = fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy);
-      const withIt = x.per * x.rate * f + fillerPick(fillers, best, mana - x.mps * f, 1 - busy - x.rate * x.time * f).d * (1 - busy - x.rate * x.time * f);
-      if (!forced(x.a) && withIt <= without) continue;
-      busy += x.rate * x.time * f;
-      mana -= x.mps * f;
-      dps += x.per * x.rate * f;
-      used.add(x.a);
-      parts.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f,
-        spell: x.a.name, kind: x.kept ? "keep" : "cooldown", execute: x.execute });
-    }
+      .filter((x) => (forced(x.a) ? !x.kept : x.per / x.time > best.dps));
+    // placed one at a time in an order: tried most damage per second of casting first, then most damage per mana first
+    // (short on mana, the cheaper spell can do more), and the plan with more damage in all (filler and wand too) kept
+    const placeCooldowns = (worth) => {
+      let b = busy, m = mana, d = 0;
+      const placed = [], used = new Set();
+      for (const x of [...cds].sort((x, y) => forced(y.a) - forced(x.a) || worth(y) - worth(x))) {
+        if (used.has(x.a) || b + x.rate * x.time > 0.95) continue;
+        const f = x.mps > m ? Math.max(0, m / x.mps) : 1; // only as often as the mana allows
+        if (f < 0.05) continue;
+        // worth it only if it beats spending that time and mana on the filler
+        const without = fillerPick(fillers, best, m, 1 - b).d * (1 - b);
+        const withIt = x.per * x.rate * f + fillerPick(fillers, best, m - x.mps * f, 1 - b - x.rate * x.time * f).d * (1 - b - x.rate * x.time * f);
+        if (!forced(x.a) && withIt <= without) continue;
+        b += x.rate * x.time * f;
+        m -= x.mps * f;
+        d += x.per * x.rate * f;
+        used.add(x.a);
+        placed.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f,
+          spell: x.a.name, kind: x.kept ? "keep" : "cooldown", execute: x.execute });
+      }
+      const rest = fillerPick(fillers, best, m, 1 - b);
+      return { b, m, d, placed, total: d + rest.d * (1 - b) + (rest.starved ? wandDps * (1 - b) * (1 - rest.f) : 0) };
+    };
+    const plan = [(x) => x.per / x.time, (x) => (x.per * x.rate) / (x.mps || 1e-9)].map(placeCooldowns)
+      .reduce((p, q) => (q.total > p.total + 0.01 ? q : p));
+    busy = plan.b;
+    mana = plan.m;
+    dps += plan.d;
+    parts.push(...plan.placed);
     const free = 1 - busy;
     let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
     const pick = fillerPick(fillers, best, mana, free);
@@ -1521,19 +1535,21 @@
       return { b, cp, n, energy: n * b.cost + evis.cost - refund, dmg: n * b.expected + evis.expected };
     }).sort((x, y) => y.dmg / y.energy - x.dmg / x.energy)[0];
     // Shank (Forever, level 24) on cooldown: off-hand damage that gives back more energy than it costs, plus combo
-    // points. Each point replaces part of a builder: that builder's energy is saved (counted as extra energy for the
-    // cycle below) and its damage isn't done (replaced = builders per second Shank stands in for). Flash of Steel's
-    // shorter cooldown is in the game data; its extra energy, Boot Knife and Venom are server rules read from their
-    // tooltips.
+    // points with Boot Knife (Shank's own tooltip names points only with it; since the Nov 6 hotfix it says 2, like
+    // Boot Knife). Each point replaces part of a builder: that builder's energy is saved (counted as extra energy for
+    // the cycle below) and its damage isn't done (replaced = builders per second Shank stands in for). Flash of
+    // Steel's shorter cooldown is in the game data; its extra energy, Boot Knife and Venom are server rules read from
+    // their tooltips.
     const shank = byName["Shank"];
-    const shankCd = shank && !shank.locked && shank.expected ? shank.cdMs / 1000 : 0;
+    const shankEvery = shank && !shank.locked && shank.expected ? 1 / cooldownUses(ctx, shank.cdMs) : 0; // sec between Shanks
     let shankEnergy = 0, replaced = 0;
-    if (shankCd) {
+    if (shankEvery) {
       const gain = shank.rank.effects.find((e) => e.effect === 30 && e.misc === 3).base +
         talentNumber(ctx, "Flash of Steel", /generated by your Shank ability by (\d+)/);
-      const points = 1 + talentNumber(ctx, "Boot Knife", /(\d+)% chance to add 2 Combo Points/) / 100;
-      replaced = points / shankCd / pick.cp;
-      shankEnergy = (gain - shank.cost) / shankCd + replaced * pick.b.cost;
+      const points = (talentNumber(ctx, "Boot Knife", /(\d+)% chance to add \d+ Combo Points/) / 100) *
+        talentNumber(ctx, "Boot Knife", /chance to add (\d+) Combo Points/);
+      replaced = points / shankEvery / pick.cp;
+      shankEnergy = (gain - shank.cost) / shankEvery + replaced * pick.b.cost;
     }
     const energy = regen + shankEnergy; // energy per second for builders and finishers
     const bfRank = learnedTalent(ctx, "Blade Flurry") && bookRank("ROGUE", "Blade Flurry", level);
@@ -1543,12 +1559,12 @@
     let dps;
     const snd = bookRank("ROGUE", "Slice and Dice", level);
     const haste = rankValue("Slice and Dice", level);
-    const shankDps = shankCd ? shank.expected / shankCd : 0;
+    const shankDps = shankEvery ? shank.expected / shankEvery : 0;
     // Instant Poison on both weapons: a chance per hit of Nature damage (spell hit table; poisons don't crit). Venom:
     // each Shank raises poison damage and chance for a few seconds (its tooltip's numbers), counted for its uptime.
     // Worked out per hit first, since Slice and Dice's faster swings apply it more often.
     const poison = procRank("Instant Poison", level);
-    const venomUp = shankCd ? Math.min(1, talentNumber(ctx, "Venom", /for (\d+) sec/) / shankCd) : 0;
+    const venomUp = shankEvery ? Math.min(1, talentNumber(ctx, "Venom", /for (\d+) sec/) / shankEvery) : 0;
     const chance = (POISON_CHANCE + talentNumber(ctx, "Improved Poisons", /apply Poisons to your target by (\d+)%/) +
       venomUp * talentNumber(ctx, "Venom", /chance to apply Poisons by (\d+)%/)) / 100;
     const vile = (1 + talentNumber(ctx, "Vile Poisons", /dealt by your poisons by (\d+)%/) / 100) *
@@ -1556,7 +1572,7 @@
     const perHit = poison ? chance * procAt(poison, level) * vile * ((100 - table(ctx, S, "magic").miss) / 100) * (1 + damagePct(S, 8) / 100) : 0;
     const swings = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) * (1 + bf / 100);
     // poison damage per second with this many ability casts per second and this much extra attack speed (Shank can't miss)
-    const poisonDps = (casts, haste) => perHit * (swings * (1 + haste / 100) + Math.max(0, casts) * 0.9 + (shankCd ? 1 / shankCd : 0));
+    const poisonDps = (casts, haste) => perHit * (swings * (1 + haste / 100) + Math.max(0, casts) * 0.9 + (shankEvery ? 1 / shankEvery : 0));
     const noSndCasts = (energy / pick.energy) * (pick.n + 1) - replaced;
     const noSnd = whiteDps * (1 + bf / 100) + (energy / pick.energy) * pick.dmg - replaced * pick.b.expected + shankDps + poisonDps(noSndCasts, 0);
     let poisonPart = poisonDps(noSndCasts, 0);
@@ -1595,16 +1611,16 @@
         { name: "Eviscerate (5 points)", dps: (energy / pick.energy) * evis.expected });
       notes.push(`${pick.b.name} to 5 combo points, then Eviscerate` + (snd ? "" : " (Slice and Dice comes at level 10)"));
     }
-    if (shankDps) parts.push({ name: `Shank (every ${shankCd} sec)`, dps: shankDps });
+    if (shankDps) parts.push({ name: `Shank (every ${+shankEvery.toFixed(1)} sec)`, dps: shankDps });
     if (poison) {
       parts.push({ name: "Instant Poison (both weapons)", dps: poisonPart });
       notes.push(`Instant Poison on both weapons, ${Math.round(chance * 100)}% chance per hit (the base 20% is Classic's; not in the files)`);
     }
     notes.push(`${regen.toFixed(1)} energy per second` + (ar ? " (Adrenaline Rush averaged in)" : "") +
-      (shankEnergy ? `, worth ${shankEnergy.toFixed(1)} more with Shank's energy and combo points` : ""));
+      (shankEnergy ? `, worth ${shankEnergy.toFixed(1)} more with Shank's energy` + (replaced ? " and combo points" : "") : ""));
     const counted = [sealFate && "Seal Fate", ruthless && "Ruthlessness", refund && "Relentless Strikes", bf && "Blade Flurry (averaged)",
-      shankCd && talentNumber(ctx, "Flash of Steel", /by (\d+) and/) && "Flash of Steel",
-      shankCd && talentNumber(ctx, "Boot Knife", /(\d+)% chance/) && "Boot Knife", shankCd && talentNumber(ctx, "Venom", /for (\d+) sec/) && "Venom"]
+      shankEvery && talentNumber(ctx, "Flash of Steel", /by (\d+) and/) && "Flash of Steel",
+      shankEvery && talentNumber(ctx, "Boot Knife", /(\d+)% chance/) && "Boot Knife", shankEvery && talentNumber(ctx, "Venom", /for (\d+) sec/) && "Venom"]
       .filter(Boolean);
     if (counted.length) notes.push("counts " + counted.join(", "));
     if (dagger) notes.push("Backstab/Mutilate assume you're behind the target");
@@ -1699,28 +1715,28 @@
         }
         const per = (value + jr.coef * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
         const refund = talentNumber(ctx, "Sanctified Judgement", /return (\d+)%/) / 100;
-        shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: 1 / cd,
+        shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: cooldownUses(ctx, cd * 1000),
           // Sanctified Judgement gives back part of the judged Seal's cost
           mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
           busy: 1.5, cast: 0 });
         // Swift Judgement (Protection talent): another Judgement on its own cooldown, free (game data)
         const sj = learnedTalent(ctx, "Swift Judgement") && bookRank("PALADIN", "Swift Judgement", level);
         if (sj && sj.cdMs) {
-          shots.push({ name: "Swift Judgement", perUse: per, rate: 1000 / sj.cdMs,
+          shots.push({ name: "Swift Judgement", perUse: per, rate: cooldownUses(ctx, sj.cdMs),
             mana: (sj.costPct || 0) * baseMana / 100 + (sj.cost || 0), busy: 1.5, cast: 0 });
         }
       }
       const hs = byName["Holy Strike"];
-      if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: 1 / Math.max(1.5, hs.cdMs / 1000), mana: hs.cost, busy: 1.5, cast: 0 });
+      if (hs && !hs.locked && hs.expected) shots.push({ name: "Holy Strike", perUse: hs.expected * vMult, rate: cooldownUses(ctx, Math.max(1500, hs.cdMs)), mana: hs.cost, busy: 1.5, cast: 0 });
       const hotr = bookRank("PALADIN", "Hammer of the Righteous", level);
       const oneHand = S.mh.inv !== 17;
       if (hotr && oneHand) {
         const per = 3 * (rawSwing(S, S.mh) / S.mh.weapon.speed) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
-        shots.push({ name: "Hammer of the Righteous", perUse: per, rate: 1 / Math.max(1.5, hotr.cdMs / 1000), mana: (hotr.costPct || 6) * baseMana / 100, busy: 1.5, cast: 0 });
+        shots.push({ name: "Hammer of the Righteous", perUse: per, rate: cooldownUses(ctx, Math.max(1500, hotr.cdMs)), mana: (hotr.costPct || 6) * baseMana / 100, busy: 1.5, cast: 0 });
       }
       const how = byName["Hammer of Wrath"];
       if (how && !how.locked && how.expected) {
-        shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: 0.2 / Math.max(1.5, how.cdMs / 1000), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
+        shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: cooldownUses(ctx, Math.max(1500, how.cdMs), 0.2), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
       }
       // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec)
       const budget = manaBudget(ctx, S, keepWhileCasting);
@@ -1771,7 +1787,7 @@
     const ss = byName["Stormstrike"];
     const baseMana = (rules.baseMana.SHAMAN || [])[level - 1] || 0;
     const manaOf = (a) => a.cost || (a.costPct ? (a.costPct * baseMana) / 100 : 0);
-    const ssRate = ss && !ss.locked && ss.expected ? 1 / Math.max(1.5, ss.cdMs / 1000) : 0;
+    const ssRate = ss && !ss.locked && ss.expected ? cooldownUses(ctx, Math.max(1500, ss.cdMs)) : 0;
     if (ssRate) shots.push({ name: "Stormstrike", perUse: ss.expected, rate: ssRate, mana: manaOf(ss), busy: 1.5, cast: 0 });
     // Shocks share one cooldown. Flame Shock's burn outlasts it (21 sec in Forever) and a new Flame Shock replaces the
     // burn still running (Classic's rule), so it's cast once per burn; the other shock cooldowns go to the best direct
@@ -1780,11 +1796,12 @@
     const fs = usableShock("Flame Shock");
     const direct = ["Earth Shock", "Frost Shock"].map(usableShock).filter(Boolean).sort((a, b) => b.expected - a.expected)[0];
     const shockCd = Math.max(1.5, (((direct || fs) || {}).cdMs || 6000) / 1000);
+    const shocks = cooldownUses(ctx, shockCd * 1000); // shocks per second
     const fsCast = fs && dotRecast(ctx, fs.durMs, fs.ticks, shockCd * 1000);
-    const fsRate = fs ? Math.min(1 / shockCd, 1000 / fsCast.everyMs) : 0;
+    const fsRate = fs ? Math.min(shocks, 1000 / fsCast.everyMs) : 0;
     if (fs) shots.push({ name: "Flame Shock", perUse: fs.expected - fs.dotExpected * (1 - fsCast.landed), rate: fsRate, mana: manaOf(fs), busy: 1.5, cast: 0, keptUp: fs.durMs / 1000 > shockCd });
-    if (direct && 1 / shockCd - fsRate > 1e-9) {
-      const rate = 1 / shockCd - fsRate;
+    if (direct && shocks - fsRate > 1e-9) {
+      const rate = shocks - fsRate;
       const buffed = direct.name === "Earth Shock" ? Math.min(1, ssRate / rate) * 0.2 : 0;
       shots.push({ name: direct.name, perUse: direct.expected * (1 + buffed), rate, mana: manaOf(direct), busy: 1.5, cast: 0 });
     }
@@ -1797,7 +1814,7 @@
       parts.push({ name: label, dps: s.dps });
     }
     if (haste) notes.push(`Rage of the Farseer averages +${haste.toFixed(1)}% attack speed`);
-    if (fs && fsRate < 1 / shockCd) notes.push(`Flame Shock once per burn (a new one replaces the old burn), ${direct ? direct.name : "nothing"} on the other shock cooldowns`);
+    if (fs && fsRate < shocks) notes.push(`Flame Shock once per burn (a new one replaces the old burn), ${direct ? direct.name : "nothing"} on the other shock cooldowns`);
     if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover everything over a 3-minute fight (the least damage per mana is cut first: " +
       fitted.filter((s) => s.manaCut).map((s) => s.name).join(", ") + ")");
     const manaSpent = manaUsed(fitted);
@@ -1876,7 +1893,7 @@
     const ok = (n) => byName[n] && !byName[n].locked && byName[n].expected > 0;
     const pb = ok("Primal Bite") ? byName["Primal Bite"] : null;
     if (pb && pb.cdMs) {
-      const perSec = 1 / (pb.cdMs / 1000), f = Math.min(1, rage / (pb.cost * perSec || 1));
+      const perSec = cooldownUses(ctx, pb.cdMs), f = Math.min(1, rage / (pb.cost * perSec || 1));
       rage -= pb.cost * perSec * f;
       parts.push({ name: "Primal Bite (on cooldown)", dps: pb.expected * perSec * f });
       dps += pb.expected * perSec * f;
@@ -1960,10 +1977,14 @@
     const spiritRegen = spiritRegenOf(S.attr.spirit);
     const manaPerSec = (withSting) => ctx.manaPerSec != null ? ctx.manaPerSec
       : (S.mana + (S.mp5 / 5 + spiritRegen * keepPct(withSting) / 100) * FIGHT_SEC) / FIGHT_SEC;
-    const shot = (a, opts = {}) => a && !a.locked && a.expected > 0 && {
-      name: opts.name || a.name, perUse: opts.perUse != null ? opts.perUse : a.expected,
-      rate: opts.rate || 1 / Math.max(1.5, (opts.every || a.cdMs || 1500) / 1000), mana: manaOf(a),
-      busy: opts.busy != null ? opts.busy : Math.max(1.5, a.castMs / 1000), cast: a.castMs / 1000,
+    // a shot as often as opts.rate or opts.every (ms) say, else whenever its cooldown is ready (cooldownCasts)
+    const shot = (a, opts = {}) => {
+      if (!a || a.locked || !(a.expected > 0)) return null;
+      const each = !opts.rate && !opts.every && a.cdMs ? cooldownCasts(ctx, a.durMs, Math.max(1500, a.cdMs)) : null;
+      return { name: opts.name || a.name,
+        perUse: opts.perUse != null ? opts.perUse : a.expected - (each ? a.dotExpected * (1 - each.landed) : 0),
+        rate: opts.rate || (each ? each.rate : 1 / Math.max(1.5, (opts.every || 1500) / 1000)), mana: manaOf(a),
+        busy: opts.busy != null ? opts.busy : Math.max(1.5, a.castMs / 1000), cast: a.castMs / 1000 };
     };
     const parts = [];
     let dps = 0;
@@ -2012,7 +2033,7 @@
       const shots = [];
       // Raptor Strike goes on your next swing: it adds its damage over a normal swing
       if (raptor && !raptor.locked) shots.push(shot(raptor, { perUse: Math.max(0, raptor.expected - mh.perSwing),
-        rate: 1 / Math.max(raptor.cdMs / 1000, mh.effSpeed), busy: 0 }));
+        rate: cooldownUses(ctx, Math.max(raptor.cdMs, mh.effSpeed * 1000)), busy: 0 }));
       shots.push(shot(byName["Strider Kick"]));
       if (hawk && !hawk.locked) shots.push(shot(hawk)); // a summon: usable from melee too
       const mb = byName["Mongoose Bite"];
@@ -2023,7 +2044,8 @@
         shots.push(shot(mb, { perUse: mb.expected * bleed, rate: Math.min(1 / (mb.cdMs / 1000), swingsPerSec * expose.value / 100) }));
       }
       const lac = byName["Lacerate"];
-      shots.push(shot(lac, { every: lac && lac.durMs }));
+      const lacCast = lac && lac.durMs ? dotRecast(ctx, lac.durMs, lac.ticks) : null;
+      shots.push(shot(lac, lacCast ? { every: lacCast.everyMs, perUse: lac.expected - lac.dotExpected * (1 - lacCast.landed) } : {}));
       const trap = byName["Immolation Trap"];
       shots.push(shot(trap)); // Forever lets you lay traps in combat; in melee the boss stands on it
       const fitted = fitShots(shots.filter(Boolean), manaPerSec(false));
@@ -2236,6 +2258,8 @@
       const i = ctx.flat.findIndex((t) => t.id === ab.talent);
       if (i >= 0 && !ctx.ranks[i]) return { ...base, locked: "Needs the talent", rank: rank || ab.ranks[0] };
     }
+    // a race's own spell (Starshards: Night Elf Priests) counts only for that race
+    if (ab.races && !ab.races.includes(ctx.race)) return { ...base, locked: `${ab.races.join(" and ")} only`, rank: rank || ab.ranks[0] };
     if (!rank) return { ...base, locked: `Learned at level ${ab.ranks[0].level}`, rank: ab.ranks[0] };
     // what it needs in your hands (game data): e.g. Backstab a dagger, Shield Slam a shield
     const needs = (((KP.spellbook || {})[ctx.cls.token] || []).find((b) => b.name === ab.name) || {}).needs;
@@ -2461,12 +2485,22 @@
     const half = ticks > 0 ? durMs / ticks / 2 : 0, T = fightMs(ctx);
     return { everyMs: Math.max(cdMs, Math.min(durMs, T)), landed: T >= durMs ? 1 : Math.max(0, T - half) / (durMs - half) };
   }
-  // A long cooldown's uses per second of fighting. A long fight: once per cooldown. Leveling: used at the pull when
-  // ready, then every cooldown while the fight lasts, and it comes back during the eating and drinking too.
-  function cooldownUses(ctx, cdMs) {
-    if (!ctx.fightSec || ctx.restSec == null) return 1000 / cdMs;
+  // A cooldown's uses per second of fighting, used whenever it's ready during `share` of the fight (0.2 = "20% health
+  // or less"). A long fight: once per cooldown. Leveling: at the start of that part of each fight when ready, then every
+  // cooldown while it lasts (half a use more than its length ÷ the cooldown, on average); it comes back during the
+  // eating and drinking too, so a short one is ready at every pull.
+  function cooldownUses(ctx, cdMs, share = 1) {
+    if (!ctx.fightSec || ctx.restSec == null) return (share * 1000) / cdMs;
     const T = ctx.fightSec, C = cdMs / 1000;
-    return Math.min(Math.max(1, 0.5 + T / C), (T + ctx.restSec) / C) / T;
+    return Math.min(Math.max(1, 0.5 + (share * T) / C), (T + ctx.restSec) / C) / T;
+  }
+  // A spell used whenever its cooldown is ready: its uses per second (cooldownUses) and the share of each use's damage
+  // over time that lands. One copy ticks at a time (the next use replaces it) and nothing ticks after the mob dies, so
+  // at most the whole of that part of the fight is covered.
+  function cooldownCasts(ctx, durMs, cdMs, share = 1) {
+    const rate = cooldownUses(ctx, cdMs, share);
+    const perFight = Math.max(rate, 1000 / fightMs(ctx)); // a use's burn can't outlast its fight either
+    return { rate, landed: durMs > 0 ? Math.min(1, (share * 1000) / (perFight * durMs)) : 1 };
   }
   // The share of the fighting a cooldown's buff is up. A buff on you outlives the mob: each use covers its length within
   // one fight, or, when it lasts longer than a fight and the rest after it, the fighting in the fights it spans.

@@ -124,6 +124,8 @@
     c.hold = { known: c.gearKnown, shield: c.shield, twoHand: c.twoHand, dual: c.dualWield, oneHand: !!(c.mh && !c.twoHand),
       ranged: !!(c.ranged && SHOOTING_SUBCLASSES.includes(c.ranged.subclass)) };
     c.spell = (name) => book.find((b) => b.name === name);
+    // a race's own spell (Starshards: Night Elf Priests) that this race doesn't learn
+    c.otherRace = (b) => !!(b && b.races && !b.races.includes(ctx.race));
     c.rank = (name) => {
       const b = c.spell(name);
       if (!b) return null;
@@ -135,6 +137,7 @@
     c.why = (name) => {
       const b = c.spell(name);
       if (!b) return "not in this class's spellbook";
+      if (c.otherRace(b)) return `${b.races.join(" and ")} only`;
       if (b.talent) {
         const t = talentById(b.talent);
         if (t && !t.rank) return `talent: ${t.t.name} (${t.t.treeName})`;
@@ -220,6 +223,7 @@
   // "Not yet": level-locked spells always; talent-locked ones only from a tree you've put real points into
   function worthMentioning(c, name) {
     const b = c.spell(name);
+    if (c.otherRace(b)) return false;
     if (!b || !b.talent) return true;
     const t = c.flat.find((x) => x.id === b.talent);
     if (!t) return true;
@@ -885,9 +889,9 @@
         /Shadow damage by (\d+)%, reducing the Mana cost of all Shadow spells by (\d+)%[\s\S]*?Physical damage taken by you by (\d+)%/);
       L.add("Shadowform", { tag: "Always", text: "Stay in it (you can't cast healing spells in it).",
         facts: [form ? `+${form[0]}% Shadow damage, Shadow spells ${form[1]}% cheaper, ${form[2]}% less Physical damage taken (game data)` : null] });
-      L.add("Vampiric Embrace", { tag: "Keep up", text: "Heals your group from your Shadow damage." });
+      L.add("Vampiric Embrace", { tag: "Keep up", text: "On your target: heals you and your party for part of your Shadow damage to it." });
     }
-    L.add("Inner Fire", { tag: "Keep up", text: "Armor and attack power for you." });
+    L.add("Inner Fire", { tag: "Keep up", text: "Armor for you; each hit you take uses up one of its charges." });
     L.add("Power Word: Shield", { tag: "Before you're hit", text: "Solo: shield yourself before the mob reaches you, then keep casting." });
     L.section("Keep up", "Damage over time worth keeping on the target.");
     casterLines(c, L, "mana", ["keep"]);
@@ -1224,8 +1228,14 @@
         continue;
       }
       if (!p.spell || !kinds.includes(p.kind) || skip.includes(p.spell)) continue;
+      // a burn that's also the filler (Holy Fire) is renewed by casting the filler: listed once, as the filler
+      if (p.kind === "keep" && c.R.rotation.parts.some((q) => q.kind === "filler" && q.spell === p.spell)) continue;
+      // a same-level mob dies before the burn runs out (the leveling fight): one cast covers the fight
+      const fightSec = c.R.fightSec || c.ctx.fightSec;
+      const once = fightSec && (c.res[p.spell] || {}).durMs >= fightSec * 1000;
       const line = {
-        keep: { tag: "Keep up", score: 700, text: "Its damage over time is worth keeping on the target: cast it again as it runs out." },
+        keep: once ? { tag: "Once per mob", score: 700, text: `Its burn outlasts the fight (about ${Math.round(fightSec)} sec a mob): one cast early in the fight.` }
+          : { tag: "Keep up", score: 700, text: "Its damage over time is worth keeping on the target: cast it again as it runs out." },
         cooldown: { tag: p.execute ? "Below 20%" : "On cooldown", score: 500, text: "Does more per second of casting than your filler." },
         filler: { tag: "Filler", score: 100, text: p.instead ? `The most damage per mana: ${p.instead} hits harder but runs you out of mana over a fight.`
           : "The most damage per second of casting." },
@@ -1551,6 +1561,7 @@
   // the reasoning behind each kind of line (its tag), in plain words
   const TAG_WHY = {
     "Keep up": "It keeps working for its whole duration (a buff, a debuff or damage over time), so one press is worth more than one attack. If it drops, everything after it gets weaker, so it comes first.",
+    "Once per mob": "Damage over time that lasts longer than a mob of your level lives: cast it early so every tick lands before the mob dies, and once is enough.",
     "On cooldown": "One of your strongest presses, but it has a cooldown: every second it sits ready is damage you never get back.",
     "Still on cooldown": "Even in this phase it's worth more per point of resource than the alternative.",
     "Cooldown": "A long cooldown is worth the most when it overlaps your other boosts, or a moment that needs burst (for a Warrior, the Execute phase). Using it at a random moment wastes some of it; holding it all fight wastes all of it.",
