@@ -175,7 +175,7 @@
       }
       const item = { name: opts.label || name, spell: name, icon: opts.icon || b.icon, tag: opts.tag, text: opts.text,
         facts: (opts.facts || []).filter(Boolean), source: opts.source || "data", score: opts.score, why: opts.why,
-        res: c.res[name] };
+        res: opts.res || c.res[name] }; // opts.res: numbers for a spell the damage math doesn't have (a cooldown)
       current.section.items.push(item);
       return item;
     };
@@ -528,8 +528,11 @@
       facts: [`+${fmt(buffNumber("Blessing of Might", c.level))} attack power at your level`] });
     L.add("Retribution Aura", { tag: "Aura", text: "If no other Paladin runs an aura, otherwise Devotion." });
     L.section("Attack priority", "Press the first one that's ready.");
+    // the damage math has no Judgement (its damage is the Seal's): its cooldown with Improved Judgement, for the helper
+    const judgementMs = (c.rank("Judgement") || {}).cdMs || 10000;
     L.add("Judgement", { tag: "On cooldown", text: "Judge your Seal, then keep the Seal up.",
-      facts: [`${sec((c.rank("Judgement") || {}).cdMs || 10000)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : ""),
+      res: { cdMs: judgementMs - (c.talent["Improved Judgement"] ? talentNumber(c, "Improved Judgement") * 1000 : 0) },
+      facts: [`${sec(judgementMs)} cooldown` + (c.talent["Improved Judgement"] ? ` (Improved Judgement −${fmt(talentNumber(c, "Improved Judgement"))} sec)` : ""),
         c.talent["Sanctified Judgement"] ? `Sanctified Judgement: ${fmt(numberAfter(talentText(c, "Sanctified Judgement"), "chance to return"))}% of the Seal's mana back` : null] });
     L.add("Swift Judgement", { tag: "On cooldown", text: "A second Judgement on its own cooldown, free (game data).",
       facts: [c.rank("Swift Judgement") ? `${sec(c.rank("Swift Judgement").cdMs)} cooldown` : null] });
