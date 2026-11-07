@@ -51,6 +51,17 @@
   const statName = (k) => STAT_TEXT[k] || k.replace(/^stat(\d+)$/, "unnamed stat $1");
   const statText = (k, v) => `${v > 0 ? "+" : ""}${v} ${statName(k)}`;
   const byPrimary = ([a], [b]) => (PRIMARY.includes(b) - PRIMARY.includes(a));
+  // an effect's cooldown the way the game's tooltip writes it: "1 Min, 30 Sec"
+  const cooldown = (sec) => [[Math.floor(sec / 3600), "Hour"], [Math.floor((sec % 3600) / 60), "Min"], [sec % 60, "Sec"]]
+    .filter(([n]) => n).map(([n, unit]) => `${n} ${unit}`).join(", ");
+  const effectLine = (e) => `${TRIGGER[e.trigger] || "Use"}: ${e.text}${e.cd ? ` (${cooldown(e.cd)} Cooldown)` : ""}`;
+
+  // an item's effects that differ only in cooldown, one line each; null when anything else about them changed
+  function cooldownChanges(old, now) {
+    const a = old.effects || [], b = now.effects || [];
+    if (a.length !== b.length || a.some((e, i) => e.text !== b[i].text || e.trigger !== b[i].trigger)) return null;
+    return b.map((e, i) => [a[i].cd || 0, e.cd || 0]).filter(([x, y]) => x !== y);
+  }
 
   function metaLine(c) {
     return [typeLine(c), `Item level ${c.ilvl}`, c.req > 1 ? `Requires level ${c.req}` : "",
@@ -65,7 +76,7 @@
     parts.push(...Object.entries(c.stats || {}).sort(byPrimary).slice(0, 4).map(([k, v]) => statText(k, v)));
     if (c.bagSlots) parts.push(`${c.bagSlots} slots`);
     const fx = (c.effects || [])[0];
-    if (!parts.length && fx) parts.push(`${TRIGGER[fx.trigger] || "Use"}: ${fx.text}`);
+    if (!parts.length && fx) parts.push(effectLine(fx));
     if (!parts.length && c.flavor) parts.push(`“${c.flavor}”`);
     return parts.join(" · ");
   }
@@ -110,7 +121,12 @@
         case "req": add(`Requires level ${old.req} → ${c.req}`, c.req < old.req); break;
         case "quality": add(`${cap(QUALITY[old.quality])} → ${cap(QUALITY[c.quality])}`, c.quality > old.quality); break;
         case "name": add(`Renamed from “${old.name}”`); break;
-        case "effects": add("What it does changed"); break;
+        case "effects": {
+          const cds = cooldownChanges(old, c);
+          if (!cds) add("What it does changed");
+          else for (const [a, b] of cds) add(`Cooldown ${a ? cooldown(a) : "none"} → ${b ? cooldown(b) : "none"}`, b < a);
+          break;
+        }
         case "bagSlots": add(`${old.bagSlots || 0} → ${c.bagSlots || 0} bag slots`, (c.bagSlots || 0) > (old.bagSlots || 0)); break;
         case "src": add(`Source: ${SOURCE_NAMES[old.src] || "none"} → ${SOURCE_NAMES[c.src] || "none"}`); break;
         case "faction": add(`${old.faction ? old.faction + " only" : "Both factions"} → ${c.faction ? c.faction + " only" : "both factions"}`); break;
@@ -378,7 +394,7 @@
     for (const [k, v] of stats) {
       box.append(PRIMARY.includes(k) ? el("div", null, statText(k, v)) : el("div", "green", `Equip: ${statText(k, v)}`));
     }
-    for (const e of c.effects || []) box.append(el("div", "green", `${TRIGGER[e.trigger] || "Use"}: ${e.text}`));
+    for (const e of c.effects || []) box.append(el("div", "green", effectLine(e)));
     if (c.bagSlots) box.append(el("div", null, `${c.bagSlots} Slot ${typeName(c) || "Bag"}`));
     if (c.classMask) box.append(el("div", null, `Classes: ${classList(c)}`));
     if (c.req > 1) box.append(el("div", null, `Requires Level ${c.req}`));
