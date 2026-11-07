@@ -12,6 +12,13 @@
 window.KG_CONQUESTS = [
   {
     kind: "dungeon",
+    place: "Wailing Caverns",
+    date: "2026-11-07",
+    image: "wailing-caverns.jpg",
+    party: ["Maltstorm Kegbreaker", "Aeris Totel", "Grimscar Greystone", "Sullen Blightfall", "Nerrfed Forever"]
+  },
+  {
+    kind: "dungeon",
     place: "The Deadmines",
     date: "2026-11-06",
     image: "deadmines.jpg",
