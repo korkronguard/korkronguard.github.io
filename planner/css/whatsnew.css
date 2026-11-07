@@ -1,0 +1,185 @@
+/* The What's New page (whats-new.html): on top of planner.css, whose colors, buttons, tooltip and quality colors it uses. */
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+a.btn { text-decoration: none; }
+
+.wn-layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+
+/* ---------- updates (left) ---------- */
+.wn-updates {
+  position: sticky;
+  top: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+.wn-updates h2 {
+  margin: 4px 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#updates { display: grid; gap: 4px; }
+.wn-update {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 10px;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.wn-update:hover { background: var(--panel-2); }
+.wn-update[aria-pressed="true"] { background: var(--panel-2); border-color: #8a6420; }
+.wn-update .t { font-weight: 600; color: var(--gold); }
+.wn-update .d, .wn-update .note { font-size: 12px; color: var(--muted); }
+.wn-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; }
+.added { color: var(--green); }
+.changed { color: var(--gold); }
+.removed { color: var(--red); }
+.wn-empty { margin: 6px; color: var(--muted); font-size: 14px; }
+
+/* ---------- filters ---------- */
+.wn-filters {
+  display: grid;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.wn-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.wn-search { flex: 1 1 280px; display: flex; }
+.wn-search input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+}
+.wn-search input:focus, .wn-field select:focus, .wn-field input:focus { outline: 2px solid #8a6420; outline-offset: 0; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 7px 12px; background: var(--panel-2); border: 0; border-right: 1px solid var(--line); cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: #3a2a10; box-shadow: inset 0 -2px 0 var(--gold); }
+.seg button.added[aria-pressed="false"], .seg button.changed[aria-pressed="false"], .seg button.removed[aria-pressed="false"] { opacity: .85; }
+.wn-field { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.wn-field select, .wn-field input {
+  padding: 5px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+.wn-levels input { width: 58px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.chip[aria-pressed="true"] { border-color: currentColor; box-shadow: inset 0 0 0 1px currentColor; }
+.wn-clear { margin-left: auto; padding: 5px 12px; font-size: 13px; }
+
+.wn-summary { margin: 14px 2px 4px; color: var(--muted); font-size: 13px; }
+
+/* ---------- the list ---------- */
+.wn-group { margin-top: 16px; }
+.wn-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+  color: var(--gold);
+}
+.wn-group h3 .n { font-size: 13px; font-weight: 400; color: var(--muted); }
+.wn-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.wn-item { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.wn-head { display: flex; align-items: center; gap: 10px; padding-right: 12px; }
+.wn-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.wn-row:hover .wn-name { text-decoration: underline; text-underline-offset: 3px; }
+.wn-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background-color: #000;
+}
+.wn-icon.none { background: var(--panel-2); }
+.wn-main { min-width: 0; display: grid; gap: 1px; }
+.wn-name { font-weight: 600; }
+.wn-meta { color: var(--muted); font-size: 12.5px; }
+.wn-sum {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #cfcab9;
+  font-size: 13px;
+}
+.wn-diffs { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 3px; }
+.wn-diff { padding: 1px 8px; background: var(--panel-2); border-radius: 5px; font-size: 12.5px; color: #cfcab9; }
+.wn-diff.up { color: #7dff8a; }
+.wn-diff.down { color: #ff8a73; }
+.wn-badge {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.wn-link { flex: none; color: var(--blue); font-size: 12.5px; text-decoration: none; }
+.wn-link:hover { text-decoration: underline; }
+.wn-detail { display: flex; flex-wrap: wrap; gap: 14px; padding: 2px 12px 12px 62px; }
+.wn-col { display: grid; gap: 4px; align-content: start; }
+.wn-col .lbl { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.wn-col .itip {
+  max-width: 330px;
+  padding: 10px 12px;
+  background: rgba(8, 10, 14, .97);
+  border: 1px solid #5b6270;
+  border-radius: 8px;
+}
+.itip .flavor { margin-top: 4px; color: #ffd100; }
+.wn-more { margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .wn-layout { grid-template-columns: minmax(0, 1fr); }
+  .wn-updates { position: static; }
+  #updates { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .wn-update { flex: none; width: auto; min-width: 210px; max-width: 280px; border-color: var(--line); }
+}
+@media (max-width: 520px) {
+  .wn-head { flex-wrap: wrap; gap: 4px 10px; padding: 0 10px 8px; }
+  .wn-row { flex-basis: 100%; padding: 8px 0; }
+  .wn-detail { padding-left: 12px; }
+  .wn-clear { margin-left: 0; }
+}

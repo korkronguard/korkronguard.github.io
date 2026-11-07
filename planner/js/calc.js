@@ -234,8 +234,7 @@
       if (a.aura === 166 && a.value) { out.apPct += a.value; parts.push(`+${a.value}% attack power`); }
       if (a.aura === 10 && a.value) parts.push(`${a.value > 0 ? "+" : ""}${a.value}% threat`);
     }
-    const threat = (st.auras || []).some((a) => a.aura === 10 && a.value);
-    out.lines.push({ name: st.name, text: (parts.join(", ") || "no change to your numbers") + (threat ? " (threat isn't in the numbers)" : "") +
+    out.lines.push({ name: st.name, text: (parts.join(", ") || "no change to your numbers") +
       (ctx.stance ? "" : ". Your main stance; the Abilities tab can switch it") });
   }
 
@@ -246,6 +245,7 @@
       statPct: { strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0 },
       mods: [],       // ability modifiers: { op, pct, value, mask, name }
       dmgPct: [],     // damage done %: { school, value, name }
+      threatPct: [],  // threat %: { school, value, name } (Defiance; less threat from Burning Soul, Silent Resolve...)
       rangedPct: [],  // damage % with a ranged weapon only (a talent that needs one): { mask = weapon subclasses, value, name }
       offhandHit: 0,  // % hit for off-hand attacks only (a talent that needs an off-hand weapon)
       upkeep: [],     // spells the plan casts on cooldown because a counted bonus needs them (Shadow and Flame)
@@ -347,6 +347,7 @@
             }
             break;
           case 79: out.dmgPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`+${v}% damage`); break;
+          case 10: out.threatPct.push({ school: e.misc, value: v, name: t.name }); parts.push(`${v > 0 ? "+" : ""}${v}% threat`); break;
           case 87: if (e.misc & 1) { out.damageTaken += v; parts.push(`${v}% physical damage taken`); } break;
           case 50: out.healCrit.push({ school: e.misc, value: v }); parts.push(`+${v}% critical healing bonus`); break;
           case 122: out.offhandPct += v; parts.push(`+${v}% off-hand damage`); break;
@@ -428,10 +429,8 @@
       if (parts.length) out.lines.push({ name: "Shadow and Flame", text: parts.join(", ") + ", with them cast on cooldown" });
     }
     // Enrage: "chance to deal 10% increased Physical damage for 12 sec after being the victim of any damaging attack".
-    // Counted while something is hitting you (tanking in Defensive Stance, or alone against a mob), with a hit landing
-    // every ENRAGE_HIT_SEC; a raid's damage dealers aren't hit often enough to count it.
-    const beingHit = (ctx.target && ctx.target.mode === "same") || (ctx.cls.token === "WARRIOR" && warriorStance(ctx) === "defensive");
-    if (beingHit && (m = /(\d+)% chance to deal (\d+)% increased Physical damage for (\d+) sec/.exec(text("Enrage")))) {
+    // Counted while something is hitting you (beingHit), with a hit landing every ENRAGE_HIT_SEC.
+    if (beingHit(ctx) && (m = /(\d+)% chance to deal (\d+)% increased Physical damage for (\d+) sec/.exec(text("Enrage")))) {
       const uptime = 1 - (1 - m[1] / 100) ** (m[3] / ENRAGE_HIT_SEC);
       out.dmgPct.push({ school: 1, value: m[2] * uptime, name: "Enrage" });
       out.lines.push({ name: "Enrage", text: `+${Math.round(m[2] * uptime * 10) / 10}% Physical damage (up ${Math.round(uptime * 100)}% of the time while you're being hit)` });
@@ -920,7 +919,7 @@
       gcdUsed += f * 1.5 * uses;
       const d = f * a.expected * uses;
       dps += d;
-      parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d });
+      parts.push({ name: a.name + (f < 1 ? " (not every cooldown)" : ""), dps: d, spell: a.name });
       spentOn.push(a.name);
     };
     if (t) {
@@ -935,18 +934,26 @@
         rage -= f * rv.cost * r;
         gcdUsed += f * r * 1.5;
         dps += f * r * rv.expected;
-        parts.push({ name: `Revenge (every ${(1 / r).toFixed(1)} sec${f < 1 ? ", when rage allows" : ""})`, dps: f * r * rv.expected });
+        parts.push({ name: `Revenge (every ${(1 / r).toFixed(1)} sec${f < 1 ? ", when rage allows" : ""})`, dps: f * r * rv.expected, spell: "Revenge" });
         spentOn.push("Revenge when it lights up");
       }
     }
-    warriorAttacks(ctx, white, use, () => rage, (r) => { rage = r; }, gcdUsed, (p) => { dps += p.dps; parts.push(p); spentOn.push(p.spell); });
+    // a tank holding a group's enemies (a dungeon pull, a raid boss) also uses Sunder Armor; solo, rage goes into damage
+    // so the mob dies sooner
+    const holding = t && (ctx.group || (ctx.target && ctx.target.mode === "boss"));
+    const flatThreat = [];
+    warriorAttacks(ctx, white, use, () => rage, (r) => { rage = r; }, gcdUsed, holding, (p) => {
+      if (p.flatThreat) flatThreat.push({ spell: p.spell, perSec: p.perSec, threat: p.flatThreat });
+      else { dps += p.dps; parts.push(p); }
+      spentOn.push(p.spell);
+    });
     // leftover rage: Heroic Strike replaces a main-hand swing
     const hs = use("Heroic Strike"), mh = white.find((w) => w.label === "Main hand");
     if (hs && mh && rage > 0) {
       const perSec = Math.min(rage / (hs.cost + swingRage(mh)), 1 / mh.effSpeed);
       const d = perSec * Math.max(0, hs.expected - mh.perSwing);
       dps += d;
-      parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
+      parts.push({ name: `Heroic Strike (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d, spell: "Heroic Strike" });
       spentOn.push("Heroic Strike with what's left");
     }
     // Execute phase: the last 20% of the boss's health, all rage goes into Execute (one per 1.5 sec at most)
@@ -962,17 +969,18 @@
         if (p.perSec) p.perSec *= 1 - EXECUTE_PHASE; // uses per second over the whole fight, like its damage
         p.name += " (first 80%)";
       }
+      for (const f of flatThreat) f.perSec *= 1 - EXECUTE_PHASE;
       dps += -normal * EXECUTE_PHASE + exDps * EXECUTE_PHASE;
-      parts.push({ name: "Execute (last 20%)", dps: exDps * EXECUTE_PHASE });
+      parts.push({ name: "Execute (last 20%)", dps: exDps * EXECUTE_PHASE, spell: "Execute" });
       spentOn.push("below 20% health, every rage point on Execute");
     }
     const note = `Rage from ${from.join(", ")}. Spent on ${spentOn.join(", ") || "nothing yet"}.` +
-      (t ? " Not counted: Shield Slam's bonus from Block Value, and threat (Sunder Armor deals no damage)." : "") + buffNote(ctx);
+      (t ? " Not counted: Shield Slam's bonus from Block Value." : "") + buffNote(ctx);
     // healthSpent: health per second Reckless Swings and Bloodrage cost (leveling counts it as eaten back, like Life
     // Tap's); pullRage: Charge's rage at each pull (counted when the fight's length is known: compute() against a
     // same-level mob)
     const baseHealth = rules.baseHealth.WARRIOR[L - 1];
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage,
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage, flatThreat,
       healthSpent: (reckless ? baseHealth * RECKLESS_SWINGS_HEALTH * cooldownUses(ctx, RECKLESS_SWINGS_CD * 1000) : 0) +
         (bloodRage ? ((baseHealth * blood.costPct) / 100) * cooldownUses(ctx, blood.cdMs) : 0) };
   }
@@ -982,20 +990,23 @@
   // renewed as it runs out. Slam: its cast pauses your swings (that white damage lost) unless a talent says it no longer
   // does (Improved Slam). Overpower: after the target dodges one of your swings, and with Bloodthrill after main-hand hits
   // on a target with your Rend (Rend is then kept up first). Sunder Armor deals no damage (its armor is the target
-  // debuff level 60 builds count). Each part: { dps, spell, perSec = uses per second }.
-  function warriorAttacks(ctx, white, use, getRage, setRage, gcdUsed, add) {
+  // debuff level 60 builds count); a tank holding a group's enemies (holding) uses it too, its flat threat (game data)
+  // ranked with the others' damage per rage (a Warrior's threat bonuses apply to both alike). Each part: { dps, spell,
+  // perSec = uses per second, flatThreat = Sunder's threat per use instead of damage }.
+  function warriorAttacks(ctx, white, use, getRage, setRage, gcdUsed, holding, add) {
     const melee = white.filter((w) => w.label === "Main hand" || w.label === "Off hand");
     const mh = melee.find((w) => w.label === "Main hand");
     const busy = (a) => Math.max(1.5, (a.castMs || 0) / 1000);
     const perCd = (a) => (a && a.cdMs ? cooldownUses(ctx, a.cdMs) : 0);
     let gcd = Math.max(0, 1 - gcdUsed);
-    const take = (a, perSec, dmg) => {
+    const take = (a, perSec, dmg, flatThreat) => {
       const needRage = perSec * a.cost, needTime = perSec * busy(a);
       const f = Math.max(0, Math.min(1, needRage ? getRage() / needRage : 1, needTime ? gcd / needTime : 1));
       if (f < 0.01) return 0;
       setRage(getRage() - f * needRage);
       gcd -= f * needTime;
-      add({ name: `${a.name} (every ${(1 / (f * perSec)).toFixed(1)} sec)`, dps: f * perSec * dmg, spell: a.name, perSec: f * perSec });
+      add({ name: `${a.name} (every ${(1 / (f * perSec)).toFixed(1)} sec)`, dps: flatThreat ? 0 : f * perSec * dmg, spell: a.name,
+        perSec: f * perSec, flatThreat });
       return f;
     };
     const rend = use("Rend"), op = use("Overpower"), slam = use("Slam");
@@ -1017,8 +1028,13 @@
       const fromRend = rendUp && mh ? bloodthrill * (Math.max(0, 100 - mh.miss - mh.dodge) / 100) / mh.effSpeed : 0;
       push(op, Math.min(1000 / op.cdMs, dodges + fromRend));
     }
+    const sunder = holding && bookRank("WARRIOR", "Sunder Armor", ctx.level);
+    if (sunder && sunder.threat) {
+      const cost = sunder.cost / 10 - talentNumber(ctx, "Improved Sunder Armor", /by (\d+)/);
+      list.push({ a: { name: "Sunder Armor", cost }, perSec: 1 / 1.5, dmg: sunder.threat, flatThreat: sunder.threat });
+    }
     list.sort((x, y) => y.dmg / (y.a.cost || 1e-9) - x.dmg / (x.a.cost || 1e-9));
-    for (const c of list) take(c.a, c.perSec, c.dmg);
+    for (const c of list) take(c.a, c.perSec, c.dmg, c.flatThreat);
   }
 
   // Shield Block on cooldown (off the global cooldown, needs a shield): until the next one it blocks up to its number of
@@ -1141,7 +1157,22 @@
         extras.push("a mana gem");
       }
     }
-    return { perSec: (S.mana + extra + (S.mp5 / 5 + spiritRegen * keep / 100) * FIGHT_SEC) / FIGHT_SEC, keep, busy, extras };
+    return { perSec: (S.mana + extra + (S.mp5 / 5 + spiritRegen * keep / 100 + blockMana(ctx, S)) * FIGHT_SEC) / FIGHT_SEC, keep, busy, extras };
+  }
+  // Something is hitting you: alone against a mob, or as the tank (a dungeon group's, a raid boss's: ctx.tank or a
+  // Warrior in Defensive Stance); a group's or raid's damage dealers aren't hit often enough to count it
+  const beingHit = (ctx) => (ctx.target && ctx.target.mode === "same" && (!ctx.group || ctx.tank)) || ctx.tank === true ||
+    (ctx.cls.token === "WARRIOR" && warriorStance(ctx) === "defensive");
+  // Mana per second from blocks while something hits you (Paladin's Shield Specialization: "your blocks a 100% chance
+  // to restore 4% of your maximum Mana. May only occur once every 3 sec"): blocks come at the enemy's swings
+  // (MOB_SWING) times your block chance, and after each one the talent waits out its few seconds
+  function blockMana(ctx, S) {
+    const pct = talentNumber(ctx, "Shield Specialization", /restore (\d+)% of your maximum Mana/);
+    if (!pct || !S.shield || !beingHit(ctx)) return 0;
+    const chance = talentNumber(ctx, "Shield Specialization", /(\d+)% chance to restore/) / 100;
+    const wait = talentNumber(ctx, "Shield Specialization", /once every (\d+) sec/);
+    const blocks = chance * swingOutcomes(S).block / MOB_SWING;
+    return blocks > 0 ? (S.mana * pct / 100) / (wait + 1 / blocks) : 0;
   }
   const bookDesc = (token, name) => ((((KP.spellbook || {})[token] || []).find((b) => b.name === name)) || {}).desc || "";
   // talents that "allow N% of your Mana Regeneration to continue while casting" (Reflection, Reverence, ...)
@@ -1680,7 +1711,7 @@
       if (soc) {
         const perProc = (0.7 * rawSwing(S, S.mh) * (1 + crit) + 0.29 * spellPowerFor(S, 2)) * (1 + sealsPct) * holyPct * vMult;
         const d = (SOC_PPM / 60) * land * perProc;
-        parts.push({ name: "Seal of Command procs", dps: d });
+        parts.push({ name: "Seal of Command procs", dps: d, spell: "Seal of Command", school: 2 });
         dps += d;
         notes.push(`Seal of Command at ${SOC_PPM} procs a minute (Classic's rate; not in the game files)`);
       } else if (jr && jr.sealValue) {
@@ -1692,7 +1723,7 @@
         const lo = v / 87 + 0.0765 * sp, hi = v / 25 + 0.12 * sp;
         const perHit = (lo + t * (hi - lo)) * (1 + sealsPct) * holyPct * vMult * (1 + Math.min(100, S.spellCrit) / 100 * 0.5);
         const d = land / mh.effSpeed * perHit;
-        parts.push({ name: "Seal of Righteousness hits", dps: d });
+        parts.push({ name: "Seal of Righteousness hits", dps: d, spell: "Seal of Righteousness", school: 2 });
         dps += d;
         notes.push(`Seal of Righteousness at ${Math.round(perHit)} Holy damage per hit with a ${S.mh.weapon.speed.toFixed(1)} sec weapon ` +
           `(estimate: the tooltip gives ${Math.round(lo)} to ${Math.round(hi)} from fast one-handers to slow two-handers)`);
@@ -1718,7 +1749,7 @@
         shots.push({ name: `Judgement (${soc ? "Command" : "Righteousness"})`, perUse: per, rate: cooldownUses(ctx, cd * 1000),
           // Sanctified Judgement gives back part of the judged Seal's cost
           mana: Math.max(0, (jRank.costPct || 6) * baseMana / 100 * (1 - talentNumber(ctx, "Benediction", /by (\d+)%/) / 100) - refund * sealCost),
-          busy: 1.5, cast: 0 });
+          busy: 1.5, cast: 0, spell: "Judgement" });
         // Swift Judgement (Protection talent): another Judgement on its own cooldown, free (game data)
         const sj = learnedTalent(ctx, "Swift Judgement") && bookRank("PALADIN", "Swift Judgement", level);
         if (sj && sj.cdMs) {
@@ -1736,17 +1767,32 @@
       }
       const how = byName["Hammer of Wrath"];
       if (how && !how.locked && how.expected) {
-        shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: cooldownUses(ctx, Math.max(1500, how.cdMs), 0.2), mana: how.cost, busy: 1.5, cast: how.castMs / 1000 });
+        shots.push({ name: "Hammer of Wrath (last 20%)", perUse: how.expected * vMult, rate: cooldownUses(ctx, Math.max(1500, how.cdMs), 0.2), mana: how.cost, busy: 1.5, cast: how.castMs / 1000, spell: "Hammer of Wrath" });
       }
-      // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec)
+      // Holy Shield while tanking: kept up (your stats count its block chance all fight), so like the Seal its mana and
+      // global cooldowns come first. Its damage lands on each block until the charges run out (damage per block: game
+      // data; block chance: your stats; the enemy's swings: MOB_SWING); spell power and crits on it aren't counted.
+      const hsh = ctx.tank && learnedTalent(ctx, "Holy Shield") && bookRank("PALADIN", "Holy Shield", level);
+      let shieldMana = 0, shieldBusy = 0;
+      if (hsh && hsh.procDamage && hsh.cdMs) {
+        const charges = +((/(\d+) charges/.exec(bookDesc("PALADIN", "Holy Shield")) || [])[1] || Infinity);
+        const blocks = Math.min(charges, (hsh.durMs / 1000) * swingOutcomes(S).block / MOB_SWING);
+        const uses = cooldownUses(ctx, hsh.cdMs);
+        const d = uses * blocks * hsh.procDamage * holyPct * vMult;
+        parts.push({ name: `Holy Shield (kept up, ${blocks.toFixed(1)} blocks each)`, dps: d, spell: "Holy Shield", school: 2 });
+        dps += d;
+        shieldMana = uses * ((hsh.costPct || 0) * baseMana / 100 + (hsh.cost || 0));
+        shieldBusy = uses * 1.5;
+      }
+      // mana: the pool and regen over the fight, minus keeping the Seal up (recast every 30 sec) and Holy Shield
       const budget = manaBudget(ctx, S, keepWhileCasting);
-      const fitted = fitShots(shots, Math.max(0, budget.perSec - sealCost / 30));
-      for (const s of fitted) {
+      const fitted = fitShots(shots, Math.max(0, budget.perSec - sealCost / 30 - shieldMana), shieldBusy);
+      for (const s of fitted) { // every one of these is Holy damage (game data)
         dps += s.dps;
-        parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps });
+        parts.push({ name: s.name + (s.f < 0.99 ? ` (${Math.round(s.f * 100)}% of cooldowns)` : ""), dps: s.dps, spell: s.spell || s.name, school: 2 });
       }
       if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover every cooldown over a 3-minute fight");
-      const manaSpent = sealCost / 30 + manaUsed(fitted);
+      const manaSpent = sealCost / 30 + shieldMana + manaUsed(fitted);
       if (vengeance) notes.push(`Vengeance counted at full stacks (+${vengeance}%)`);
       if (learnedTalent(ctx, "Unsealed Wrath")) notes.push("Unsealed Wrath's stored Seals (switching Seals mid-fight) aren't counted");
       notes.push("Judgement doesn't use up your Seal in Forever (game data), so it's used on every cooldown; Exorcism (Undead and Demons only) and Consecration (packs) aren't counted");
@@ -1895,14 +1941,14 @@
     if (pb && pb.cdMs) {
       const perSec = cooldownUses(ctx, pb.cdMs), f = Math.min(1, rage / (pb.cost * perSec || 1));
       rage -= pb.cost * perSec * f;
-      parts.push({ name: "Primal Bite (on cooldown)", dps: pb.expected * perSec * f });
+      parts.push({ name: "Primal Bite (on cooldown)", dps: pb.expected * perSec * f, spell: "Primal Bite" });
       dps += pb.expected * perSec * f;
     }
     const lac = ok("Lacerate") ? byName["Lacerate"] : null;
     if (lac && rage > 0) { // 5 stacks refreshed once per duration: roughly 5 times one application's bleed
       const perSec = 1 / Math.max(1, (lac.durMs || 15000) / 1000), f = Math.min(1, rage / (lac.cost * perSec || 1));
       rage -= lac.cost * perSec * f;
-      parts.push({ name: "Lacerate (5 stacks kept up)", dps: lac.expected * 5 * perSec * f });
+      parts.push({ name: "Lacerate (5 stacks kept up)", dps: lac.expected * 5 * perSec * f, spell: "Lacerate" });
       dps += lac.expected * 5 * perSec * f;
     }
     const maul = ok("Maul") ? byName["Maul"] : null;
@@ -1910,7 +1956,7 @@
       const swingRage = rageFromDamage(mh.perSwing, ctx.level);
       const perSec = Math.min(rage / (maul.cost + swingRage), 1 / mh.effSpeed);
       const d = perSec * Math.max(0, maul.expected - mh.perSwing);
-      parts.push({ name: `Maul (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d });
+      parts.push({ name: `Maul (${Math.round(perSec * mh.effSpeed * 100)}% of swings)`, dps: d, spell: "Maul" });
       dps += d;
     }
     const note = "Rage from your own hits (Classic formula)" + (frenzy ? ", Blood Frenzy counted" : "") +
@@ -1924,10 +1970,11 @@
   const FIGHT_SEC = 180; // the fight length the mana budget assumes
 
   // Fit attacks into the global cooldown / cast time, then into the mana you have over the fight.
-  // shots: { name, perUse, rate (uses per sec if always pressed), mana, busy (sec of button time per use) }
+  // shots: { name, perUse, rate (uses per sec if always pressed), mana, busy (sec of button time per use) };
+  // taken: the share of each second already spent on something kept up (Holy Shield)
   const manaUsed = (fitted) => sum(fitted.map((s) => s.rate * s.f * (s.mana || 0))); // mana per second the fitted shots use
-  function fitShots(shots, manaPerSec) {
-    let time = 0.95; // leave a little room for moving and reacting
+  function fitShots(shots, manaPerSec, taken = 0) {
+    let time = 0.95 - taken; // leave a little room for moving and reacting
     for (const s of [...shots].sort((a, b) => b.perUse / (b.busy || 1e-9) - a.perUse / (a.busy || 1e-9))) {
       const need = s.rate * s.busy;
       s.f = need ? Math.max(0, Math.min(1, time / need)) : 1;
@@ -2445,7 +2492,50 @@
     const white = whiteHits(ctx, S);
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
     const healing = ["PRIEST", "PALADIN", "DRUID", "SHAMAN"].includes(ctx.cls.token) && !S.form ? healRotation(ctx, S, list) : null;
-    return { S, white, abilities: list, rotation: rotation(ctx, S, white, list), healing };
+    const rot = rotation(ctx, S, white, list);
+    if (rot) rot.threat = threatOf(ctx, S, rot);
+    return { S, white, abilities: list, rotation: rot, healing };
+  }
+
+  // The threat bonuses on you: your stance or bear form (game data), Righteous Fury while you tank (its tooltip's two
+  // numbers) and your talents (game data: Defiance; less threat from Burning Soul, Silent Resolve...). Each is
+  // { school mask, value %, name }. tank: you're the one holding the enemy (Defensive Stance, a bear form, Righteous Fury).
+  function threatMods(ctx, S) {
+    const tok = ctx.cls.token;
+    const mods = [...S.tal.threatPct];
+    const form = tok === "WARRIOR" ? STANCE_FORM[warriorStance(ctx)] : tok === "DRUID" ? DRUID_FORM[druidForm(ctx)] : null;
+    const st = form && ((KP.abilities.STANCES || {})[tok] || []).find((s) => s.form === form);
+    for (const a of (st && st.auras) || []) if (a.aura === 10 && a.value) mods.push({ school: a.misc, value: a.value, name: st.name });
+    const rf = tok === "PALADIN" && ctx.tank && bookRank("PALADIN", "Righteous Fury", ctx.level);
+    if (rf) {
+      const d = bookDesc("PALADIN", "Righteous Fury");
+      const all = /all threat generated by (\d+)%/.exec(d), holy = /Holy attacks by an additional (\d+)%/.exec(d);
+      if (all) mods.push({ school: 127, value: +all[1], name: "Righteous Fury" });
+      if (holy) mods.push({ school: 2, value: +holy[1], name: "Righteous Fury (Holy)" });
+    }
+    const tank = form === STANCE_FORM.defensive || form === DRUID_FORM.bear || form === DRUID_FORM.dire || !!rf;
+    return { mods, tank };
+  }
+
+  // Threat per second by the original game's rules, which Forever's server is built on: a point of damage is a point of
+  // threat, and so is the flat threat a spell adds (game data: Sunder Armor); each gets every threat bonus that matches
+  // its school, multiplied together (+80% and +20% make x2.16), and the spell's own (a talent's threat modifier on it,
+  // game data: Iron Creed on Holy Strike; or its tooltip's: Holy Shield's damage). unknown: attacks whose tooltip
+  // promises "a high amount of threat" the server works out (not in the game files, so not counted).
+  function threatOf(ctx, S, rot) {
+    const tok = ctx.cls.token;
+    const { mods, tank } = threatMods(ctx, S);
+    const own = (spell) => {
+      const ab = spell && (KP.abilities[tok] || []).find((a) => a.name === spell);
+      const rank = ab && pickRank(ab, ctx.level);
+      const tip = spell && /causes (\d+)% additional threat/.exec(bookDesc(tok, spell));
+      return 1 + ((rank ? modsFor(S, rank).pct(2) : 0) + (tip ? +tip[1] : 0)) / 100; // spell modifier 2: threat
+    };
+    const mult = (school, spell) => mods.filter((m) => m.school & school).reduce((x, m) => x * (1 + m.value / 100), own(spell));
+    const tps = sum(rot.parts.map((p) => p.dps * mult(p.school || 1, p.spell))) +
+      sum((rot.flatThreat || []).map((f) => f.perSec * f.threat * mult(1, f.spell)));
+    const unknown = [...new Set(rot.parts.map((p) => p.spell))].filter((n) => n && /amount of threat/.test(bookDesc(tok, n)));
+    return { tps, mods, tank, unknown };
   }
 
   // Just the abilities (no rotation), for the Abilities tab: { S, results } with results[i] for KP.abilities[class][i]
@@ -2530,7 +2620,7 @@
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
   function manaInfo(ctx) {
     const S = stats(ctx);
-    return { pool: S.mana, regen: S.mp5 / 5 + spiritRegenOf(S.attr.spirit) * keepWhileCasting(ctx) / 100 };
+    return { pool: S.mana, regen: S.mp5 / 5 + spiritRegenOf(S.attr.spirit) * keepWhileCasting(ctx) / 100 + blockMana(ctx, S) };
   }
 
   // ------------------------------------------------------------ formulas

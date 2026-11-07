@@ -369,7 +369,18 @@
       li.append(el("span", null, p.name), el("span", "muted", ` ${fmt(p.dps, 1)}`));
       ul.append(li);
     }
-    box.append(ul, el("p", "muted small", "Rough: " + R.rotation.note));
+    box.append(ul);
+    // a tank: threat per second, the bonuses it counts and what it can't
+    const th = R.rotation.threat;
+    if (th.tank && th.tps > 0) {
+      const bonuses = th.mods.map((m) => `${m.name} ${m.value > 0 ? "+" : "−"}${Math.abs(m.value)}%`).join(", ");
+      const flat = (R.rotation.flatThreat || []).map((f) => f.spell);
+      box.append(el("p", "small", `Threat per second: ${fmt(th.tps, 1)}, from your damage` +
+        (flat.length ? ` and ${flat.join(", ")}'s own threat (game data)` : "") +
+        ` times ${bonuses || "no bonus"}` + (th.mods.length > 1 ? ", multiplied together (the original game's rule)" : "") +
+        (th.unknown.length ? `. Not counted: the extra threat of ${th.unknown.join(", ")} (the server works it out; it isn't in the game files).` : ".")));
+    }
+    box.append(el("p", "muted small", "Rough: " + R.rotation.note));
     return box;
   }
 

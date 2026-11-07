@@ -13,6 +13,7 @@
     ["calendar", "calendar.html", "Calendar"],
     ["tools", "index.html#tools", "Guild Tools"],
     ["planner", "planner/index.html", "Planner"],
+    ["whatsnew", "planner/whats-new.html", "What's New"],
     ["join", "index.html#join", "Join"]
   ];
 

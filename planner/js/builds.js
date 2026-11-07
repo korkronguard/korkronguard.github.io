@@ -1,6 +1,7 @@
-// Kor'kron Planner: the Builds tab. Suggested builds per class (data/builds.js, made by tools/make_builds.js), two per
-// spec: a leveling build (solo, 10-60) and a level 60 build (groups and raids), each with the order to take every
-// point. "Load" puts a build into the Talents tab, leveling path included.
+// Kor'kron Planner: the Builds tab. Suggested builds per class (data/builds.js, made by tools/make_builds.js) on three
+// paths per spec: Solo (questing alone, 10-60), Dungeon (ready for groups while leveling, then dungeons and raids at 60)
+// and PvP (fighting players), each with the order to take every point, close alternatives to the measured points and
+// a few "your choice" points. "Load" puts a build into the Talents tab, leveling path included.
 (function () {
   "use strict";
 
@@ -16,7 +17,7 @@
     return e;
   };
   const ROLE = { dps: "Damage", tank: "Tank", heal: "Healer" };
-  const KINDS = [["leveling", "Leveling (solo, 10-60)"], ["group", "Level 60 (groups and raids)"]];
+  const PATHS = [["solo", "Solo"], ["dungeon", "Dungeon"], ["pvp", "PvP"]];
 
   // the loaded build goes in the link (&bd=key) so a shared link keeps its explanations; it only counts while the
   // picks still match the build
@@ -130,6 +131,23 @@
       p.append(el("strong", null, "Provisional: "), build.provisional);
       box.append(p);
     }
+    if (build.judgment) {
+      const p = el("p", "build-stance");
+      p.append(el("strong", null, "Judgment, not measured: "), build.judgment);
+      box.append(p);
+    }
+    // how much of the build the math stands behind: talents whose points change nothing in it are judgment
+    const judged = build.unmeasured.reduce((n, u) => n + u.points, 0);
+    const measured = el("p", "muted small", `Measured by the planner's math: ${51 - judged} of 51 points` + (judged
+      ? `. Picked by judgment (the math can't put a number on them yet): ${build.unmeasured.map((u) => `${u.name} ${u.points}`).join(", ")}.`
+      : "."));
+    box.append(measured);
+    for (const f of build.flex || []) {
+      const p = el("p", "build-stance");
+      p.append(el("strong", null, `Your choice (${f.points} point${f.points > 1 ? "s" : ""}): `),
+        `${f.name}, or ${f.options.map((o) => o.name).join(" or ")}: ${f.why}.`);
+      box.append(p);
+    }
     const stance = stanceNote(build);
     if (stance) {
       const p = el("p", "build-stance");
@@ -146,7 +164,7 @@
       if (pair) {
         const go = el("button", "btn small", `At 60, for groups: ${pair.name}`);
         go.type = "button";
-        go.addEventListener("click", () => { state.buildKind = "group"; render(); });
+        go.addEventListener("click", () => { state.buildPath = "dungeon"; render(); });
         box.append(go);
       }
     } else box.append(el("p", "muted small", build.hps60 != null
@@ -169,6 +187,11 @@
       if (t) iconStyle(ti, t.icon, 20);
       li.append(el("span", "build-lv", `Lv ${o.level}`), ti, el("span", null, `${o.name} ${o.rank}/${t ? t.ranks.length : "?"}`),
         el("span", "muted small", " " + o.why));
+      // close alternatives: as good or nearly as good at this level (from outside the build: the build's last point makes room)
+      if (o.alts) {
+        li.append(el("span", "muted small", " · or " + o.alts.map((a) =>
+          `${a.name}${a.outside ? " (not in this build)" : ""}: ${a.why}`).join("; or ")));
+      }
       ol.append(li);
     }
     det.append(ol);
@@ -186,33 +209,43 @@
       return;
     }
     const treeNames = KP.talents.trees[state.cls.token].map((t) => t.name);
-    // leveling or level 60: starts on leveling below 60
-    const kind = state.buildKind || (state.level < 60 ? "leveling" : "group");
+    const path = state.buildPath || "solo";
     const bar = el("div", "build-kinds");
-    for (const [k, label] of KINDS) {
-      const b = el("button", "btn" + (k === kind ? " primary" : ""), label);
+    for (const [k, label] of PATHS) {
+      const b = el("button", "btn" + (k === path ? " primary" : ""), label);
       b.type = "button";
-      b.setAttribute("aria-pressed", String(k === kind));
-      b.addEventListener("click", () => { state.buildKind = k; render(); });
+      b.setAttribute("aria-pressed", String(k === path));
+      b.addEventListener("click", () => { state.buildPath = k; render(); });
       bar.append(b);
     }
     box.append(bar);
+    const shown = builds.filter((x) => x.path === path);
     const how = el("p", "muted small build-how");
-    how.textContent = kind === "leveling"
-      ? "Leveling builds are for questing alone as that spec. The order comes from the planner's math: at each level the next " +
+    how.textContent = path === "solo"
+      ? "Solo builds are for questing alone as that spec. The order comes from the planner's math: at each level the next " +
         "point goes where you'd level fastest, counting both how quickly you kill a same-level mob and how long you then eat " +
         "and drink (so damage, survival and mana savings all count), with no group buffs and the gear you'd have at that level. " +
         "You go down your main tree first and take its 31-point talent at 40. Mob health and damage and food and drink rates " +
         "come from Classic (they aren't in Forever's files). Points the math can't measure (pets, utility, procs) say so and " +
         "are placed by row."
-      : "Level 60 builds are for groups and raids: measured with raid buffs on against a raid boss. The final builds are " +
-        "suggestions for each role. The leveling order comes from the planner's math: you go down your main tree first and " +
-        "take its 31-point talent the moment it opens; within that, each point goes where it adds the most damage (for a tank, " +
-        "survival and threat; for a healer, healing) at that level. Points the math can't measure (utility, procs it doesn't " +
-        "model yet) say so and are placed by row.";
+      : path === "pvp"
+        ? "PvP builds are for fighting players: world PvP while you level, battlegrounds at 60. They take the crowd control, " +
+          "stuns and utility a PvE build skips. The planner's math can't measure a fight against a player (stuns, fears, " +
+          "kiting, burst, healing through it), so the PvP talents are picked from class knowledge, or follow Icy Veins' " +
+          "published PvP build where there is one, and each card says which. While leveling they come as soon as their row " +
+          "opens, and the leveling math orders the rest (you still quest); the numbers below are for questing."
+        : "Dungeon builds are ready for groups while you level and end as the level 60 build for dungeons and raids. The " +
+          "leveling order is measured in a dungeon pull at each level: the gear you'd have then, a mob a level above you that " +
+          "lives about as long as a solo mob does, no group buffs, no resting counted (the group drinks between pulls). Each " +
+          "point goes where it adds the most damage (a tank: survival, with threat talents as soon as their rows open; a " +
+          "healer: healing), down your main tree first. The numbers at 60 are measured in a raid: raid buffs on, a raid boss. " +
+          "Points the math can't measure say so and are placed by row.";
     box.append(how);
+    box.append(el("p", "muted small build-how", "Not set in stone: \"or\" after a point names talents the math rates as " +
+      "good or nearly as good at that level (one from outside the build pushes the build's last point out), and \"Your " +
+      "choice\" points are yours to place either way."));
     const grid = el("div", "build-grid");
-    for (const b of builds.filter((x) => (x.kind || "group") === kind)) grid.append(card(b, treeNames));
+    for (const b of shown) grid.append(card(b, treeNames));
     box.append(grid);
   }
 
