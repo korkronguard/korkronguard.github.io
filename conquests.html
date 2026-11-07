@@ -51,11 +51,13 @@
     var d = c.date.split("-");
     var day = new Date(+d[0], d[1] - 1, +d[2]).toLocaleDateString([], { year: "numeric", month: "long", day: "numeric" });
     var src = "assets/conquests/" + KG.esc(c.image);
+    var kindLine = c.label || "First Clear · " + (c.kind === "raid" ? "Raid" : "Dungeon");
+    var alt = c.label ? "The Kor'kron Guard: " + c.place : "The Kor'kron Guard after their first " + c.place + " clear";
     return '<figure class="trophy panel">' +
       '<a class="trophy-pic" href="' + src + '" target="_blank" rel="noopener" title="Open the full picture">' +
-        '<img src="' + src + '" alt="' + KG.esc("The Kor'kron Guard after their first " + c.place + " clear") + '" loading="lazy"></a>' +
+        '<img src="' + src + '" alt="' + KG.esc(alt) + '" loading="lazy"></a>' +
       "<figcaption>" +
-        '<p class="trophy-kind">First Clear · ' + (c.kind === "raid" ? "Raid" : "Dungeon") + "</p>" +
+        '<p class="trophy-kind">' + KG.esc(kindLine) + "</p>" +
         "<h3>" + KG.esc(c.place) + "</h3>" +
         '<p class="trophy-date">' + day + "</p>" +
         (c.note ? '<p class="trophy-note">' + KG.esc(c.note) + "</p>" : "") +
