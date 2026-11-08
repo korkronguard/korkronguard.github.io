@@ -1990,6 +1990,46 @@
     return shots.map((s) => ({ ...s, dps: s.perUse * s.rate * s.f }));
   }
 
+  // A Hunter's pet: its melee isn't in the game files, so it's measured. Its own damage per second before armor (a
+  // family with no damage bonus) is what the guild's Hunters' pets do (site/data/measured.js, from tools/snapshots.py) and,
+  // around those levels, a rise of 0.82 a level (10 pets at levels 5-29 in the first combat log, 2026-11-08). Nothing above
+  // level 29 has been seen yet. Your share: a Spider's 27 attack power with 278 ranged attack power, one reading.
+  const PET_DPS_PER_LEVEL = 0.82;
+  const PET_RAP_SHARE = 0.1;
+  const PET_SPEED = 2; // the Spider's and most pets' in that log; only Frenzy's count of swings uses it
+  function petRawDps(level, rap) {
+    const m = KP.measured.petDps, last = Math.max(...Object.keys(m).map(Number));
+    const own = byLevel(m, level, m[last] + PET_DPS_PER_LEVEL * (60 - last),
+      (first) => m[first] - PET_DPS_PER_LEVEL * (first - level));
+    return own + (PET_RAP_SHARE * rap) / 14;
+  }
+  // The families at either end of the damage bonus, from the game files: "Cat and Raptor +10%, Boar and Turtle -10%"
+  function petFamilyText() {
+    const all = Object.entries(rules.petFamilies), bonuses = all.map(([, f]) => f.damage);
+    const at = (v) => `${all.filter(([, f]) => f.damage === v).map(([name]) => name).join(" and ")} ${v > 0 ? "+" : ""}${v}%`;
+    return `${at(Math.max(...bonuses))}, ${at(Math.min(...bonuses))}`;
+  }
+  // What the pet adds to your damage per second (0 with Lone Wolf, or before a Hunter has one: level 10, with Revive Pet).
+  // Its swings follow your attack table with none of your hit or crit: 0 crits in 217 swings in that log, so its only crit
+  // is Ferocity's, which Frenzy needs too. Bite and Claw aren't counted: no pet in the log dealt any.
+  function petDamage(ctx, S) {
+    if (learnedTalent(ctx, "Lone Wolf") || !bookRank("HUNTER", "Revive Pet", ctx.level)) return 0;
+    const d = Math.max(0, Math.min(3, ctx.target.diff));
+    const t = table(ctx, { hit: 0 }, "melee");
+    const glance = GLANCE_CHANCE[d];
+    const crit = Math.max(0, talentNumber(ctx, "Ferocity", /by (\d+)%/) - critSuppression(ctx));
+    const hit = 100 - t.miss - t.dodge - glance - crit;
+    const perSwing = (hit + crit * 2 + glance * GLANCE_DAMAGE[d]) / 100;
+    const haste = talentNumber(ctx, "Frenzy", /(\d+)% attack speed/);
+    const swingsInFrenzy = (talentNumber(ctx, "Frenzy", /for (\d+) sec/) * (1 + haste / 100)) / PET_SPEED;
+    const frenzyChance = (crit / 100) * (talentNumber(ctx, "Frenzy", /(\d+)% chance/) / 100);
+    const frenzy = (haste / 100) * (1 - (1 - frenzyChance) ** swingsInFrenzy);
+    const wrath = bookRank("HUNTER", "Bestial Wrath", ctx.level);
+    const wrathBonus = wrath ? (talentNumber(ctx, "Bestial Wrath", /causing (\d+)% additional/) / 100) * cooldownShare(ctx, wrath.durMs, wrath.cdMs) : 0;
+    return petRawDps(ctx.level, S.rap) * perSwing * (1 + frenzy) * (1 - mitigation(ctx, { tal: { armorIgnore: 0 } })) * (1 + wrathBonus) *
+      (1 + talentNumber(ctx, "Unleashed Fury", /by (\d+)%/) / 100) * (1 + talentNumber(ctx, "Focused Fire", /by (\d+)%/) / 100);
+  }
+
   function hunterRotation(ctx, S, white, byName) {
     const style = hunterStyle(ctx);
     const level = ctx.level;
@@ -2108,7 +2148,14 @@
     }
     if (haste) notes.push(`Rapid Fire averages +${haste.toFixed(1)}% attack speed`);
     if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
-    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}); pet not counted; Aspect of the Viper not used`);
+    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}); Aspect of the Viper not used`);
+    const pet = petDamage(ctx, S);
+    if (pet) {
+      parts.push({ name: "Pet", dps: pet });
+      dps += pet;
+      const measuredTo = Math.max(...Object.keys(KP.measured.petDps).map(Number));
+      notes.push(`the pet's melee counts for a family with no damage bonus (${petFamilyText()}), measured to level ${measuredTo} and an estimate above; Bite and Claw aren't counted`);
+    }
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved, manaSpent };
   }
@@ -2835,6 +2882,17 @@
     if (t === "HUNTER") {
       out.push({ name: "Shots", text: "weapon damage + ranged attack power ÷ 14 × weapon speed. Crits do double damage.",
         numbers: hitsFrom("ranged attack power") });
+      out.push({ name: "Your pet", text: `its melee adds to your damage: about ${PET_DPS_PER_LEVEL} more damage per second each level, plus ` +
+        `${PET_RAP_SHARE * 100}% of your ranged attack power ÷ 14, through the target's armor like your own hits. It doesn't crit without Ferocity. ` +
+        "Lone Wolf means no pet.",
+        numbers: [
+          [`${PET_DPS_PER_LEVEL} each level`, "how a pet's damage rises", "the guild's Hunter's level 29 Spider and 10 pets in a combat log, levels 5 to 29; above level 29 it's the planner's estimate"],
+          [`${PET_RAP_SHARE * 100}%`, "your share of your ranged attack power", "one reading: a Spider with 27 attack power from its owner's 278"],
+          ["÷ 14", "14 attack power add 1 damage per second, as for your own hits", FROM.rule],
+          ["doesn't crit", "0 crits in 217 pet swings; only Ferocity gives it crit, and Frenzy needs a crit", "a combat log on Forever"],
+          ["its family", `the planner counts a family with no damage bonus; ${petFamilyText()}`, FROM.files("each family's Tamed Pet Passive")],
+          ["Bite and Claw", "not counted: no pet in the combat log dealt any", FROM.planner],
+        ] });
     }
     if (WANDS.includes(t)) {
       out.push({ name: "Wands", text: "the wand's own damage (attack power doesn't add to it); crits do 1.5 times damage.",
@@ -2863,5 +2921,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, mobHealth, meleeTaken };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, mobHealth, meleeTaken };
 })();

@@ -70,7 +70,7 @@
     if (!t.passive) return `It gives you a new ability (${t.name}). The Priority tab shows when to use it.`;
     if (/threat/i.test(d)) return "Mostly about threat (holding the enemy's attention). The damage math doesn't count threat modifiers, so its value doesn't show in the numbers.";
     if (/\b(pets?|hawks?|demons?|Imp|Voidwalker|Succubus|Felhunter|Felguard|minions?)\b/.test(d))
-      return "It works through your pet or summon. Their damage and stats are kept on the server (not in the game files), so the planner can't count it.";
+      return "It works through your pet or summon, in a way the planner can't put a number on. A Hunter's pet counts for its melee only; a Warlock's demon doesn't count yet (its numbers are kept on the server, not in the game files).";
     if (/damage taken|damage you take|absorb|Armor|health|Dodge|Parry|Block|Defense|resist|pushback|lose casting time|interrupt/i.test(d) && !/damage (done|dealt) by your/i.test(d))
       return "A defensive talent: it keeps you alive or casting under pressure. The damage numbers can't show that.";
     if (/(mana|rage|energy)/i.test(d) && /(cost|regenerat|refund|restor|generat|gain)/i.test(d))
