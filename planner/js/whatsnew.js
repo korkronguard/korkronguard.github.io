@@ -1,30 +1,24 @@
 // Kor'kron Planner: the What's New page (whats-new.html). Lists what each WoW: Forever update added, changed or removed
-// (data/changes.js, written by tools/game_changes.py from the game's own files), grouped by category, with a search,
-// filters, a before/now view of each changed item, and a link that keeps the filters.
+// (data/changes.js, written by tools/game_changes.py from the game's own files), with a search, filters, a before/now
+// view of each change, and a link that keeps the filters. This file runs the page and has the Items view;
+// whatsnew-views.js has the Abilities & Talents and Blizzard's Posts views.
 (function () {
   "use strict";
 
   const KP = window.KP;
   const { WEAPONS, WEAPON_NAMES, ARMOR_NAMES, INV_NAMES, QUALITY, STAT_TEXT, TRIGGER, SCHOOLS, SOURCE_NAMES,
     wowheadUrl } = KP.itemInfo;
+  const { $, el, longDate, fillSelect, expandable, spriteIcon, before, KINDS, KIND_NAME, POST_KINDS, SPELLS, POSTS, spellPasses,
+    renderSpellFilters, renderSpells, renderPostFilters, renderPosts } = KP.whatsNewViews;
   const DATA = KP.changes || { updates: [], categories: {} };
   const CLASSES = KP.classes.classes;
 
-  const KINDS = [["added", "New"], ["changed", "Changed"], ["removed", "Removed"]];
-  const KIND_NAME = Object.fromEntries(KINDS);
   // categories in the order players look for them: gear, then what you use and craft, then the rest
   const CATEGORY_ORDER = [4, 2, 0, 9, 7, 1, 11, 6, 5, 15, 12, 13];
   const PRIMARY = ["strength", "agility", "stamina", "intellect", "spirit"];
   const FISHING_POLE = 20; // any class can use one
   const ROWS_SHOWN = 40;   // per category, until "Show all"
 
-  const $ = (id) => document.getElementById(id);
-  const el = (tag, cls, text) => {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  };
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const dps = (w) => ((w.min + w.max) / 2 / w.speed).toFixed(1);
 
@@ -79,17 +73,6 @@
     if (!parts.length && fx) parts.push(effectLine(fx));
     if (!parts.length && c.flavor) parts.push(`“${c.flavor}”`);
     return parts.join(" · ");
-  }
-
-  // the item before the update: the card with its old values put back (null = it didn't have that)
-  function before(c) {
-    const old = { ...c };
-    delete old.was;
-    for (const [k, v] of Object.entries(c.was)) {
-      if (v === null) delete old[k];
-      else old[k] = v;
-    }
-    return old;
   }
 
   // what changed, one short line each; dir "up" = better for the player, "down" = worse, "" = neither
@@ -203,15 +186,14 @@
   // ------------------------------------------------------------ the page
 
   const ENTRIES = DATA.updates.flatMap((u) => KINDS.flatMap(([kind]) => (u[kind] || []).map((card) => ({ u, kind, card }))));
-  const BLANK = { k: "all", q: "", c: "", t: "", s: "", ql: [], lo: "", hi: "", cls: "", f: "", sort: "ilvl" };
-  let f = { u: DATA.updates.length ? DATA.updates[0].id : "all", ...BLANK };
+  const inUpdate = (entries, u) => entries.filter((e) => e.u.id === u);
+  const newestId = DATA.updates.length ? DATA.updates[0].id : "all";
+  // the page opens on what the newest update changed: its items, or the classes when that's all it touched
+  const FIRST_VIEW = !inUpdate(ENTRIES, newestId).length && inUpdate(SPELLS, newestId).length ? "spells" : "items";
+  const BLANK = { k: "all", q: "", c: "", t: "", s: "", ql: [], lo: "", hi: "", cls: "", f: "", st: "", pk: "all", sort: "ilvl" };
+  let f = { v: FIRST_VIEW, u: newestId, ...BLANK };
   const open = new Set();         // rows showing their details
-  const allShown = new Set();     // categories showing every row
-
-  function longDate(iso) {
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  }
+  const allShown = new Set();     // groups showing every row
 
   // ---- the address keeps the filters, so a link shows the same list
   function readHash() {
@@ -220,6 +202,9 @@
     const u = p.get("u");
     f = {
       ...f,
+      v: ["items", "spells", "posts"].includes(p.get("v")) ? p.get("v") : FIRST_VIEW,
+      st: ["ability", "talent", "racial"].includes(p.get("st")) ? p.get("st") : "",
+      pk: POST_KINDS.some(([k]) => k === p.get("pk")) ? p.get("pk") : "all",
       u: u === "all" || DATA.updates.some((x) => x.id === u) ? u : f.u,
       k: KIND_NAME[p.get("k")] ? p.get("k") : "all",
       q: p.get("q") || "", c: p.get("c") || "", t: (p.get("c") && p.get("t")) || "", s: p.get("s") || "",
@@ -232,8 +217,9 @@
   }
   function writeHash() {
     const p = new URLSearchParams();
+    if (f.v !== FIRST_VIEW) p.set("v", f.v);
     if (f.u !== (DATA.updates[0] || {}).id) p.set("u", f.u);
-    for (const k of ["k", "q", "c", "t", "s", "lo", "hi", "cls", "f", "sort"]) if (f[k] !== BLANK[k]) p.set(k, f[k]);
+    for (const k of ["k", "q", "c", "t", "s", "lo", "hi", "cls", "f", "st", "pk", "sort"]) if (f[k] !== BLANK[k]) p.set(k, f[k]);
     if (f.ql.length) p.set("ql", f.ql.join(","));
     const hash = p.toString();
     history.replaceState(null, "", hash ? "#" + hash : location.pathname + location.search);
@@ -273,22 +259,31 @@
       b.addEventListener("click", () => set({ u: id }));
       box.append(b);
     };
+    const entries = f.v === "spells" ? SPELLS : ENTRIES;
     for (const u of DATA.updates) {
       const builds = u.from === u.to ? `Build ${u.to}` : `Build ${u.from} → ${u.to}`;
-      button(u.id, u.title, `${longDate(u.date)} · ${builds}`, counts(ENTRIES.filter((e) => e.u === u)), u.note);
+      button(u.id, u.title, `${longDate(u.date)} · ${builds}`, counts(entries.filter((e) => e.u === u)), u.note);
     }
-    if (DATA.updates.length > 1) button("all", "All updates", `${DATA.updates.length} updates`, counts(ENTRIES));
+    if (DATA.updates.length > 1) button("all", "All updates", `${DATA.updates.length} updates`, counts(entries));
+  }
+
+  // ---- the three views (top), with how much each has for the chosen update
+  function renderViews() {
+    const box = $("views");
+    box.textContent = "";
+    const inChosen = (entries) => (f.u === "all" ? entries : inUpdate(entries, f.u)).length;
+    const views = [["items", "Items", inChosen(ENTRIES)], ["spells", "Abilities & Talents", inChosen(SPELLS)],
+      ["posts", "Blizzard's Posts", POSTS.length]];
+    for (const [v, label, n] of views) {
+      const b = el("button", null, `${label} ${n}`);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(f.v === v));
+      b.addEventListener("click", () => set({ v }));
+      box.append(b);
+    }
   }
 
   // ---- filters (top)
-  // a dropdown's choices; the one chosen stays listed (with 0) when the other filters leave nothing in it
-  function fillSelect(select, first, options, value, label) {
-    select.textContent = "";
-    select.append(new Option(first, ""));
-    if (value !== "" && !options.some(([v]) => v === value)) options = [...options, [value, `${label} (0)`]];
-    for (const [v, text] of options) select.append(new Option(text, v));
-    select.value = value;
-  }
   // [value, "name (how many)"] for each value of key() among the list's items
   function tally(list, key, label) {
     const n = new Map();
@@ -302,18 +297,22 @@
     return [...n].map(([k, t]) => [String(k), `${t.label} (${t.count})`]);
   }
 
-  function renderFilters() {
+  // the New / Changed / Removed buttons, counting these entries
+  function renderKinds(entries) {
     const kinds = $("kinds");
     kinds.textContent = "";
-    const forKinds = ENTRIES.filter((e) => passes(e, { ...f, k: "all" }));
-    const n = counts(forKinds);
+    const n = counts(entries);
     for (const [k, label] of [["all", "All"], ...KINDS]) {
-      const b = el("button", k === "all" ? "" : k, `${label} ${k === "all" ? forKinds.length : n[k]}`);
+      const b = el("button", k === "all" ? "" : k, `${label} ${k === "all" ? entries.length : n[k]}`);
       b.type = "button";
       b.setAttribute("aria-pressed", String(f.k === k));
       b.addEventListener("click", () => set({ k }));
       kinds.append(b);
     }
+  }
+
+  function renderFilters() {
+    renderKinds(ENTRIES.filter((e) => passes(e, { ...f, k: "all" })));
 
     const forCats = ENTRIES.filter((e) => passes(e, { ...f, c: "", t: "", s: "" }));
     const chosen = DATA.categories[f.c] || { name: "Other", subs: {} };
@@ -335,7 +334,6 @@
     fillSelect($("cls"), "Any class", CLASSES.map((cl) => [cl.token, cl.name]), f.cls);
     $("faction").value = f.f;
     $("sort").value = f.sort;
-    if (document.activeElement !== $("search")) $("search").value = f.q;
     $("levelLo").value = f.lo;
     $("levelHi").value = f.hi;
 
@@ -349,7 +347,6 @@
       b.addEventListener("click", () => set({ ql: f.ql.includes(q) ? f.ql.filter((x) => x !== q) : [...f.ql, q] }));
       chips.append(b);
     }
-    $("clear").hidden = Object.keys(BLANK).every((k) => k === "sort" || String(f[k]) === String(BLANK[k]));
   }
   const order = (cls) => {
     const i = CATEGORY_ORDER.indexOf(cls);
@@ -357,19 +354,7 @@
   };
 
   // ---- the list
-  function icon(e) {
-    const c = e.card;
-    const span = el("span", "wn-icon q-border-" + QUALITY[c.quality]);
-    const i = e.u.icons[c.icon];
-    if (i === undefined) {
-      span.classList.add("none");
-    } else {
-      const size = DATA.iconSize, cols = DATA.iconCols;
-      span.style.backgroundImage = `url(img/changes/${e.u.id}.jpg)`;
-      span.style.backgroundPosition = `-${(i % cols) * size}px -${Math.floor(i / cols) * size}px`;
-    }
-    return span;
-  }
+  const icon = (e) => spriteIcon(e.u, e.card.icon, "wn-icon q-border-" + QUALITY[e.card.quality]);
 
   function tooltip(c) {
     const box = el("div", "itip");
@@ -446,7 +431,6 @@
     const head = el("div", "wn-head");
     const btn = el("button", "wn-row");
     btn.type = "button";
-    btn.setAttribute("aria-expanded", String(open.has(key)));
     const main = el("span", "wn-main");
     main.append(el("span", "wn-name q-" + QUALITY[c.quality], c.name),
       el("span", "wn-meta", metaLine(c) + (f.u === "all" ? ` · ${longDate(e.u.date)}` : "")));
@@ -466,13 +450,8 @@
     link.title = "Where it drops and who sells it, on Wowhead";
     head.append(btn, el("span", "wn-badge " + e.kind, KIND_NAME[e.kind]), link);
     li.append(head);
-    if (open.has(key)) li.append(detail(e));
-    btn.addEventListener("click", () => {
-      hideTip(btn);
-      if (open.delete(key)) li.querySelector(".wn-detail").remove();
-      else { open.add(key); li.append(detail(e)); }
-      btn.setAttribute("aria-expanded", String(open.has(key)));
-    });
+    expandable(li, btn, key, open, () => detail(e));
+    btn.addEventListener("click", () => hideTip(btn));
     btn.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse" && !open.has(key)) showTip(c, btn); });
     btn.addEventListener("pointerleave", () => hideTip(btn));
     return li;
@@ -480,10 +459,10 @@
 
   function renderResults() {
     const list = ENTRIES.filter((e) => passes(e, f)).sort((a, b) => SORTS[f.sort](a.card, b.card));
-    const inUpdate = ENTRIES.filter((e) => f.u === "all" || e.u.id === f.u).length;
-    const filtered = list.length !== inUpdate;
-    $("summary").textContent = !list.length ? (inUpdate ? "No items match these filters." : "")
-      : `${list.length} item${list.length === 1 ? "" : "s"}` + (filtered ? ` match your filters (of ${inUpdate})` : "") +
+    const total = (f.u === "all" ? ENTRIES : inUpdate(ENTRIES, f.u)).length;
+    const filtered = list.length !== total;
+    $("summary").textContent = !list.length ? (total ? "No items match these filters." : "This update didn't change any items.")
+      : `${list.length} item${list.length === 1 ? "" : "s"}` + (filtered ? ` match your filters (of ${total})` : "") +
         ". Click an item for its full tooltip" + (f.k !== "added" ? ", and before and after for changed ones." : ".");
     const out = $("results");
     out.textContent = "";
@@ -510,11 +489,35 @@
     }
   }
 
+  const SEARCH_HINT = { items: "Search names, stats, effects...", spells: "Search abilities, talents, tooltips...",
+    posts: "Search titles, previews, our notes..." };
+
   function render() {
     writeHash();
+    renderViews();
+    $("updatesNav").hidden = f.v === "posts";
+    $("layout").classList.toggle("wn-no-updates", f.v === "posts");
+    $("kinds").hidden = f.v === "posts";
+    $("itemFilters").hidden = f.v !== "items";
+    $("spellFilters").hidden = f.v !== "spells";
+    $("postFilters").hidden = f.v !== "posts";
+    $("search").placeholder = SEARCH_HINT[f.v];
+    if (document.activeElement !== $("search")) $("search").value = f.q;
+    $("clear").hidden = Object.keys(BLANK).every((k) => k === "sort" || String(f[k]) === String(BLANK[k]));
+    if (f.v === "posts") {
+      renderPostFilters(f, set);
+      renderPosts(f, allShown);
+      return;
+    }
     renderUpdates();
-    renderFilters();
-    renderResults();
+    if (f.v === "spells") {
+      renderKinds(SPELLS.filter((e) => spellPasses(e, { ...f, k: "all" })));
+      renderSpellFilters(f);
+      renderSpells(f, open, allShown);
+    } else {
+      renderFilters();
+      renderResults();
+    }
   }
 
   // ---- controls
@@ -536,6 +539,8 @@
   $("type").addEventListener("change", (ev) => set({ t: ev.target.value }));
   $("slot").addEventListener("change", (ev) => set({ s: ev.target.value }));
   $("cls").addEventListener("change", (ev) => set({ cls: ev.target.value }));
+  $("spellCls").addEventListener("change", (ev) => set({ cls: ev.target.value }));
+  $("spellType").addEventListener("change", (ev) => set({ st: ev.target.value }));
   $("faction").addEventListener("change", (ev) => set({ f: ev.target.value }));
   $("sort").addEventListener("change", (ev) => set({ sort: ev.target.value }));
   for (const [id, key] of [["levelLo", "lo"], ["levelHi", "hi"]]) {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>What's New in WoW: Forever</title>
-<meta name="description" content="Every item WoW: Forever's updates add, change or remove, read from the game's own files. Made for the Kor'kron Guard.">
+<meta name="description" content="Every item, ability and talent WoW: Forever's updates add, change or remove, read from the game's own files, with Blizzard's own posts. Made for the Kor'kron Guard.">
 <link rel="icon" href="../assets/crest.svg" type="image/svg+xml">
 <!-- On the guild website these load the shared menu and footer; opened on its own they're simply skipped. -->
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@500;700&family=IM+Fell+English&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
 <header class="top">
   <div class="brand">
     <h1>What's New</h1>
-    <span class="sub">Every item WoW: Forever's updates add, change or remove, read from the game's own files</span>
+    <span class="sub">Every item, ability and talent WoW: Forever's updates add, change or remove, read from the game's own files, and what Blizzard says about it</span>
   </div>
   <div class="actions">
     <a class="btn" href="index.html">Open the Planner</a>
@@ -24,42 +24,52 @@
   </div>
 </header>
 
-<main class="wn-layout">
-  <nav class="wn-updates" aria-label="Game updates">
+<main class="wn-layout" id="layout">
+  <nav class="wn-updates" id="updatesNav" aria-label="Game updates">
     <h2>Updates</h2>
     <div id="updates"></div>
   </nav>
 
-  <section class="wn-content" aria-label="Items">
+  <section class="wn-content" aria-label="What changed">
+    <div class="seg wn-views" id="views" role="group" aria-label="What to show"></div>
     <div class="wn-filters">
       <div class="wn-line">
         <label class="wn-search">
           <span class="sr">Search</span>
-          <input type="search" id="search" placeholder="Search names, stats, effects..." autocomplete="off">
+          <input type="search" id="search" autocomplete="off">
         </label>
         <div class="seg" id="kinds" role="group" aria-label="Show"></div>
-      </div>
-      <div class="wn-line">
-        <label class="wn-field"><span>Category</span><select id="category"></select></label>
-        <label class="wn-field" id="typeField" hidden><span>Type</span><select id="type"></select></label>
-        <label class="wn-field" id="slotField" hidden><span>Slot</span><select id="slot"></select></label>
-        <label class="wn-field"><span>Usable by</span><select id="cls"></select></label>
-        <label class="wn-field"><span>Faction</span><select id="faction">
-          <option value="">Both</option><option value="Horde">Horde</option><option value="Alliance">Alliance</option>
-        </select></label>
-      </div>
-      <div class="wn-line">
-        <div class="chips" id="qualities" role="group" aria-label="Quality"></div>
-        <label class="wn-field wn-levels"><span>Level</span>
-          <input type="number" id="levelLo" min="1" max="60" placeholder="1" inputmode="numeric" aria-label="Lowest required level">
-          <span aria-hidden="true">to</span>
-          <input type="number" id="levelHi" min="1" max="60" placeholder="60" inputmode="numeric" aria-label="Highest required level">
-        </label>
-        <label class="wn-field"><span>Sort</span><select id="sort">
-          <option value="ilvl">Item level</option><option value="req">Required level</option>
-          <option value="quality">Quality</option><option value="name">Name</option>
-        </select></label>
         <button type="button" id="clear" class="btn wn-clear" hidden>Clear filters</button>
+      </div>
+      <div class="wn-lines" id="itemFilters">
+        <div class="wn-line">
+          <label class="wn-field"><span>Category</span><select id="category"></select></label>
+          <label class="wn-field" id="typeField" hidden><span>Type</span><select id="type"></select></label>
+          <label class="wn-field" id="slotField" hidden><span>Slot</span><select id="slot"></select></label>
+          <label class="wn-field"><span>Usable by</span><select id="cls"></select></label>
+          <label class="wn-field"><span>Faction</span><select id="faction">
+            <option value="">Both</option><option value="Horde">Horde</option><option value="Alliance">Alliance</option>
+          </select></label>
+        </div>
+        <div class="wn-line">
+          <div class="chips" id="qualities" role="group" aria-label="Quality"></div>
+          <label class="wn-field wn-levels"><span>Level</span>
+            <input type="number" id="levelLo" min="1" max="60" placeholder="1" inputmode="numeric" aria-label="Lowest required level">
+            <span aria-hidden="true">to</span>
+            <input type="number" id="levelHi" min="1" max="60" placeholder="60" inputmode="numeric" aria-label="Highest required level">
+          </label>
+          <label class="wn-field"><span>Sort</span><select id="sort">
+            <option value="ilvl">Item level</option><option value="req">Required level</option>
+            <option value="quality">Quality</option><option value="name">Name</option>
+          </select></label>
+        </div>
+      </div>
+      <div class="wn-line" id="spellFilters" hidden>
+        <label class="wn-field"><span>Class</span><select id="spellCls"></select></label>
+        <label class="wn-field"><span>Type</span><select id="spellType"></select></label>
+      </div>
+      <div class="wn-line" id="postFilters" hidden>
+        <div class="seg" id="postKinds" role="group" aria-label="Kind of post"></div>
       </div>
     </div>
     <p class="wn-summary" id="summary" aria-live="polite"></p>
@@ -72,14 +82,19 @@
 
 <footer class="data-foot">
   <p id="dataNote"></p>
-  <p>Read from the game's own files (its item tables and the server's hotfixes) each time WoW: Forever updates. An item
-    shows here when it reaches the game's data, which can be before you can get it in game.
-    Not made by or affiliated with Blizzard Entertainment.</p>
+  <p>Read from the game's own files (its tables and the server's hotfixes) each time WoW: Forever updates. An item
+    shows here when it reaches the game's data, which can be before you can get it in game. Rules Blizzard keeps on its
+    servers (threat, rage, proc rates, base stats, pets) never reach those files: for those, read Blizzard's Posts.
+    Tooltips read the way the game shows them to a level 60 character.
+    Not made by or affiliated with Blizzard Entertainment; post titles and previews are Blizzard's, linked to their forum.</p>
 </footer>
 
 <script src="data/changes.js"></script>
 <script src="data/classes.js"></script>
+<script src="data/blueposts.js"></script>
+<script src="data/blue-notes.js"></script>
 <script src="js/iteminfo.js"></script>
+<script src="js/whatsnew-views.js"></script>
 <script src="js/whatsnew.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="whatsnew"></script>
 </body>

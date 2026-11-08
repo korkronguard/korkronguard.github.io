@@ -2,8 +2,13 @@
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 a.btn { text-decoration: none; }
+.wn-layout [hidden] { display: none; } /* over .wn-line's and .wn-field's own display */
 
 .wn-layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+.wn-layout.wn-no-updates { grid-template-columns: minmax(0, 1fr); }
+.wn-views { display: flex; margin-bottom: 10px; font-weight: 600; }
+.wn-views button { flex: 1 1 auto; padding: 9px 14px; }
+.wn-lines { display: grid; gap: 10px; }
 
 /* ---------- updates (left) ---------- */
 .wn-updates {
@@ -171,6 +176,43 @@ a.btn { text-decoration: none; }
 .itip .flavor { margin-top: 4px; color: #ffd100; }
 .wn-more { margin-top: 8px; }
 
+/* ---------- abilities and talents ---------- */
+del { color: #ff8a73; text-decoration: line-through; }
+ins { color: #7dff8a; font-weight: 600; text-decoration: none; }
+.wn-diff.wn-how { background: #2b3440; color: #b9d6ff; cursor: help; }
+.wn-rank-label { color: var(--muted); }
+.wn-ranks { display: grid; gap: 10px; }
+.wn-ranks .lbl { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.wn-rank-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.wn-rank-line { display: grid; gap: 2px; }
+.wn-rank-text {
+  padding: 8px 10px;
+  background: rgba(8, 10, 14, .97);
+  border: 1px solid #5b6270;
+  border-radius: 8px;
+  color: #ffd100;
+  font-size: 13.5px;
+}
+.wn-notes {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid #8a6420;
+  border-radius: 10px;
+}
+.wn-notes h3 { margin: 0 0 2px; font-size: 16px; color: var(--gold); }
+.wn-notes-sub { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+.wn-notes ul, .wn-post-notes { display: grid; gap: 5px; margin: 0; padding-left: 18px; font-size: 14px; }
+
+/* ---------- Blizzard's posts ---------- */
+.wn-post { display: grid; gap: 3px; padding: 10px 12px; }
+.wn-post-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.wn-post-title { color: var(--blue); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.wn-post-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wn-badge.wn-kind { color: var(--muted); }
+.wn-post-text { margin: 2px 0 0; color: #cfcab9; font-size: 13px; overflow-wrap: anywhere; }
+.wn-post-notes { margin-top: 5px; }
+
 @media (max-width: 900px) {
   .wn-layout { grid-template-columns: minmax(0, 1fr); }
   .wn-updates { position: static; }
@@ -182,4 +224,5 @@ a.btn { text-decoration: none; }
   .wn-row { flex-basis: 100%; padding: 8px 0; }
   .wn-detail { padding-left: 12px; }
   .wn-clear { margin-left: 0; }
+  .wn-rank-pair { grid-template-columns: minmax(0, 1fr); }
 }

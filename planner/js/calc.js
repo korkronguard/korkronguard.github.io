@@ -72,12 +72,12 @@
   // ---- Measured on real characters: site/data/measured.js, written by tools/snapshots.py from the guild's addon
   // snapshots (2026-11-05: an Orc Warrior at levels 2-16, an Undead Priest at 6-11) ----
   // A value by level ({ level: value }): the measured one (a straight line between two measured levels), above the last
-  // measured level a straight line to at60 (the original game's level 60 value), below the first below(first, next)
+  // measured level a straight line to at60 (the original game's level 60 value), below the first below(first)
   function byLevel(points, level, at60, below) {
     const levels = Object.keys(points).map(Number).sort((a, b) => a - b);
     const first = levels[0], last = levels[levels.length - 1];
     const between = (a, va, b, vb) => va + ((vb - va) * (level - a)) / (b - a);
-    if (level < first) return below(first, levels[1]);
+    if (level < first) return below(first);
     if (level >= last) return level === last ? points[last] : between(last, points[last], 60, at60);
     const b = levels.find((L) => L >= level);
     const a = levels[levels.indexOf(b) - 1];
@@ -85,7 +85,7 @@
   }
   // A class's own share of the base stats at a level (the race's share goes on top): measured where the guild has a
   // character of the class (its race's share taken off), else the original game's gains spread evenly over the levels.
-  // Below the first measured level it steps back at the first measured step per level, never below 0.
+  // Below the first measured level, a straight line from the race's own stats at level 1.
   function classShare(cls, level) {
     const gain = CLASS_GAIN[cls] || [0, 0, 0, 0, 0];
     const m = KP.measured.classBase[cls];
@@ -93,8 +93,7 @@
     const race = RACE_BASE[m.race];
     return gain.map((g, i) => {
       const points = Object.fromEntries(Object.entries(m.levels).map(([L, v]) => [L, v[i] - race[i]]));
-      return byLevel(points, level, g, (first, next) =>
-        Math.max(0, points[first] - ((points[next] - points[first]) / (next - first)) * (first - level)));
+      return byLevel(points, level, g, (first) => (points[first] * (level - 1)) / (first - 1));
     });
   }
   // Agility per 1% crit at a level: measured where the guild has a character whose crit and dodge come from Agility
@@ -1116,14 +1115,16 @@
 
   // ------------------------------------------------------------ casters
 
-  // Mana regen per second from Spirit (Classic formulas per 2-second tick; estimates until checked in game)
-  // Mana per second from Spirit, while you haven't spent mana for 5 seconds: Spirit ÷ 4 for every class on Forever. The
-  // game's own GetManaRegen on the guild's Priest, Druid and Paladin (levels 6-11, addon snapshots, 2026-11-05) is
-  // exactly that, whatever their Intellect (tools/snapshots.py). The original game had a rule per class
-  // ((13 + Spirit ÷ 4) ÷ 2 for a Priest, (15 + Spirit ÷ 5) ÷ 2 for a Druid...), 25-40% more at those levels.
+  // Mana per second from Spirit, while you haven't spent mana for 5 seconds, for every class on Forever: Spirit ÷ 4 up to
+  // 50 Spirit, each point above that half as much. The game's own GetManaRegen on the guild's characters (85 addon
+  // snapshots, 2026-11-08: Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1-34, up to 91 Spirit) is exactly that,
+  // whatever their level or Intellect, with gear's mana per 5 seconds on top (tools/snapshots.py). More than 91 Spirit
+  // hasn't been seen. The original game had a rule per class ((13 + Spirit ÷ 4) ÷ 2 for a Priest...).
   const SPIRIT_PER_MANA = 4;
-  const REGEN_SEEN = ["PRIEST", "DRUID", "PALADIN"]; // classes whose real characters showed it
-  const spiritRegenOf = (spirit) => spirit / SPIRIT_PER_MANA;
+  const SPIRIT_FULL = 50;
+  const REGEN_SEEN = ["PRIEST", "DRUID", "PALADIN", "SHAMAN", "HUNTER", "MAGE"]; // classes whose real characters showed it
+  const REGEN_RULE = `Spirit ÷ ${SPIRIT_PER_MANA} per second, half that above ${SPIRIT_FULL} Spirit, as on Forever`;
+  const spiritRegenOf = (spirit) => (Math.min(spirit, SPIRIT_FULL) + Math.max(0, spirit - SPIRIT_FULL) / 2) / SPIRIT_PER_MANA;
 
   // A stat from the addon's /kp export ("base:effective:plus:minus", UnitStat's four numbers) without gear or buffs.
   // The game's first number already counts gear: a level 15 Warrior's Strength "52:52:9:0" is 43 without its +9.
@@ -1414,7 +1415,7 @@
     }
     if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
     else if (tapMana) note += "; Life Tap isn't needed: the mana lasts";
-    note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
+    note += `. Mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}` + (budget.keep ? `, ${budget.keep}% kept while casting` : "") +
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
@@ -1521,7 +1522,7 @@
     else if (boundless) note += `; Boundless Light +${boundless}% Holy Shock crit (no Oath of Light)`;
     const hc = heals.find((a) => a.healCritMult > 1.5);
     note += `. Crits heal ${hc ? `${Math.round(hc.healCritMult * 100)}% (Holy Power)` : "150%"}${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
-      `Mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
+      `Mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
       "Group heals (Chain Heal, Prayer of Healing, Wild Growth...) aren't counted.";
     return { hps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
@@ -2107,7 +2108,7 @@
     }
     if (haste) notes.push(`Rapid Fire averages +${haste.toFixed(1)}% attack speed`);
     if (starved.length) notes.push(`not enough mana for every ${starved.join(" / ")} (lowest damage per mana goes first)`);
-    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (Spirit ÷ 4 per second, as on Forever); pet not counted; Aspect of the Viper not used`);
+    notes.push(`mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}); pet not counted; Aspect of the Viper not used`);
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved, manaSpent };
   }
@@ -2784,13 +2785,13 @@
     if (cls.power === 0) {
       const seen = REGEN_SEEN.includes(t);
       out.push({ name: "Mana regen from Spirit", game: "regen", digits: 2, unit: " mana per second", estimate: !seen,
-        expr: `spi / ${SPIRIT_PER_MANA}`,
-        text: `Spirit ÷ ${SPIRIT_PER_MANA} every second, once you haven't spent mana for 5 seconds (gear's mana per 5 seconds keeps going)`,
+        expr: `(min(spi, ${SPIRIT_FULL}) + max(0, spi - ${SPIRIT_FULL}) / 2) / ${SPIRIT_PER_MANA}`,
+        text: `Spirit ÷ ${SPIRIT_PER_MANA} every second, each point above ${SPIRIT_FULL} Spirit counting half, once you haven't spent mana for 5 seconds (gear's mana per 5 seconds keeps going)`,
         numbers: [
-          [`Spirit ÷ ${SPIRIT_PER_MANA}`, "mana per second from Spirit, whatever your Intellect; the original game had a " +
-            "different rule for each class", seen
-            ? FROM.checked("the game's own mana regen on the guild's Priest, Druid and Paladin at levels 6 to 11 is exactly this")
-            : `${FROM.estimate}: the guild's Priest, Druid and Paladin all showed exactly this, but no ${cls.name} yet`],
+          [`Spirit ÷ ${SPIRIT_PER_MANA}, half above ${SPIRIT_FULL}`, "mana per second from Spirit, whatever your level or Intellect; the original " +
+            "game had a different rule for each class", seen
+            ? FROM.checked("the game's own mana regen on the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1 to 34, up to 91 Spirit, is exactly this")
+            : `${FROM.estimate}: the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage all showed exactly this, but no ${cls.name} yet`],
           ["5 seconds", "after you spend mana, Spirit stops refilling it for 5 seconds (\"the five-second rule\"); mana per 5 " +
             "seconds from gear keeps going", FROM.rule],
         ] });
