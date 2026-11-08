@@ -1116,9 +1116,9 @@
   // ------------------------------------------------------------ casters
 
   // Mana per second from Spirit, while you haven't spent mana for 5 seconds, for every class on Forever: Spirit ÷ 4 up to
-  // 50 Spirit, each point above that half as much. The game's own GetManaRegen on the guild's characters (85 addon
-  // snapshots, 2026-11-08: Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1-34, up to 91 Spirit) is exactly that,
-  // whatever their level or Intellect, with gear's mana per 5 seconds on top (tools/snapshots.py). More than 91 Spirit
+  // 50 Spirit, each point above that half as much. The game's own GetManaRegen on the guild's characters (90 addon
+  // snapshots, 2026-11-08: Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1-34, up to 136 Spirit) is exactly that,
+  // whatever their level or Intellect, with gear's mana per 5 seconds on top (tools/snapshots.py). More than 136 Spirit
   // hasn't been seen. The original game had a rule per class ((13 + Spirit ÷ 4) ÷ 2 for a Priest...).
   const SPIRIT_PER_MANA = 4;
   const SPIRIT_FULL = 50;
@@ -1993,7 +1993,8 @@
   // A Hunter's pet: its melee isn't in the game files, so it's measured. Its own damage per second before armor (a
   // family with no damage bonus) is what the guild's Hunters' pets do (site/data/measured.js, from tools/snapshots.py) and,
   // around those levels, a rise of 0.82 a level (10 pets at levels 5-29 in the first combat log, 2026-11-08). Nothing above
-  // level 29 has been seen yet. Your share: a Spider's 27 attack power with 278 ranged attack power, one reading.
+  // level 29 has been seen yet. A well-fed pet: the same Spider also read about 20% less, as a content pet deals less than a
+  // happy one. Your share: 10%, rounded down, in all three readings (25 of 258, 26 of 262, 27 of 278).
   const PET_DPS_PER_LEVEL = 0.82;
   const PET_RAP_SHARE = 0.1;
   const PET_SPEED = 2; // the Spider's and most pets' in that log; only Frenzy's count of swings uses it
@@ -2154,7 +2155,7 @@
       parts.push({ name: "Pet", dps: pet });
       dps += pet;
       const measuredTo = Math.max(...Object.keys(KP.measured.petDps).map(Number));
-      notes.push(`the pet's melee counts for a family with no damage bonus (${petFamilyText()}), measured to level ${measuredTo} and an estimate above; Bite and Claw aren't counted`);
+      notes.push(`the pet's melee counts for a well-fed pet of a family with no damage bonus (${petFamilyText()}), measured to level ${measuredTo} and an estimate above; Bite and Claw aren't counted`);
     }
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, starved, manaSpent };
@@ -2837,7 +2838,7 @@
         numbers: [
           [`Spirit ÷ ${SPIRIT_PER_MANA}, half above ${SPIRIT_FULL}`, "mana per second from Spirit, whatever your level or Intellect; the original " +
             "game had a different rule for each class", seen
-            ? FROM.checked("the game's own mana regen on the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1 to 34, up to 91 Spirit, is exactly this")
+            ? FROM.checked("the game's own mana regen on the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1 to 34, up to 136 Spirit, is exactly this")
             : `${FROM.estimate}: the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage all showed exactly this, but no ${cls.name} yet`],
           ["5 seconds", "after you spend mana, Spirit stops refilling it for 5 seconds (\"the five-second rule\"); mana per 5 " +
             "seconds from gear keeps going", FROM.rule],
@@ -2887,7 +2888,8 @@
         "Lone Wolf means no pet.",
         numbers: [
           [`${PET_DPS_PER_LEVEL} each level`, "how a pet's damage rises", "the guild's Hunter's level 29 Spider and 10 pets in a combat log, levels 5 to 29; above level 29 it's the planner's estimate"],
-          [`${PET_RAP_SHARE * 100}%`, "your share of your ranged attack power", "one reading: a Spider with 27 attack power from its owner's 278"],
+          [`${PET_RAP_SHARE * 100}%`, "your share of your ranged attack power", "the guild's Spider: 25 attack power of 258, 26 of 262, 27 of 278"],
+          ["a fed pet", "the planner counts a happy pet; the same Spider also read about 20% less, which fits the original game's rule for a content pet (the game doesn't tell addons its mood)", "the guild's snapshots"],
           ["÷ 14", "14 attack power add 1 damage per second, as for your own hits", FROM.rule],
           ["doesn't crit", "0 crits in 217 pet swings; only Ferocity gives it crit, and Frenzy needs a crit", "a combat log on Forever"],
           ["its family", `the planner counts a family with no damage bonus; ${petFamilyText()}`, FROM.files("each family's Tamed Pet Passive")],
