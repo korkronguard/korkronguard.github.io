@@ -1,0 +1,2 @@
+# Python's compiled files, from running the hourly job's scripts by hand
+__pycache__/

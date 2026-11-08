@@ -1,0 +1,49 @@
+# Every hour: new and edited Blizzard posts about WoW: Forever go on the What's New page, and to the guild's Discord when the
+# DISCORD_WEBHOOK secret is set (repo settings, Secrets and variables, Actions). The scripts are copies: change them in the
+# Planner project (tools/blue_posts.py, tools/blue_posts_job.py), and its copy_to_site.py brings them here.
+name: Blizzard's posts
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+    inputs:
+      discord_test:
+        description: Also send the newest post to Discord, to see that the webhook works
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blue-posts
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look for new posts
+        run: python3 .github/scripts/blue_posts_job.py look
+
+      - name: Publish them
+        run: |
+          git add data/blueposts.js
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898283+github-actions[bot]@users.noreply.github.com" commit -m "Blizzard's posts: new or edited"
+          git pull --rebase origin main
+          git push origin main
+
+      - name: Tell Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python3 .github/scripts/blue_posts_job.py notify
+
+      - name: Test Discord
+        if: ${{ inputs.discord_test }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python3 .github/scripts/blue_posts_job.py test
