@@ -61,14 +61,13 @@
   state.buffs = state.buffs || {};
   let buffsOpen = false; // remember whether the buff list is open between redraws
 
-  function defaultArmor(level, mode) {
-    // a raid boss at 60 is usually given 3731 armor; scaled down for lower levels (estimate)
-    const lvl = mode === "boss" ? level + 3 : level;
-    return Math.round((3731 * lvl) / 63);
+  // the enemy picked, with its usual armor: a raid boss is 3 levels up; the others are the planner's mob numbers
+  function usualTarget(level, mode) {
+    return KP.calc.mobTargets(level)[mode] || { diff: 3, armor: Math.round(KP.calc.mobArmor(level + 3)), mode: "boss" };
   }
   function target() {
-    const mode = state.target.mode;
-    return { diff: mode === "boss" ? 3 : 0, armor: state.target.armor != null ? state.target.armor : defaultArmor(state.level, mode), mode };
+    const t = usualTarget(state.level, state.target.mode);
+    return state.target.armor != null ? { ...t, armor: state.target.armor } : t;
   }
 
   app.encoders.push(() => {
@@ -85,7 +84,7 @@
     const p = new URLSearchParams(location.hash.replace(/^#/, ""));
     state.base = {};
     (p.get("b") || "").split("_").forEach((v, i) => { const n = parseFloat(v); if (BASE[i] && n > 0) state.base[BASE[i]] = n; });
-    state.target = { mode: p.get("tg") === "same" ? "same" : "boss", armor: p.get("ar") ? parseInt(p.get("ar"), 10) : null };
+    state.target = { mode: ["same", "elite", "elite3"].includes(p.get("tg")) ? p.get("tg") : "boss", armor: p.get("ar") ? parseInt(p.get("ar"), 10) : null };
     state.buffs = {};
     for (const ch of p.get("bf") || "") if (BUFF_KEYS[ch]) state.buffs[BUFF_KEYS[ch]] = true;
   }
@@ -171,7 +170,7 @@
     const box = el("div", "pctl");
     const tsel = el("select");
     tsel.setAttribute("aria-label", "Target");
-    for (const [v, label] of [["boss", "Raid boss (3 levels higher)"], ["same", "Same level as you"]]) {
+    for (const [v, label] of [["boss", "Raid boss (3 levels higher)"], ["same", "Same level as you"], ["elite", "Elite, same level"], ["elite3", "Elite, 3 levels higher"]]) {
       const o = el("option", null, label);
       o.value = v;
       tsel.append(o);
@@ -186,7 +185,7 @@
     armor.setAttribute("aria-label", "Target armor");
     armor.addEventListener("change", () => {
       const v = parseInt(armor.value, 10);
-      state.target.armor = isNaN(v) || v === defaultArmor(state.level, state.target.mode) ? null : Math.max(0, v);
+      state.target.armor = isNaN(v) || v === usualTarget(state.level, state.target.mode).armor ? null : Math.max(0, v);
       app.changed();
     });
     const l1 = el("label", "pfield");

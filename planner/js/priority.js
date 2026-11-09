@@ -1036,11 +1036,11 @@
     L.add("Shield Block", { tag: "On cooldown", stance, text: "Not on the global cooldown (game data): press it alongside your attacks while melee enemies hit you. " +
       "Fewer big hits and more Revenges; useless against spells.",
       facts: [spec && block && blocks ? `Shield Specialization: its ${fmt(blocks)} blocks give back up to ${fmt((blocks * numberAfter(spec, "grants you a") / 100) * numberAfter(spec, "generate"))} rage (it costs ${fmt(block.cost / 10)})` : null] });
-    L.add("Shield Slam", { tag: "On cooldown", stance, text: "Biggest threat hit. Needs a shield.",
-      facts: [dmgLine(A["Shield Slam"], unit), threatLine("Shield Slam")] });
     L.add("Revenge", { tag: "When it lights up", stance, text: (c.hold.shield ? "After you block, dodge or parry." : "After you dodge or parry (no blocks without a shield).") + " Cheap: use every time.",
       facts: [dmgLine(A["Revenge"], unit), threatLine("Revenge"),
         c.talent["Improved Revenge"] ? `Improved Revenge: +${fmt(talentNumber(c, "Improved Revenge"))}% damage` : null] });
+    L.add("Shield Slam", { tag: "On cooldown", stance, text: "Biggest threat hit. Needs a shield.",
+      facts: [dmgLine(A["Shield Slam"], unit), threatLine("Shield Slam")] });
     for (const name of ["Mortal Strike", "Bloodthirst"]) {
       L.add(name, { tag: "On cooldown", stance, text: "Works in Defensive Stance (game data): good threat from big damage.",
         facts: [dmgLine(A[name], unit)] });
@@ -1051,6 +1051,11 @@
         dmgLine(A["Thunder Clap"], unit),
         c.talent["Improved Thunder Clap"] ? `Improved Thunder Clap: −${fmt(talentNumber(c, "Improved Thunder Clap"))} rage` : null] });
     L.add("Rend", { ...rendLine(c, A, unit, stance), source: "theory" });
+    // Slam as the math plays it: alone, after Rend. A tank holding a group's enemies spends that rage on Sunder Armor instead
+    L.add("Slam", { tag: "Solo", stance, facts: [dmgLine(A["Slam"], unit)],
+      text: (talentText(c, "Improved Slam") ? "Alone, with rage left after Rend: with Improved Slam it no longer delays your swing."
+        : "Alone, with rage left after Rend: press it right after a swing, as its cast holds back your next one.") +
+        " Tanking for a group, Sunder Armor is the better use of that rage." });
     const sunder = c.rank("Sunder Armor");
     L.add("Sunder Armor", { tag: "Build to 5, then filler", stance,
       text: "On bosses and elites, stack it to 5 early (the group's damage goes up), then use it as a filler. Skip it on a mob that's about to die.",
