@@ -809,10 +809,11 @@
       out.lines.push(`Flurry: +${flurry}% attack speed, up ${Math.round(uptime * 100)}% of the time`);
     }
     if (S.tal.extraAttack && S.mh) out.extraAttack = S.tal.extraAttack; // Weaponmaster / Hack and Slash
-    // Windfury Totem: a chance per main-hand hit of an extra attack with more attack power (a Shaman's own
-    // Windfury Weapon turns it off for them, game data). The chance isn't in the files: Classic's 20%.
+    // Windfury Totem: a chance per main-hand hit of an extra attack with more attack power, in a Druid's form too (a combat log:
+    // 122 on two Druids in Cat Form; no Bear seen yet). A Shaman's own Windfury Weapon turns it off for them (game data; the log
+    // agrees). The chance isn't in the files: Classic's 20%.
     const wft = buffValue(ctx, "Windfury Totem");
-    if (wft && S.mh && !S.mh.form && !(ctx.cls.token === "SHAMAN" && bookRank("SHAMAN", "Windfury Weapon", ctx.level))) {
+    if (wft && S.mh && !(ctx.cls.token === "SHAMAN" && bookRank("SHAMAN", "Windfury Weapon", ctx.level))) {
       const boost = rawSwing(S, S.mh, wft) / rawSwing(S, S.mh);
       out.extraAttack += WF_TOTEM_CHANCE * boost;
       out.lines.push(`Windfury Totem: ${WF_TOTEM_CHANCE * 100}% chance of an extra attack with +${wft} attack power (chance: Classic's)`);
@@ -2387,12 +2388,17 @@
     return (-stance / 100) * rank.textShares.AP * S.ap * (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100);
   }
 
+  // the first level a talent's row lets you have it: a row needs 5 more points spent, and you get a point a level from 10
+  const talentOpensAt = (t) => 10 + 5 * t.row;
+
   function abilityResult(ab, S, ctx) {
-    const rank = pickRank(ab, ctx.level);
+    let rank = pickRank(ab, ctx.level);
     const base = { name: ab.name, icon: ab.icon, ability: ab };
     if (ab.talent) {
       const i = ctx.flat.findIndex((t) => t.id === ab.talent);
       if (i >= 0 && !ctx.ranks[i]) return { ...base, locked: "Needs the talent", rank: rank || ab.ranks[0] };
+      // taken, it's yours whatever level the files give its first rank (a combat log: Stormstrike, 40 there, cast at 36)
+      if (i >= 0 && !rank && ctx.level >= talentOpensAt(ctx.flat[i])) rank = ab.ranks[0];
     }
     // a race's own spell (Starshards: Night Elf Priests) counts only for that race
     if (ab.races && !ab.races.includes(ctx.race)) return { ...base, locked: `${ab.races.join(" and ")} only`, rank: rank || ab.ranks[0] };
@@ -2646,15 +2652,15 @@
   // the share of swings that don't land in full (a block counted as avoided), at most 60%
   const avoidance = (S) => { const o = swingOutcomes(S); return Math.min(0.6, o.miss + o.dodge + o.parry + o.block); };
 
-  // A normal mob (mobs live on the server, not in the files), from two combat logs (2026-11-08), levels 7 to 31 and one at 60.
+  // A normal mob (mobs live on the server, not in the files), from three combat logs (2026-11-08), levels 7 to 33 and one at 60.
   // Its melee damage per second before your armor and stance: about level - 4 up to 21 at level 25, then the original game's
   // curve (the logs: 20 to 23 at 28 to 31; about 71 at 60); and the seconds between its swings
   const mobDps = (L) => Math.max(Math.min(L - 4, 21), 0.014 * L * L + 0.35 * L);
   const MOB_SWING = 2;
   // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30): how long a fight against it lasts
   const mobHealth = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
-  // its armor: [level, armor] with straight lines between. Read in those logs up to level 31 and at 60; level 40 is the same
-  // rise carried on (an estimate: nothing has been seen between 32 and 59); 63 is a raid boss's usual 3731
+  // its armor: [level, armor] with straight lines between. Read in those logs up to level 33 and at 60; level 40 is the same
+  // rise carried on (an estimate: nothing has been seen between 34 and 59); 63 is a raid boss's usual 3731
   const MOB_ARMOR = [[3, 46], [7, 245], [8, 322], [9, 412], [10, 518], [11, 545], [24, 1002], [40, 1563], [60, 3566], [63, 3731]];
   function mobArmor(L) {
     if (L <= MOB_ARMOR[0][0]) return (MOB_ARMOR[0][1] * L) / MOB_ARMOR[0][0];
@@ -2663,7 +2669,8 @@
     const [l0, a0] = MOB_ARMOR[i - 1], [l1, a1] = MOB_ARMOR[i];
     return a0 + ((a1 - a0) * (L - l0)) / (l1 - l0);
   }
-  // An elite: the same armor as a normal mob of its level, 3 times the health, hits about 2.2 times as hard (7 tough mobs at levels
+  // An elite: the same armor as a normal mob of its level, 3 times the health, hits about 2.2 times as hard (a dungeon's log reads
+  // 1.8 to 2.8 by level, 2.0 at 28 to 33, Demoralizing Shout lowering it; first seen on 7 tough mobs at levels
   // 16, 17 and 30 in those logs, picked out by their health: the logs don't label elites). The enemies you can pick: keyed as
   // the planner's Target list and links name them.
   const ELITE_HEALTH = 3, ELITE_HIT = 2.2;
@@ -2993,5 +3000,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules };
 })();

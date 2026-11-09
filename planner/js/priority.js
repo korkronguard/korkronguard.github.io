@@ -131,7 +131,10 @@
       if (!b) return null;
       let r = null;
       for (const x of b.ranks) if ((x.level || 1) <= c.level) r = x;
-      return r;
+      if (r || !b.talent) return r;
+      // a talent gives its ability whatever level the files give its first rank (as in calc.js's abilityResult)
+      const taken = talentById(b.talent);
+      return taken && taken.rank && c.level >= KP.calc.talentOpensAt(taken.t) ? b.ranks[0] : null;
     };
     // learned = trained by this level and, if it comes from a talent, that talent has a point
     c.why = (name) => {
