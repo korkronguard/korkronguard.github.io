@@ -2542,7 +2542,12 @@
     const castMs = Math.max(0, (rank.castMs + mods.flat(10)) * (1 + mods.pct(10) / 100)) / (1 + (S.castHaste || 0) / 100);
     const cdMs = Math.max(0, (rank.cdMs + mods.flat(11)) * (1 + mods.pct(11) / 100));
     const schoolCost = sum(S.tal.costSchool.filter((c) => c.school & (rank.school || 1)).map((c) => c.value));
-    const costRaw = Math.max(0, (rank.cost + mods.flat(14)) * (1 + mods.pct(14) / 100) * (1 + schoolCost / 100));
+    // a mana cost given as a share of base mana (Arcane Shot and Summon Hawk since 2026-11-10, Multi-Shot, Stormstrike) becomes
+    // mana here: it takes the cost talents like a set cost, and every list reads the one number. A share of health (Bloodrage)
+    // stays a share
+    const ofBaseMana = !rank.cost && rank.costPct && rank.powerType === 0;
+    const setCost = ofBaseMana ? (rank.costPct * ((rules.baseMana[ctx.cls.token] || [])[ctx.level - 1] || 0)) / 100 : rank.cost;
+    const costRaw = Math.max(0, (setCost + mods.flat(14)) * (1 + mods.pct(14) / 100) * (1 + schoolCost / 100));
     const cost = rank.powerType === 1 ? costRaw / 10 : costRaw; // rage is stored x10
     // heals take the spell's own modifiers (Healing Way, Purification...), not "damage done %" auras (Naturalist, Searing Light)
     const heal = r.heal * (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100);
@@ -2562,7 +2567,7 @@
       perRage, hits: r.hits, stack, critMult,
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
       heal, healCrit: heal * healCritMult, healCritMult, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
-      castMs, channelMs, cdMs, cost, costPct: rank.cost ? 0 : rank.costPct, powerType: rank.powerType,
+      castMs, channelMs, cdMs, cost, costPct: rank.cost || ofBaseMana ? 0 : rank.costPct, powerType: rank.powerType,
       combo: r.combo, aoe: r.area && !r.single,
       // crowd control (root, stun, fear, sleep): not part of a damage rotation
       cc: rank.effects.some((e) => e.effect === 6 && [5, 7, 12, 26].includes(e.aura)), directExpected, dotExpected, channeled: !!rank.channeled,
