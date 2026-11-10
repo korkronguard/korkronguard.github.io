@@ -2705,13 +2705,15 @@
 
   // A normal mob (mobs live on the server, not in the files), from three combat logs (2026-11-08), levels 7 to 33 and one at 60.
   // Its melee damage per second before your armor and stance: about level - 4 up to 21 at level 25, then the original game's
-  // curve (the logs: 20 to 23 at 28 to 31; about 71 at 60); and the seconds between its swings
+  // curve (the logs: 20 to 23 at 28 to 31; about 71 at 60; a fifth log, 2026-11-10, reads 24 to 27 at 30 to 36 where this says
+  // 23 to 31: flatter, not changed yet); and the seconds between its swings
   const mobDps = (L) => Math.max(Math.min(L - 4, 21), 0.014 * L * L + 0.35 * L);
   const MOB_SWING = 2;
-  // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30): how long a fight against it lasts
+  // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30, and 6 to 8% more at 30 to 35 in
+  // Thousand Needles): how long a fight against it lasts
   const mobHealth = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
-  // its armor: [level, armor] with straight lines between. Read in those logs up to level 33 and at 60; level 40 is the same
-  // rise carried on (an estimate: nothing has been seen between 34 and 59); 63 is a raid boss's usual 3731
+  // its armor: [level, armor] with straight lines between. Read in the logs up to level 35 and at 60; level 40 is the same
+  // rise carried on (an estimate: nothing has been seen between 36 and 59); 63 is a raid boss's usual 3731
   const MOB_ARMOR = [[3, 46], [7, 245], [8, 322], [9, 412], [10, 518], [11, 545], [24, 1002], [40, 1563], [60, 3566], [63, 3731]];
   function mobArmor(L) {
     if (L <= MOB_ARMOR[0][0]) return (MOB_ARMOR[0][1] * L) / MOB_ARMOR[0][0];
