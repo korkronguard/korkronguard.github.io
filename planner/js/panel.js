@@ -548,6 +548,8 @@
     if (gearBox) { gearBox.textContent = ""; gearBox.append(panel(R, { controls: true })); }
     const prioBox = $("prioSide");
     if (prioBox) { prioBox.textContent = ""; prioBox.append(panel(R, { controls: true })); }
+    const statsBox = $("statsSide");
+    if (statsBox) { statsBox.textContent = ""; statsBox.append(panel(R, { controls: true, short: true })); }
     const labBox = $("labSide");
     if (labBox && app.view && app.view() === "abilities") {
       // the Abilities tab's stance / form switches change these stats (Berserker crit, Bear Form armor...)

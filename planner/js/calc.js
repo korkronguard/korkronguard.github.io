@@ -543,10 +543,12 @@
       const vals = i >= 0 && ctx.ranks[i] ? (ctx.flat[i].effects[ctx.ranks[i] - 1] || []).map((e) => e.value) : [];
       if (formKey === "cat") formPct.strength = vals[2] || 0; else formPct.stamina = vals[1] || 0;
     }
+    // whole points, like the game; ctx.exact keeps the fractions, to follow a stat smoothly point by point (statTurns)
+    const whole = ctx.exact ? (v) => v : Math.round;
     const attr = {}, attrBase = {};
     for (const k of STATS) {
-      attr[k] = Math.round((base[k] + g(k)) * (1 + (tal.statPct[k] + kings + (formPct[k] || 0)) / 100));
-      attrBase[k] = Math.round(base[k] * (1 + tal.statPct[k] / 100));
+      attr[k] = whole((base[k] + g(k)) * (1 + (tal.statPct[k] + kings + (formPct[k] || 0)) / 100));
+      attrBase[k] = whole(base[k] * (1 + tal.statPct[k] / 100));
     }
     // crit from Agility (and spell crit from Intellect). A typed-in crit % already includes the base part,
     // so only gear's share is added on top; otherwise it's the class's base crit + all Agility.
@@ -603,7 +605,7 @@
       sp: (sp + fromStats.sp + blastSp) * (1 + tal.spPct / 100), school,
       blast: blast && { ...blast, k: ctx.blastCycle, perStack: (blast.pct / 100) * attr.intellect * (1 + tal.spPct / 100) },
       healing: (g("healing") + g("spellPower") + fromStats.sp + fromStats.healing) * (1 + tal.spPct / 100),
-      armor: Math.round(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
+      armor: whole(itemArmor * (1 + tal.armorPct / 100 + (form ? form.armorPct : 0) / 100)) + g("bonusArmor") + attr.agility * 2 + fromStats.armor +
         (form ? talentNumber(ctx, "Thick Hide", /gain (\d+) additional base Armor per level/) * lvl : 0),
       defense: g("defense") / per("defense") + tal.defense,
       // dodge from Agility only where it's measured (a Warrior's: the same Agility per 1% as crit); for the other
@@ -612,9 +614,9 @@
       parry: g("parry") / per("parry") + tal.parry + (lvl >= (baseAvoid.parryFrom || 1) ? baseAvoid.parry || 0 : 0),
       block: g("block") / per("block") + tal.block + (shield ? baseAvoid.block || 0 : 0),
       blockValue: g("blockValue"),
-      health: Math.round((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
+      health: whole((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
-      mana: cls.power === 0 ? Math.round((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
+      mana: cls.power === 0 ? whole((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)
       // in a Druid form the form's own attack replaces the weapon (ctx.formWeaponDps: the weapon's damage per second
       // at the form's speed instead, the guild's bear sheet's rule; only the MCP check asks for it)
@@ -2611,24 +2613,26 @@
       if (R.rotation) R.rotation.note += ` A mob of your level lives about ${Math.round(fightSec)} sec against this: damage over time counts only the ticks before it dies.`;
       return { ...R, fightSec };
     }
+    // The three choices below come back in the answer's `played`: given again in a ctx, the same character is worked out
+    // the same way without trying the others (the stat weights' many readings).
     // Arcane Blast: the number of Blasts per window that does the most (stackingSpell)
     const stacking = ctx.blastCycle == null && stackingSpell(ctx);
     if (stacking) {
       let best = null;
       for (let k = 0; k <= stacking.max + 1; k++) {
         const R = compute({ ...ctx, blastCycle: k });
-        if (!best || dps(R) > dps(best)) best = R;
+        if (!best || dps(R) > dps(best)) best = { ...R, played: { ...R.played, blastCycle: k } };
       }
       return best;
     }
     // Demonic Sacrifice: whichever demon does more for this build (handRules)
     if (ctx.sacrifice == null && learnedTalent(ctx, "Demonic Sacrifice")) {
-      const [imp, succubus] = Object.keys(SACRIFICE).map((s) => compute({ ...ctx, sacrifice: s }));
+      const [imp, succubus] = Object.keys(SACRIFICE).map((s) => { const R = compute({ ...ctx, sacrifice: s }); return { ...R, played: { ...R.played, sacrifice: s } }; });
       return dps(imp) >= dps(succubus) ? imp : succubus;
     }
     // Shadow and Flame: with its bonuses (and the spells they need cast on cooldown) or without, whichever does more
     if (ctx.shadowAndFlame == null && learnedTalent(ctx, "Shadow and Flame")) {
-      const [on, off] = [true, false].map((v) => compute({ ...ctx, shadowAndFlame: v }));
+      const [on, off] = [true, false].map((v) => { const R = compute({ ...ctx, shadowAndFlame: v }); return { ...R, played: { ...R.played, shadowAndFlame: v } }; });
       return dps(on) >= dps(off) ? on : off;
     }
     const S = stats(ctx);
@@ -2793,15 +2797,176 @@
   const tankScore = (survival, dealt) => TANK_MIX.survival * Math.log(survival) + TANK_MIX.damage * Math.log(1 + dealt);
   // The stand-in item that measures what a stat is worth (a stat weight): the character's number with it on, less the
   // number without, per point. Enough points to read the change, few enough to stay near the gear worn.
+  const standIn = (key, amount) => (key === "armor" ? { name: "", armor: amount } : { name: "", stats: { [key]: amount } });
   function statProbe(key) {
     const amount = key === "armor" || key === "bonusArmor" ? 300 : key === "health" || key === "mana" ? 200 : 25;
-    return { amount, item: key === "armor" ? { name: "", armor: amount } : { name: "", stats: { [key]: amount } } };
+    return { amount, item: standIn(key, amount) };
   }
   // the same for 1 damage per second on a weapon: that weapon, hitting harder
   const WEAPON_PROBE_DPS = 5;
   function weaponProbe(item) {
     const more = WEAPON_PROBE_DPS * item.weapon.speed;
     return { amount: WEAPON_PROBE_DPS, item: { ...item, weapon: { ...item.weapon, min: item.weapon.min + more, max: item.weapon.max + more } } };
+  }
+
+  // ------------------------------------------------------------ stat weights (the Stats tab, the addon's own)
+
+  // A character's numbers for a role: d = damage a second, e = survival, v = the role's own (healing a second for a
+  // healer, a tank's mix of survival and damage, the damage otherwise)
+  function roleNumbers(ctx, role) {
+    const R = compute(ctx);
+    const d = (R.rotation && R.rotation.dps) || 0, e = ehp(R, ctx.level);
+    return { d, e, v: role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? tankScore(e, d) : d, R };
+  }
+
+  // What a point of each stat (keys), and 1 damage a second on each weapon held, is worth to a character: its numbers
+  // with a stand-in item on, less without, per point, in a fight of the same length, played the same way (compute's
+  // `played`: at the best choice the others gain nothing more from the next point, and each reading is worked out once
+  // where the choices would take eight). { role, base: { v, e, d, R }, v, e, d: { [stat]: per point },
+  // hands: { mainHand, offHand, ranged: { v, e, d } }, ctx: the character in that fight }
+  function statWeights(ctx, role, keys) {
+    const base = roleNumbers(ctx, role);
+    const fight = { ...ctx, fightSec: base.R.fightSec, ...base.R.played };
+    const per = (worn, amount) => {
+      const m = roleNumbers({ ...fight, worn }, role);
+      return { v: (m.v - base.v) / amount, e: (m.e - base.e) / amount, d: (m.d - base.d) / amount };
+    };
+    // whose hit and crit count: the spells' for a healer, the three cloth classes and a Druid, Shaman or Paladin whose
+    // damage has no weapon swings in it; the weapons' otherwise
+    const token = ctx.cls.token, swings = base.R.rotation && base.R.rotation.parts.some((p) => /white/i.test(p.name));
+    const spells = role === "heal" || ["MAGE", "PRIEST", "WARLOCK"].includes(token) || (["DRUID", "SHAMAN", "PALADIN"].includes(token) && !swings);
+    const W = { role, base, spells, v: {}, e: {}, d: {}, hands: {}, ctx: fight };
+    for (const key of keys) {
+      const { amount, item } = statProbe(key);
+      const p = per([...ctx.worn, { slot: "probe", item }], amount);
+      W.v[key] = p.v;
+      W.e[key] = p.e;
+      W.d[key] = p.d;
+    }
+    for (const hand of ["mainHand", "offHand", "ranged"]) {
+      const held = ctx.worn.find((w) => w.slot === hand);
+      if (!held || !held.item.weapon) continue;
+      const probe = weaponProbe(held.item);
+      W.hands[hand] = per(ctx.worn.map((w) => (w === held ? { slot: hand, item: probe.item } : w)), probe.amount);
+    }
+    return W;
+  }
+
+  // Where a line of readings turns sharply: xs = points of a stat added (or taken off: below 0), fs = the character's
+  // number there. Up to two turns, nearest first: [{ at: points from now, worth: per point beyond it }]. The addon's
+  // Core/StatWeights.lua has the same in Lua (Scan): change them together.
+  const SHARP = 0.15; // a worth changing by more than this from one step to the next: a turn may be there, not a curve
+  const TURN = 0.25;  // and it is one (a cap) when the worth beyond differs by more than this from the worth before
+  function statScan(xs, fs) {
+    const slopes = [], turns = [];
+    for (let i = 1; i < xs.length; i++) slopes[i] = (fs[i] - fs[i - 1]) / (xs[i] - xs[i - 1]); // the worth over the step ending at xs[i]
+    const noise = 1e-9 * Math.max(1, Math.abs(fs[0]));
+    const differ = (x, y, by = SHARP) => Math.abs(x - y) > Math.max(noise, by * Math.max(Math.abs(x), Math.abs(y)));
+    let i = 2, clean = 1; // clean: the first step known to lie wholly before the next turn
+    // the last step is left out: with no step after it, a turn there can't be told from a jump
+    while (i < xs.length - 1 && turns.length < 2) {
+      const before = slopes[i - 1], here = slopes[i], after = slopes[i + 1];
+      const back = i - 2 >= clean ? slopes[i - 2] : null;
+      // two steps back too: a turn near a step's end changes that step's worth too little to show against its neighbour
+      if (differ(here, before) || (back != null && differ(here, back))) {
+        // Where the old worth (a) gives way to the new (b): the number at the end of the stretch is what the two add up
+        // to. This step already at the new worth: the turn was in the step before (from: the step a is read from). Else
+        // it's in this step, which mixes the two.
+        const from = back != null && Math.abs(here - after) <= 0.03 * Math.abs(here - back) ? i - 2 : i - 1;
+        const a = slopes[from], b = from === i - 2 ? here : after;
+        // the worth after is about the worth before: the number jumped there (a rotation changing a spell) or bent a
+        // little (rage or mana running short), it didn't turn
+        if (differ(a, b, TURN)) {
+          const at = xs[from] + ((fs[i] - fs[from]) - b * (xs[i] - xs[from])) / (a - b);
+          turns.push({ at: Math.max(Math.min(xs[from], xs[i]), Math.min(Math.max(xs[from], xs[i]), at)), worth: b });
+        }
+        clean = i + 1;
+        i += 2;
+      } else i += 1;
+    }
+    return turns;
+  }
+
+  // The stats whose worth can turn by the game's rules, in which of the character's numbers ("dealt": its damage, or a
+  // healer's healing: the hit caps, the white hits' crit cap; "e" survival: armor's 75%), in what steps (points) and how
+  // many of them to look ahead. Dodge, parry, block and defense are left out: their only turn is the planner's own 60%
+  // limit on avoidance, which isn't the game's.
+  const TURN_STATS = { hit: ["dealt", 10, 30], crit: ["dealt", 10, 30], agility: ["dealt", 10, 20], armor: ["e", 100, 30] };
+  const BACK_STEPS = 10; // and how many steps to look back, for a stat that adds nothing any more
+
+  // Where a stat's worth turns (a cap) for a character with its weights W: { measure: "dealt" or "e", now: what the next
+  // point adds, turns: as statScan gives them, spare: the points it could lose before that costs anything (only when the
+  // next point adds nothing) }; null for a stat with no cap in the rules (spells have no crit cap). Followed with
+  // fractions of a point kept (ctx.exact), so a talent's "+10% Agility" rounding to whole points doesn't read as a turn.
+  function statTurns(W, key) {
+    if (!TURN_STATS[key] || (W.spells && (key === "crit" || key === "agility"))) return null;
+    const [measure, step, steps] = TURN_STATS[key];
+    const read = (x) => {
+      const ctx = { ...W.ctx, exact: true, worn: [...W.ctx.worn, { slot: "probe", item: standIn(key, x) }] };
+      if (measure === "e") return ehp({ S: stats(ctx) }, ctx.level); // survival is all on the sheet: no fight to work out
+      const m = roleNumbers(ctx, W.role);
+      return W.role === "heal" ? m.v : m.d;
+    };
+    const follow = (count, dir) => {
+      const xs = [0];
+      for (let k = 0; k <= count; k++) xs.push(dir * (1 + k * step)); // the first step is 1 point: what the next point is worth
+      return [xs, xs.map(read)];
+    };
+    const [xs, fs] = follow(steps, 1);
+    const found = { measure, now: fs[1] - fs[0], turns: statScan(xs, fs), spare: null };
+    if (Math.abs(found.now) <= 1e-9 * Math.max(1, Math.abs(fs[0]))) {
+      const lost = statScan(...follow(BACK_STEPS, -1))[0];
+      found.spare = lost ? -lost.at : null;
+    }
+    return found;
+  }
+
+  // How much of a stat a character has (W: its weights): { amount, chance: the % a hit or crit rating feeds (null for the
+  // other stats) }. A weapon's hand: its damage a second.
+  const SPELL_SCHOOL = { holyDamage: "holy", fireDamage: "fire", natureDamage: "nature", frostDamage: "frost", shadowDamage: "shadow", arcaneDamage: "arcane" };
+  function statHave(W, key) {
+    const S = W.base.R.S;
+    const held = W.ctx.worn.find((w) => w.slot === key && w.item.weapon);
+    if (held) return { amount: (held.item.weapon.min + held.item.weapon.max) / 2 / held.item.weapon.speed, chance: null };
+    if (key === "hit") return { amount: S.gear.hit || 0, chance: W.spells ? S.spellHit : S.hit };
+    if (key === "crit") return { amount: S.gear.crit || 0, chance: W.spells ? S.spellCrit : S.crit };
+    const spellDamage = S.sp + Math.max(...Object.values(S.school)); // with the best school's own
+    const sheet = { ...S.attr, armor: S.armor, attackPower: S.ap, rangedAttackPower: S.rap, healing: S.healing, health: S.health, mana: S.mana,
+      manaRegen: S.mp5, spellPower: spellDamage, spellDamage };
+    // a stat the sheet has no line for: what's on the gear
+    const amount = SPELL_SCHOOL[key] ? S.sp + S.school[SPELL_SCHOOL[key]] : key in sheet ? sheet[key] : S.gear[key] || 0;
+    return { amount, chance: null };
+  }
+
+  // What the Stats tab lists for a character's weights: a section per number of its role, [{ measure: "v", "e" or "d",
+  // kind: "damage", "healing" or "survival", total: the character's own, rows }], each with the stats that count for it,
+  // most per point first: { key (a stat, or a weapon's hand), worth: what 1 more adds, have, chance (statHave), main: the
+  // section's main stat (the attribute worth most), same: how many points of it a point of this is worth (null for the
+  // main stat itself), turn: its cap (statTurns; null when it has none) }. Left out: a stat adding under 5% of its
+  // section's best (armor counted 12 points to 1: it comes in hundreds on an item where others come in tens), and a stat
+  // that's another under a second name on items when a point of it is worth the same. The addon's UI/Stats.lua lists
+  // the same way: change them together.
+  const STAT_SECTIONS = { dps: [["v", "damage"], ["e", "survival"]], heal: [["v", "healing"], ["e", "survival"]], tank: [["e", "survival"], ["d", "damage"]] };
+  const WORTH_SHOWN = 0.0005, WORTH_SHARE = 0.05;
+  const ARMOR_CHUNK = { armor: 12, bonusArmor: 12 };
+  const STAT_TWIN = { bonusArmor: "armor", spellDamage: "spellPower" };
+  function statList(W) {
+    const shown = (x) => Number(x.toPrecision(2));
+    return STAT_SECTIONS[W.role].map(([measure, kind]) => {
+      const worthOf = (key) => (W.hands[key] ? W.hands[key][measure] : W[measure][key] || 0);
+      const rows = [...Object.keys(W[measure]), ...Object.keys(W.hands)].map((key) => ({ key, worth: worthOf(key) })).filter((r) => r.worth >= WORTH_SHOWN);
+      const chunked = (r) => r.worth * (ARMOR_CHUNK[r.key] || 1);
+      const top = Math.max(0, ...rows.filter((r) => !W.hands[r.key]).map(chunked));
+      const main = rows.filter((r) => STATS.includes(r.key)).reduce((best, r) => (!best || r.worth > best.worth ? r : best), null);
+      const kept = rows.filter((r) => !(STAT_TWIN[r.key] && shown(worthOf(STAT_TWIN[r.key])) === shown(r.worth)) && (W.hands[r.key] || chunked(r) >= WORTH_SHARE * top));
+      kept.sort((a, b) => b.worth - a.worth || (a.key < b.key ? -1 : 1));
+      for (const r of kept) {
+        const turn = statTurns(W, r.key);
+        Object.assign(r, statHave(W, r.key), { main: main && main.key, same: main && r !== main ? r.worth / main.worth : null,
+          turn: turn && turn.measure === (measure === "e" ? "e" : "dealt") ? turn : null });
+      }
+      return { measure, kind, total: W.base[measure], rows: kept };
+    }).filter((s) => s.rows.length);
   }
 
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
@@ -3067,5 +3232,6 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
+    statWeights, statScan, statTurns, statList };
 })();

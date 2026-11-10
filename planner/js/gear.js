@@ -93,6 +93,7 @@
       if (app.renderPanel) app.renderPanel(); // the stats panel can now count the gear
       if (app.renderPriority) app.renderPriority();
       if (app.renderAbilities) app.renderAbilities();
+      if (app.renderStats) app.renderStats();
     };
     s.onerror = () => app.toast("Couldn't load the item list.");
     document.head.append(s);
@@ -165,7 +166,7 @@
       const id = parseInt(v, 36);
       if (SLOTS[i] && id > 0) gear[SLOTS[i].key] = id;
     });
-    return { view: ["gear", "priority", "abilities", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
+    return { view: ["gear", "stats", "priority", "abilities", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
   }
 
   // ------------------------------------------------------------ icons and tooltips
@@ -673,6 +674,21 @@
     app.changed();
   }
 
+  // The choice of what the character is for (Equip BiS and the Stats tab share it): Auto follows the Priority tab's Role
+  // and Tank settings. then: what to do after a change.
+  function roleSelect(label, then) {
+    const tok = state.cls.token;
+    const sel = el("select");
+    sel.setAttribute("aria-label", label);
+    const opts = [["auto", `Auto (${ROLE_NAMES[autoRole()]})`], ["dps", "Damage"]];
+    if (CAN_HEAL.includes(tok)) opts.push(["heal", "Healing"]);
+    if (CAN_TANK.includes(tok)) opts.push(["tank", "Tanking"]);
+    for (const [v, text] of opts) { const o = el("option", null, text); o.value = v; sel.append(o); }
+    sel.value = opts.some(([v]) => v === bisFor) ? bisFor : "auto";
+    sel.addEventListener("change", () => { bisFor = sel.value; if (then) then(); });
+    return sel;
+  }
+
   function renderTools() {
     const box = $("gearTools");
     if (!box) return;
@@ -689,16 +705,8 @@
         try { equipBis(); } catch (e) { console.error(e); app.toast("Couldn't work out the BiS gear (see the browser console)."); render(); }
       }, 30);
     });
-    const sel = el("select");
-    sel.setAttribute("aria-label", "What BiS is best at");
-    const opts = [["auto", `Auto (${ROLE_NAMES[autoRole()]})`], ["dps", "Damage"]];
-    if (CAN_HEAL.includes(tok)) opts.push(["heal", "Healing"]);
-    if (CAN_TANK.includes(tok)) opts.push(["tank", "Tanking"]);
-    for (const [v, label] of opts) { const o = el("option", null, label); o.value = v; sel.append(o); }
-    sel.value = opts.some(([v]) => v === bisFor) ? bisFor : "auto";
-    sel.addEventListener("change", () => { bisFor = sel.value; });
     const lab = el("label", "pfield");
-    lab.append(el("span", null, "for"), sel);
+    lab.append(el("span", null, "for"), roleSelect("What BiS is best at"));
     const clear = el("button", "btn", "Empty all slots");
     clear.type = "button";
     clear.disabled = !SLOTS.some((s) => gear[s.key]);
@@ -730,9 +738,9 @@
     }
   }
 
-  // what the MCP check (mcp.js) borrows from Equip BiS
+  // what the MCP check (mcp.js) and the Stats tab (statstab.js) borrow from Equip BiS
   app.gearKit = { items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
-    withFightOf, equipped,
+    withFightOf, equipped, bisRole, roleSelect,
     // put these weapons on (the MCP check's "Wear" buttons)
     wear(mh, oh) {
       gear.mainHand = mh.id;
@@ -878,16 +886,19 @@
     view = v;
     $("talentsView").hidden = v !== "talents";
     $("gearView").hidden = v !== "gear";
+    $("statsView").hidden = v !== "stats";
     $("priorityView").hidden = v !== "priority";
     $("abilitiesView").hidden = v !== "abilities";
     $("buildsView").hidden = v !== "builds";
     $("tabTalents").setAttribute("aria-selected", v === "talents");
     $("tabGear").setAttribute("aria-selected", v === "gear");
+    $("tabStats").setAttribute("aria-selected", v === "stats");
     $("tabPriority").setAttribute("aria-selected", v === "priority");
     $("tabAbilities").setAttribute("aria-selected", v === "abilities");
     $("tabBuilds").setAttribute("aria-selected", v === "builds");
     $("tooltip").hidden = true;
-    if (v !== "talents" && v !== "builds") loadItems(render); // the priority and abilities tabs need your weapons too
+    if (v !== "talents" && v !== "builds") loadItems(render); // the stats, priority and abilities tabs need your gear too
+    if (app.renderStats) app.renderStats();
     if (app.renderPriority) app.renderPriority();
     if (app.renderAbilities) app.renderAbilities();
     if (app.renderBuilds) app.renderBuilds();
@@ -904,6 +915,7 @@
 
   $("tabTalents").addEventListener("click", () => setView("talents", true));
   $("tabGear").addEventListener("click", () => setView("gear", true));
+  $("tabStats").addEventListener("click", () => setView("stats", true));
   $("tabPriority").addEventListener("click", () => setView("priority", true));
   $("tabAbilities").addEventListener("click", () => setView("abilities", true));
   $("tabBuilds").addEventListener("click", () => setView("builds", true));

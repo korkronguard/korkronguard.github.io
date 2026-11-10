@@ -43,6 +43,7 @@
   <nav class="tabs" role="tablist" aria-label="Planner pages">
     <button type="button" role="tab" id="tabTalents" data-view="talents" aria-selected="true">Talents</button>
     <button type="button" role="tab" id="tabGear" data-view="gear" aria-selected="false">Gear &amp; Stats</button>
+    <button type="button" role="tab" id="tabStats" data-view="stats" aria-selected="false">Stat Weights</button>
     <button type="button" role="tab" id="tabPriority" data-view="priority" aria-selected="false">Priority</button>
     <button type="button" role="tab" id="tabAbilities" data-view="abilities" aria-selected="false">Abilities</button>
     <button type="button" role="tab" id="tabBuilds" data-view="builds" aria-selected="false">Builds</button>
@@ -78,6 +79,13 @@
     </div>
     <section class="mcp" id="mcpBox" aria-label="Manual Crowd Pummeler check" hidden></section>
     <section class="side wide" id="gearAttacks" aria-label="Attacks and abilities"></section>
+  </div>
+
+  <div id="statsView" role="tabpanel" aria-labelledby="tabStats" hidden>
+    <div class="prio-layout lab-layout">
+      <section class="prio" id="statsBox" aria-label="What each stat is worth"></section>
+      <aside class="side" id="statsSide" aria-label="Target, buffs and stats"></aside>
+    </div>
   </div>
 
   <div id="buildsView" role="tabpanel" aria-labelledby="tabBuilds" hidden>
@@ -149,6 +157,7 @@
 <script src="js/panel.js"></script>
 <script src="js/priority.js"></script>
 <script src="js/abilitytab.js"></script>
+<script src="js/statstab.js"></script>
 <script src="js/mcp.js"></script>
 <script src="js/builds.js"></script>
 <script src="js/why.js"></script>

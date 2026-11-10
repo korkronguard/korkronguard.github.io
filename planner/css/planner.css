@@ -601,6 +601,27 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .mcp-notes { margin: 14px 0 4px; padding-left: 18px; }
 .mcp-notes li { margin: 2px 0; }
 
+/* ---------- stat weights tab ---------- */
+.stat-role { margin-top: 8px; }
+.stat-role select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; }
+.stat-sec { margin-top: 18px; }
+.stat-sec h3 { display: inline-block; margin: 0; font-size: 15px; color: var(--gold); letter-spacing: .3px; }
+.stat-sec .lab-scroll { margin-top: 6px; }
+/* fixed widths, so the columns of the two lists line up */
+.stat-table { width: 100%; min-width: 600px; table-layout: fixed; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.stat-table th { padding: 5px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; white-space: nowrap; }
+.stat-table th:nth-child(1) { width: 27%; }
+.stat-table th:nth-child(2) { width: 16%; }
+.stat-table th:nth-child(3) { width: 12%; }
+.stat-table th:nth-child(4) { width: 21%; }
+.stat-table td { padding: 5px 10px; border-bottom: 1px solid #23272e; white-space: nowrap; }
+.stat-table th.num, .stat-table td.num { text-align: right; }
+.stat-table tbody tr:nth-child(even) > td { background: #1a1d23; }
+.stat-table tbody tr:hover > td { background: var(--panel-2); }
+.stat-name { font-weight: 600; }
+.stat-adds { color: var(--green); }
+.stat-cap { color: #7cc4ff; }
+
 /* ---------- abilities tab (spreadsheet-style table) ---------- */
 .lab-bar { gap: 8px 22px; }
 .lab-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
