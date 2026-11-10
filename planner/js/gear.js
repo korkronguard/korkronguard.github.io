@@ -536,7 +536,7 @@
     const R = KP.calc.compute(gearCtx(g, role));
     const dps = (R.rotation && R.rotation.dps) || 0;
     const e = KP.calc.ehp(R, state.level);
-    const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? 0.7 * Math.log(e) + 0.3 * Math.log(1 + dps) : dps;
+    const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? KP.calc.tankScore(e, dps) : dps;
     return { v, e, dps };
   }
   const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
@@ -548,8 +548,7 @@
     const base = bisEval(g, role);
     const w = { v: {}, e: {}, d: {} };
     for (const k of keys) {
-      const amt = k === "armor" || k === "bonusArmor" ? 300 : k === "health" || k === "mana" ? 200 : 25;
-      const probe = k === "armor" ? { name: "", armor: amt } : { name: "", stats: { [k]: amt } };
+      const { amount: amt, item: probe } = KP.calc.statProbe(k);
       const r = bisEval({ ...g, probe }, role);
       w.v[k] = (r.v - base.v) / amt;
       w.e[k] = (r.e - base.e) / amt;

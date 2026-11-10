@@ -32,6 +32,9 @@
   const NORMAL_SPEED = { dagger: 1.7, oneHand: 2.4, twoHand: 3.3, ranged: 2.8 };
   // Attack table by how many levels the target is above you (Classic)
   const MELEE_MISS = [5, 5.5, 6, 8];
+  // white swings miss this much more often while dual wielding (the original game's; Forever's combat logs agree: 21.5% of
+  // 586 swings by four dual wielders missed against 4.0% of 6,701 by players with one weapon). Hit takes it off like any miss.
+  const DUAL_WIELD_MISS = 19;
   const SPELL_MISS = [4, 5, 6, 17];
   const GLANCE_CHANCE = [10, 20, 30, 40];
   const GLANCE_DAMAGE = [0.95, 0.85, 0.75, 0.7];
@@ -690,6 +693,20 @@
     return pts[2] > Math.max(pts[0], pts[1]) && melee >= 2 ? "melee" : "ranged";
   }
   const SUNDER_STACKS = 5;
+  const sunderCost = (ctx, rank) => rank.cost / 10 - talentNumber(ctx, "Improved Sunder Armor", /by (\d+)/);
+
+  // A Warrior's own Sunder Armor against an elite (ctx.target.ownSunder): one a global cooldown from the start until 5 are up,
+  // then again as it runs out. Not on a normal mob: a combat log has it adding 6% over such a fight, for rage that does as much
+  // elsewhere; 13% on elites, in fights where it started late. Its global cooldowns aren't counted: rage runs out first, and they
+  // changed no number for 225 test characters. { perStack, stacks, share = the fight's share at each stack on the way up, ragePerSec }
+  function ownSunder(ctx) {
+    const rank = ctx.target.ownSunder && ctx.cls.token === "WARRIOR" && !buffValue(ctx, "Sunder Armor") && bookRank("WARRIOR", "Sunder Armor", ctx.level);
+    if (!rank) return null;
+    const T = ctx.fightSec || FIGHT_SEC;
+    const stacks = Math.min(SUNDER_STACKS, Math.ceil(T / 1.5));
+    const uses = stacks + Math.max(0, T - (stacks - 1) * 1.5) / (rank.durMs / 1000);
+    return { perStack: rankValue("Sunder Armor", ctx.level), stacks, share: 1.5 / T, ragePerSec: (uses * sunderCost(ctx, rank)) / T };
+  }
 
   function mitigation(ctx, S) {
     // armor debuffs on the target: 5 Sunders, Faerie Fire, Curse of Recklessness
@@ -697,19 +714,29 @@
     const sunderLike = Math.max(buffValue(ctx, "Sunder Armor") * SUNDER_STACKS, buffValue(ctx, "Expose Armor") * COMBO_POINTS);
     const sundered = Math.max(0, (ctx.target.armor || 0) - sunderLike -
       buffValue(ctx, "Faerie Fire") - buffValue(ctx, "Curse of Recklessness"));
-    const armor = sundered * (1 - S.tal.armorIgnore / 100);
-    const dr = armor / (armor + 400 + 85 * ctx.level);
-    return Math.min(0.75, dr);
+    const reduction = (stacks, perStack) => {
+      const armor = Math.max(0, sundered - stacks * perStack) * (1 - S.tal.armorIgnore / 100);
+      return Math.min(0.75, armor / (armor + 400 + 85 * ctx.level));
+    };
+    const own = ownSunder(ctx);
+    if (!own) return reduction(0, 0);
+    let total = 0, left = 1; // over the fight: each stack on the way up, then the last one for the rest
+    for (let k = 1; k < own.stacks; k++) {
+      total += own.share * reduction(k, own.perStack);
+      left -= own.share;
+    }
+    return total + left * reduction(own.stacks, own.perStack);
   }
 
-  function table(ctx, S, kind) {
+  // moreMiss: misses on top of the table's, which hit takes off too (a dual wielder's white swings)
+  function table(ctx, S, kind, moreMiss = 0) {
     const d = Math.max(0, Math.min(3, ctx.target.diff));
     if (kind === "magic") {
       return { miss: Math.max(1, SPELL_MISS[d] - S.spellHit), dodge: 0 };
     }
     // Classic: against a target 3+ levels higher the first 1% of hit doesn't count
     const hit = d >= 3 ? Math.max(0, S.hit - 1) : S.hit;
-    return { miss: Math.max(0, MELEE_MISS[d] - hit), dodge: kind === "melee" ? 5 + d * 0.5 : 0 };
+    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: kind === "melee" ? 5 + d * 0.5 : 0 };
   }
 
   // How much hit removes every miss against the target (Classic attack table): abilities and one-weapon white hits,
@@ -717,7 +744,7 @@
   function hitCaps(ctx) {
     const d = Math.max(0, Math.min(3, ctx.target.diff));
     const melee = MELEE_MISS[d] + (d >= 3 ? 1 : 0);
-    return { melee, dualWhite: melee + 19, spell: SPELL_MISS[d] - 1 };
+    return { melee, dualWhite: melee + DUAL_WIELD_MISS, spell: SPELL_MISS[d] - 1 };
   }
 
   function critSuppression(ctx) {
@@ -921,6 +948,11 @@
     }
     const rageIncome = rage, firstAbilityPart = parts.length, spentOn = [];
     let gcdUsed = 0; // share of each second spent on global cooldowns and casts
+    const own = ownSunder(ctx);
+    if (own) {
+      rage = Math.max(0, rage - own.ragePerSec);
+      spentOn.push("your own Sunder Armor first (5, then kept up)");
+    }
     const spend = (a) => {
       if (!a || !a.cdMs || rage <= 0) return;
       const uses = cooldownUses(ctx, a.cdMs);
@@ -1041,8 +1073,7 @@
     }
     const sunder = holding && bookRank("WARRIOR", "Sunder Armor", ctx.level);
     if (sunder && sunder.threat) {
-      const cost = sunder.cost / 10 - talentNumber(ctx, "Improved Sunder Armor", /by (\d+)/);
-      list.push({ a: { name: "Sunder Armor", cost }, perSec: 1 / 1.5, dmg: sunder.threat, flatThreat: sunder.threat });
+      list.push({ a: { name: "Sunder Armor", cost: sunderCost(ctx, sunder) }, perSec: 1 / 1.5, dmg: sunder.threat, flatThreat: sunder.threat });
     }
     list.sort((x, y) => y.dmg / (y.a.cost || 1e-9) - x.dmg / (x.a.cost || 1e-9));
     for (const c of list) take(c.a, c.perSec, c.dmg, c.flatThreat);
@@ -1144,11 +1175,22 @@
     const [, effective, plus, minus] = field.split(":").map(Number);
     return effective - plus + minus;
   }
+  // A dungeon run's pace, from a combat log (a Restoration Druid in Gnomeregan, 48 minutes): 57% of the time fighting, about 27.5
+  // minutes of it, and no drinking at all. So each second of fighting has that second's regen, the regen of the rest between
+  // pulls, and its share of the mana pool over the whole run.
+  const DUNGEON_FIGHTING = 0.57, DUNGEON_FIGHT_SEC = 1650;
+  const dungeonMana = (pool, whileFighting, betweenPulls) =>
+    pool / DUNGEON_FIGHT_SEC + whileFighting + (betweenPulls * (1 - DUNGEON_FIGHTING)) / DUNGEON_FIGHTING;
   function manaBudget(ctx, S, talentKeep) {
     const spiritRegen = spiritRegenOf(S.attr.spirit);
     const keep = talentKeep(ctx);
     // the leveling model (tools/make_builds.js) sets how much mana per second a fight may use (it pays for it in drinking)
     if (ctx.manaPerSec != null) return { perSec: ctx.manaPerSec, keep, busy: 0, extras: [] };
+    // a healer's step on a Dungeon path (make_builds.js's dungeonAt)
+    if (ctx.dungeonPace) {
+      const perSec = dungeonMana(S.mana, S.mp5 / 5 + (spiritRegen * keep) / 100 + blockMana(ctx, S), S.mp5 / 5 + spiritRegen);
+      return { perSec, keep, busy: 0, extras: [] };
+    }
     // Mage: one Evocation (regen +1500% for 8 sec) and the best mana gem you can conjure, once per fight
     let extra = 0, busy = 0;
     const extras = [];
@@ -1465,6 +1507,7 @@
   // Power Word: Shield once per Weakened Soul) when they're worth it, then the best heal you can afford in between.
   // Crits heal 150%; every point of healing counts (no overhealing).
   const WEAKENED_SOUL_MS = 15000; // Power Word: Shield again on the same target (Classic; the debuff isn't in our data)
+  const BLOOM_USEFUL = 0.23; // what a combat log left of Bloom's healing, a dungeon's Restoration Druid: 77% of it overhealed
   function healRotation(ctx, S, abilities) {
     // one target only: no group or bouncing heals, no heals that only work on yourself, nothing we can't put a number
     // on (Swiftmend uses up a heal over time)
@@ -1490,9 +1533,12 @@
     const boundless = oathText ? 0 : talentNumber(ctx, "Boundless Light", /Holy Shock spell by (\d+)%/);
     // each heal's own crit chance (talents that raise one spell's crit) and crit size (Holy Power)
     const critOf = (a) => Math.min(100, (a.critChance != null ? a.critChance : S.spellCrit) + (a.name === "Holy Shock" ? boundless : 0)) / 100;
+    // Bloom on a dungeon step: a share of your Spirit when Rejuvenation or Regrowth runs out; in a group they land on different
+    // people, so nearly every cast does (a combat log: 225 of 238)
+    const bloom = ctx.dungeonPace ? (talentNumber(ctx, "Bloom", /equal to (\d+)% of your Spirit/) / 100) * S.attr.spirit * BLOOM_USEFUL : 0;
     // Binding Heal heals you and the target for the same amount: only the target's half counts here
     const per = (a) => (a.heal * (a.name === "Binding Heal" ? 0.5 : 1) + (oath[a.name] || 0) * ctx.level / 60) *
-      (1 + critOf(a) * ((a.healCritMult || 1.5) - 1));
+      (1 + critOf(a) * ((a.healCritMult || 1.5) - 1)) + (a.name === "Rejuvenation" || a.name === "Regrowth" ? bloom : 0);
     const isHot = (a) => (a.rank.effects || []).some((e) => e.effect === 6 && e.aura === 8) && !(a.rank.effects || []).some((e) => e.effect === 10);
     const isShield = (a) => (a.rank.effects || []).some((e) => e.aura === 69);
     const fillers = heals.filter((a) => !a.cdMs && !isHot(a) && !isShield(a))
@@ -1536,7 +1582,7 @@
     else if (boundless) note += `; Boundless Light +${boundless}% Holy Shock crit (no Oath of Light)`;
     const hc = heals.find((a) => a.healCritMult > 1.5);
     note += `. Crits heal ${hc ? `${Math.round(hc.healCritMult * 100)}% (Holy Power)` : "150%"}${back ? ", Illumination's mana back averaged in" : ""}; assumes every point of healing is needed (no overhealing). ` +
-      `Mana over a ${FIGHT_SEC / 60}-minute fight (${REGEN_RULE}${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
+      `${ctx.dungeonPace ? "Mana at a dungeon run's pace, no drinking" : `Mana over a ${FIGHT_SEC / 60}-minute fight`} (${REGEN_RULE}${budget.keep ? `, ${budget.keep}% kept while casting` : ""}; no potions). ` +
       "Group heals (Chain Heal, Prayer of Healing, Wild Growth...) aren't counted.";
     return { hps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
@@ -2204,8 +2250,9 @@
         (ranged ? 1 + rangedPct(S, item) / 100 : 1);
       const min = (w.min + apBonus) * scale, max = (w.max + apBonus) * scale;
       const avg = (min + max) / 2;
-      const t = isWand ? table(ctx, S, "magic") : table(ctx, S, ranged ? "ranged" : "melee");
-      let miss = Math.max(0, t.miss + (dual && !ranged ? 19 : 0) - (label === "Off hand" ? S.tal.offhandHit : 0));
+      const moreMiss = (dual && !ranged ? DUAL_WIELD_MISS : 0) - (label === "Off hand" ? S.tal.offhandHit : 0);
+      const t = isWand ? table(ctx, S, "magic") : table(ctx, S, ranged ? "ranged" : "melee", moreMiss);
+      const miss = t.miss;
       const glance = !ranged ? GLANCE_CHANCE[d] : 0;
       const critBase = isWand ? S.spellCrit : S.crit - critSuppression(ctx);
       const crit = Math.max(0, Math.min(critBase, 100 - miss - t.dodge - glance));
@@ -2676,8 +2723,8 @@
   const ELITE_HEALTH = 3, ELITE_HIT = 2.2;
   const mobTargets = (L) => ({
     same: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: mobHealth(L), hitMult: 1 },
-    elite: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: ELITE_HEALTH * mobHealth(L), hitMult: ELITE_HIT },
-    elite3: { diff: 3, armor: Math.round(mobArmor(L + 3)), mode: "same", health: ELITE_HEALTH * mobHealth(L + 3), hitMult: ELITE_HIT },
+    elite: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: ELITE_HEALTH * mobHealth(L), hitMult: ELITE_HIT, ownSunder: true },
+    elite3: { diff: 3, armor: Math.round(mobArmor(L + 3)), mode: "same", health: ELITE_HEALTH * mobHealth(L + 3), hitMult: ELITE_HIT, ownSunder: true },
   });
 
   // Leveling fights end when the mob dies: ctx.fightSec seconds (compute() works it out against a same-level mob;
@@ -2721,11 +2768,12 @@
   const averagedText = (ctx, durMs, cdMs, share) => ` (averaged: ${Math.round(durMs / 1000)} sec every ${Math.round(cdMs / 6000) / 10} min` +
     (ctx.fightSec && ctx.restSec != null ? `; leveling: up ${Math.round(share * 100)}% of the fighting, counting the rest between fights)` : ")");
   // The rules the addon's own copy of the Warrior math reads (tools/export_sim.js writes them to its Data/Sim.lua)
-  const simRules = () => ({ meleeMiss: MELEE_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
+  const simRules = () => ({ meleeMiss: MELEE_MISS, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
     baseMiss: BASE_MISS, mobSwing: MOB_SWING, revengeWindow: REVENGE_WINDOW, ragePerSwingSec: RAGE_PER_SWING_SEC, offhandRage: OFFHAND_RAGE,
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
-    eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, weaponTalents: Object.keys(WEAPON_TALENTS) });
+    eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
+    tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS });
   // the damage per second its swings do to you: through your misses, dodges, parries, blocks and armor, and changes to
   // the damage you take (Defensive Stance)
   function meleeTaken(S, level, hitMult = 1) {
@@ -2738,6 +2786,22 @@
     const S = R.S;
     const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * (level + 3)));
     return S.health / ((1 - armorDR) * (1 - avoidance(S))) / (1 + (S.damageTaken || 0) / 100);
+  }
+  // A tank's one number: survival and what it deals (damage, or threat for a build) on a log scale, so 1% more of either
+  // counts the same whatever the other is. Equip BiS, the builds' search and audit and the addon's stat weights all use it.
+  const TANK_MIX = { survival: 0.7, damage: 0.3 };
+  const tankScore = (survival, dealt) => TANK_MIX.survival * Math.log(survival) + TANK_MIX.damage * Math.log(1 + dealt);
+  // The stand-in item that measures what a stat is worth (a stat weight): the character's number with it on, less the
+  // number without, per point. Enough points to read the change, few enough to stay near the gear worn.
+  function statProbe(key) {
+    const amount = key === "armor" || key === "bonusArmor" ? 300 : key === "health" || key === "mana" ? 200 : 25;
+    return { amount, item: key === "armor" ? { name: "", armor: amount } : { name: "", stats: { [key]: amount } } };
+  }
+  // the same for 1 damage per second on a weapon: that weapon, hitting harder
+  const WEAPON_PROBE_DPS = 5;
+  function weaponProbe(item) {
+    const more = WEAPON_PROBE_DPS * item.weapon.speed;
+    return { amount: WEAPON_PROBE_DPS, item: { ...item, weapon: { ...item.weapon, min: item.weapon.min + more, max: item.weapon.max + more } } };
   }
 
   // mana pool and in-combat regen per second (Spirit share kept while casting, plus mp5), for the leveling model
@@ -2901,7 +2965,8 @@
         "count up to 60% together.",
       numbers: [
         ["3 levels above you", "a raid boss: the planner measures every tank against one", FROM.planner],
-        [`${BASE_MISS * 100}%`, "an attack's base chance to miss you", FROM.rule],
+        [`${BASE_MISS * 100}%`, "an attack's base chance to miss you",
+          FROM.checked("a dungeon's combat log: 4.8% of 1,052 enemy swings at a level 30 tank missed")],
         ["up to 60%", "misses + dodge + parry + block are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
       ] });
     if (cls.power === 0) {
@@ -2948,15 +3013,15 @@
           [`${rush} seconds`, "how long Adrenaline Rush lasts", FROM.files("the spell's duration")],
         ] });
     }
-    const hitsFrom = (power) => [[`${power} ÷ 14 × weapon speed`, "14 attack power add 1 damage per second, so a slow weapon " +
-      "gets more per swing", FROM.rule], ["double damage", "a crit", FROM.rule]];
+    const hitsFrom = (power, from) => [[`${power} ÷ 14 × weapon speed`, "14 attack power add 1 damage per second, so a slow weapon " +
+      "gets more per swing", from], ["double damage", "a crit", FROM.rule]];
     if (MELEE.includes(t)) {
       out.push({ name: "White hits", text: "weapon damage + attack power ÷ 14 × weapon speed. Crits do double damage.",
-        numbers: hitsFrom("attack power") });
+        numbers: hitsFrom("attack power", FROM.checked("a Warrior's white hits in a combat log: 100 a swing read, 100.4 by this rule")) });
     }
     if (t === "HUNTER") {
       out.push({ name: "Shots", text: "weapon damage + ranged attack power ÷ 14 × weapon speed. Crits do double damage.",
-        numbers: hitsFrom("ranged attack power") });
+        numbers: hitsFrom("ranged attack power", FROM.rule) });
       const petTop = Math.max(...Object.keys(KP.measured.petDps).map(Number));
       out.push({ name: "Your pet", text: `its melee adds to your damage: about ${PET_DPS_PER_LEVEL} more damage per second each level, plus ` +
         `${PET_RAP_SHARE * 100}% of your ranged attack power ÷ 14, through the target's armor like your own hits. It doesn't crit without Ferocity. ` +
@@ -2991,7 +3056,9 @@
       numbers: [
         [`${caps.melee}%`, `a boss 3 levels up makes ${MELEE_MISS[3]}% of your attacks miss, and the first 1% of hit from gear ` +
           "doesn't count against it", FROM.rule],
-        [`${caps.dualWhite}%`, "dual wielding makes white hits miss 19% more often", FROM.rule],
+        [`${caps.dualWhite}%`, `dual wielding makes white hits miss ${DUAL_WIELD_MISS}% more often, and hit takes that off too`,
+          FROM.checked("combat logs: 21.5% of 586 white swings by four dual wielders missed, 4.0% of 6,701 by players with one " +
+            "weapon; that hit takes it off wasn't seen, nobody had the hit")],
         [`${caps.spell}%`, `spells miss ${SPELL_MISS[3]}% of the time against it, and 1% always misses`, FROM.rule],
         [glance, "glancing blows: white hits that land for less; abilities never glance", FROM.rule],
         [lowerCrit, "about 1% less crit per level the boss is above you", FROM.rule],
@@ -3000,5 +3067,5 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules };
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe };
 })();
