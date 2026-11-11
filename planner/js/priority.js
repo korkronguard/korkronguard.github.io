@@ -1479,8 +1479,8 @@
         if (it && n === "Shadowburn") it.facts.push(`Shadow and Flame: +${pct}% ${school} damage for ${snf[1]} sec (game data, counted)`);
       }
     }
-    const wrack = numbersIn(desc("Wrack"), /by (\d+)% for (\d+) sec/);
-    if (fromMath["Wrack"] && wrack) fromMath["Wrack"].facts.push(`+${wrack[0]}% to your other Shadow damage over time while it lasts (game data; not counted in the estimate)`);
+    const wrack = numbersIn(desc("Wrack"), /deal their periodic damage (\d+)% faster/);
+    if (fromMath["Wrack"] && wrack) fromMath["Wrack"].facts.push(`While you channel it, your Siphon Life, Corruption and Bane of Agony on the target tick ${wrack[0]}% faster (game data; not counted in the estimate)`);
     // the estimate counts Incinerate's bonus while it keeps Immolate up (calc.js withAfflictedBonus); the line's
     // damage figure is the plain hit
     const incinerate = numbersIn(desc("Incinerate"), /additional (\d+)% damage if the target is afflicted by Immolate/);

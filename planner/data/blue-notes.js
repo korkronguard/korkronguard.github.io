@@ -7,8 +7,23 @@ window.KP = window.KP || {};
 KP.blueNotes = [
   // Announced for Tuesday, November 10: give these an update when the hotfix lands
   { post: 30783956, text: "Hunter pets and Voidwalkers are to tank about as well as in Classic Era; Blizzard will raise their stats as needed." },
-  { post: 30783956, cls: "WARLOCK", text: "Affliction: Siphon Life, Corruption and Bane of Agony are to stay worth casting next to Wrack, which beats them when channeled alone. Total damage stays the same." },
   { post: 30783956, cls: "SHAMAN", text: "Enhancement: Strength is to become the strongest stat, so Mage and Warlock gear stops being the best. Blizzard tells leveling Enhancement Shamans to collect Strength and Attack Power from now on." },
+
+  // Announced for November 10 and in the game since that afternoon (the second "Server hotfixes" update of November 10)
+  { post: 30783956, update: "6729f4a494", cls: "WARLOCK", text: "Affliction, as Blizzard announced it: Siphon Life, Corruption and Bane of Agony are to stay worth casting next to Wrack, which beat them when channeled alone. Total damage is meant to stay the same." },
+
+  // Blizzard's notes for the November 10 hotfixes (posted that night). The Hunter costs, Nature's Swiftness, Wrack, Soul
+  // Siphon and Bane of Havoc are in the game's files (the two updates of November 10); these are the class changes the
+  // files read that afternoon don't show. Give the Enhancement lines their own update once the files show them
+  { post: 30849309, update: "6729f4a494", cls: "SHAMAN", text: "Enhancement: Stormstrike deals 100% weapon damage (was 150%) every 8 sec (was 6). Mental Dexterity turns 33/66/100% of your Intellect into attack power (was 50/100/150%). Blizzard: Enhancement leaned too far toward Spell Power and Intellect gear, and this moves it back toward Windfury before the raid opens." },
+  { post: 30849309, update: "6729f4a494", cls: "SHAMAN", text: "Maelstrom Weapon takes 20% off cast time and mana cost per application at every rank (was 4/8/12/16/20%) and activates 6/7/8/9/10 times a minute by rank (was 20 at every rank). Its tooltip shows your chance per swing for your main-hand weapon's speed." },
+  { post: 30849309, update: "6729f4a494", cls: "SHAMAN", text: "Weapon imbues and weapon totems now work at the same time: Windfury Weapon and Windfury Totem can both go off on your attacks." },
+  { post: 30849309, update: "6729f4a494", cls: "WARLOCK", text: "Wrack speeds up how often Siphon Life, Corruption and Bane of Agony deal damage, not how long they last: Bane of Agony still lasts its 24 sec and ticks twice as often while you channel. The time skipped is kept when the channel ends or is interrupted." },
+  { post: 30849309, update: "6729f4a494", cls: "WARLOCK", text: "The Imp, Voidwalker, Succubus and Incubus have about 15% more base health, and the Imp's Firebolt hits harder at ranks 1 to 4." },
+  { post: 30849309, update: "6729f4a494", cls: "HUNTER", text: "Pets have 115% of their normal health: a bug had given them 150%. The Hawk's melee damage is about 80% higher." },
+  { post: 30849309, update: "6729f4a494", cls: "WARRIOR", text: "Sweeping Strikes no longer loses charges when it hits no second target." },
+  { post: 30849309, update: "6729f4a494", cls: "DRUID", text: "Omen of Clarity can activate again after you swap specializations." },
+  { post: 30849309, update: "6729f4a494", cls: "PRIEST", text: "The Revelation enchant is no longer set off by Vampiric Embrace's healing, and Holy Nova is unlearned when you take the talent back." },
 
   // The November 9 hotfixes (the update "Server hotfixes" recorded on November 10)
   { post: 30831545, update: "b074e54934", cls: "DRUID", text: "Natural Instinct now works on Lacerate and Pounce. That's the \"Numbers changed\" on Natural Instinct in Abilities & Talents." },

@@ -2714,12 +2714,15 @@
   // 23 to 31: flatter, not changed yet); and the seconds between its swings
   const mobDps = (L) => Math.max(Math.min(L - 4, 21), 0.014 * L * L + 0.35 * L);
   const MOB_SWING = 2;
-  // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30, and 6 to 8% more at 30 to 35 in
-  // Thousand Needles): how long a fight against it lasts
+  // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30, 6 to 8% more at 30 to 35 in
+  // two zones, and 10% more at 36 and 37: not changed yet): how long a fight against it lasts
   const mobHealth = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
-  // its armor: [level, armor] with straight lines between. Read in the logs up to level 35 and at 60; level 40 is the same
-  // rise carried on (an estimate: nothing has been seen between 36 and 59); 63 is a raid boss's usual 3731
-  const MOB_ARMOR = [[3, 46], [7, 245], [8, 322], [9, 412], [10, 518], [11, 545], [24, 1002], [40, 1563], [60, 3566], [63, 3731]];
+  // its armor: [level, armor] with straight lines between. Read in the logs up to level 37 and at 60: 35 a level from 24 to
+  // 35, then 107 and 113 (a sixth log, 2026-11-10: four kinds of mob agree on 1494 at 36 and 1607 at 37). 38 to 59 is a
+  // straight line to the one reading at 60 (an estimate: nothing has been seen there); 63 is a raid boss's usual 3731.
+  // Some kinds of mob have 0.6, 0.81 or 1.5 times their level's armor: this is the usual kind
+  const MOB_ARMOR = [[3, 46], [7, 245], [8, 322], [9, 412], [10, 518], [11, 545], [24, 1002], [35, 1387], [36, 1494], [37, 1607], [60, 3566],
+    [63, 3731]];
   function mobArmor(L) {
     if (L <= MOB_ARMOR[0][0]) return (MOB_ARMOR[0][1] * L) / MOB_ARMOR[0][0];
     const i = MOB_ARMOR.findIndex(([level]) => level >= L);
