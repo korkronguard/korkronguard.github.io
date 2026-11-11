@@ -1479,8 +1479,13 @@
         if (it && n === "Shadowburn") it.facts.push(`Shadow and Flame: +${pct}% ${school} damage for ${snf[1]} sec (game data, counted)`);
       }
     }
+    // the estimate adds the extra ticks to Wrack's own number (calc.js fasterTicks), for the spells it keeps up
     const wrack = numbersIn(desc("Wrack"), /deal their periodic damage (\d+)% faster/);
-    if (fromMath["Wrack"] && wrack) fromMath["Wrack"].facts.push(`While you channel it, your Siphon Life, Corruption and Bane of Agony on the target tick ${wrack[0]}% faster (game data; not counted in the estimate)`);
+    const sped = parts.find((p) => p.spell === "Wrack" && p.faster);
+    if (fromMath["Wrack"] && wrack) {
+      fromMath["Wrack"].facts.push(`While you channel it, your Siphon Life, Corruption and Bane of Agony on the target tick ${wrack[0]}% faster (game data` +
+        (sped ? `; counted: ${fmt(sped.faster, 1)} of Wrack's damage per second here is their extra ticks)` : "; none of them is kept up in this estimate)"));
+    }
     // the estimate counts Incinerate's bonus while it keeps Immolate up (calc.js withAfflictedBonus); the line's
     // damage figure is the plain hit
     const incinerate = numbersIn(desc("Incinerate"), /additional (\d+)% damage if the target is afflicted by Immolate/);

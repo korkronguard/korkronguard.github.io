@@ -589,7 +589,7 @@
     if (!row.m.heal) {
       const crits = one.dmax > 0 || r.rank.dotCrit;
       add((crits ? `Crit ${fmt(r.critChance, 1)}% for ×${fmt(critMult(r), 2)}` : "Its ticks can't crit") +
-        ` · ${fmt(r.miss, 1)}% miss` + (r.dodge ? ` · ${fmt(r.dodge, 1)}% dodge` : ""));
+        ` · ${fmt(r.miss, 1)}% miss` + (r.dodge ? ` · ${fmt(r.dodge, 1)}% dodge` : "") + (r.parry ? ` · ${fmt(r.parry, 1)}% parry` : ""));
       if (r.kind !== "magic" && r.school === 1 && one.dmax > 0) {
         const c = ctxFor(M.ranks, 1, row.shape);
         add(`Armor takes off ${fmt(KP.calc.mitigation(c, KP.calc.stats(c)) * 100, 1)}% of the hit (bleeds ignore it)`);

@@ -85,8 +85,13 @@
   function table(W, section) {
     const s = SECTION[section.kind];
     const box = el("div", "stat-sec");
-    const h = el("h3", null, `${s.title}: ${s.total} ${amount(section.total)}${s.after ? " " + s.after : ""}`);
-    h.title = s.about;
+    // against an elite a Warrior's damage counts their own Sunder Armor (calc.js ownSunder): said here, because the number is
+    // so much higher than against a normal enemy
+    const sunder = section.kind === "damage" && KP.calc.ownSunder(W.ctx);
+    const h = el("h3", null, `${s.title}: ${s.total} ${amount(section.total)}${s.after ? " " + s.after : ""}` +
+      (sunder ? `, with your Sunder Armor at ${sunder.stacks} stacks` : ""));
+    h.title = s.about + (sunder ? ` Against an elite this counts your own Sunder Armor: ${sunder.stacks} stacks from the start of the fight, ` +
+      "then kept up, its rage paid out of this number. A normal enemy's number counts none: it dies before the stacks pay for themselves." : "");
     h.classList.add("hint-u");
     box.append(h);
     const t = el("table", "stat-table");

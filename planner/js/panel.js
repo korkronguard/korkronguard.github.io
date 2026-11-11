@@ -421,6 +421,7 @@
       row.append(name, nums);
       row.title = (w.procs && w.procs.length && w.label === "Main hand" ? w.procs.join(". ") + ".\n" : "") +
         `Speed ${w.speed.toFixed(2)}. Against your target: ${fmt(w.miss, 1)}% miss, ${fmt(w.dodge, 1)}% dodge, ` +
+        (w.parry ? `${fmt(w.parry, 1)}% parry (it's facing you), ` : "") +
         `${fmt(w.glance)}% glancing, ${fmt(w.crit, 1)}% crit. Armor is taken off.`;
       box.append(row);
     }
@@ -479,7 +480,7 @@
       const school = SCHOOL[a.school] || "";
       row.title = (a.rank.desc ? a.rank.desc + "\n\n" : "") +
         `${school} · ${a.kind === "magic" ? "spell" : a.kind} · crit ${fmt(a.critChance, 1)}% for ${fmt(a.critAvg)} · ` +
-        `${fmt(a.miss, 1)}% miss${a.dodge ? `, ${fmt(a.dodge, 1)}% dodge` : ""}.\n` +
+        `${fmt(a.miss, 1)}% miss${a.dodge ? `, ${fmt(a.dodge, 1)}% dodge` : ""}${a.parry ? `, ${fmt(a.parry, 1)}% parry` : ""}.\n` +
         "Avg = average damage per use, counting misses and crits" + (a.kind !== "magic" && a.school === 1 ? ", after armor." : ".");
     }
     return row;

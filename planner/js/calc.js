@@ -32,6 +32,11 @@
   const NORMAL_SPEED = { dagger: 1.7, oneHand: 2.4, twoHand: 3.3, ranged: 2.8 };
   // Attack table by how many levels the target is above you (Classic)
   const MELEE_MISS = [5, 5.5, 6, 8];
+  // An enemy parries melee attacks that come from the front: yours while it's hitting you (alone against it, or its tank), a
+  // solo Hunter's pet's. The original game's rule, 14% for a raid boss. Six combat logs, a Warrior's 3,328 white swings from
+  // the front: 4.0% parried by enemies of his level or below, 7.6% of 197 one level up, 3.4% of 118 two up, 11.9% of 42 three
+  // up. From behind (a group's damage dealers) it can't parry.
+  const MELEE_PARRY = [5, 5.5, 6, 14];
   // white swings miss this much more often while dual wielding (the original game's; Forever's combat logs agree: 21.5% of
   // 586 swings by four dual wielders missed against 4.0% of 6,701 by players with one weapon). Hit takes it off like any miss.
   const DUAL_WIELD_MISS = 19;
@@ -734,11 +739,13 @@
   function table(ctx, S, kind, moreMiss = 0) {
     const d = Math.max(0, Math.min(3, ctx.target.diff));
     if (kind === "magic") {
-      return { miss: Math.max(1, SPELL_MISS[d] - S.spellHit), dodge: 0 };
+      return { miss: Math.max(1, SPELL_MISS[d] - S.spellHit), dodge: 0, parry: 0 };
     }
     // Classic: against a target 3+ levels higher the first 1% of hit doesn't count
     const hit = d >= 3 ? Math.max(0, S.hit - 1) : S.hit;
-    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: kind === "melee" ? 5 + d * 0.5 : 0 };
+    const melee = kind === "melee";
+    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: melee ? 5 + d * 0.5 : 0,
+      parry: melee && beingHit(ctx) ? MELEE_PARRY[d] : 0 };
   }
 
   // How much hit removes every miss against the target (Classic attack table): abilities and one-weapon white hits,
@@ -1070,7 +1077,7 @@
     if (slam) push(slam, perCd(slam), slamFree ? 0 : sum(melee.map((w) => w.perSwing / w.effSpeed)) * (slam.castMs / 1000));
     if (op && op.cdMs) {
       const dodges = sum(melee.map((w) => w.dodge / 100 / w.effSpeed));
-      const fromRend = rendUp && mh ? bloodthrill * (Math.max(0, 100 - mh.miss - mh.dodge) / 100) / mh.effSpeed : 0;
+      const fromRend = rendUp && mh ? bloodthrill * (Math.max(0, 100 - mh.miss - mh.dodge - mh.parry) / 100) / mh.effSpeed : 0;
       push(op, Math.min(1000 / op.cdMs, dodges + fromRend));
     }
     const sunder = holding && bookRank("WARRIOR", "Sunder Armor", ctx.level);
@@ -1330,6 +1337,16 @@
     return best;
   }
 
+  // A channel that makes some of your damage over time tick faster while it lasts (Wrack since 2026-11-10: "While channeling,
+  // your Siphon Life, Corruption, and Bane of Agony effects on the target deal their periodic damage 100% faster"; Blizzard's
+  // notes: they tick twice as often and last as long). So a second of the channel is worth its own damage plus that share of
+  // what those spells do a second, for the ones the plan keeps up.
+  const TICKS_FASTER = /your ([^.]+?) effects on the target deal their periodic damage (\d+)% faster/;
+  function fasterTicks(a) {
+    const m = a.channeled && TICKS_FASTER.exec(a.rank.desc || "");
+    return m ? { spells: m[1].split(/,\s*(?:and\s+)?|\s+and\s+/), share: m[2] / 100 } : null;
+  }
+
   function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0) {
     // Arcane Blast is cast in its windows (below), not as a filler, once compute() picks how many per window
     const stack = ctx.blastCycle != null && stackingSpell(ctx);
@@ -1346,15 +1363,21 @@
       const refund = (a.school & (4 | 16)) ? moe * a.critChance / 100 : 0;
       return raw * (1 - clearcast) * (1 - refund);
     };
-    const fillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
-      .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a), mps: manaOf(a) / castTime(a) }))
-      .sort((x, y) => y.dps - x.dps);
-    if (!fillers.length) return null;
+    const plainFillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
+      .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a), mps: manaOf(a) / castTime(a), faster: fasterTicks(a) }));
+    if (!plainFillers.length) return null;
+    // the fillers with these damage-over-time spells kept up, strongest first: a channel that speeds some of them up gains
+    // what they do a second (sped: that part of its dps)
+    const fillersWith = (kept) => plainFillers.map((f) => {
+      const sped = f.faster ? f.faster.share * sum(kept.filter((d) => f.faster.spells.includes(d.a.name)).map((d) => d.dps)) : 0;
+      return { ...f, dps: f.dps + sped, sped };
+    }).sort((x, y) => y.dps - x.dps);
+    const fastest = (name) => Math.max(0, ...plainFillers.filter((f) => f.faster && f.faster.spells.includes(name)).map((f) => f.faster.share));
     const budget = manaBudget(ctx, S, keepWhileCasting);
     // Life Tap: tapShare of the time spent tapping, 1.5 sec each
     let mana = budget.perSec + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0;
-    const parts = [];
-    const best = fillers[0];
+    const parts = [], kept = [];
+    let fillers = fillersWith(kept), best = fillers[0];
     // Arcane Blast's window: k Blasts first, Blast i with i - 1 stacks (its own damage: the full stacks' spell damage is
     // in its expected, stats) and costing 100% more per stack; booked before anything else
     const blast = S.blast && S.blast.k > 0 && abilities.find((a) => a.name === S.blast.name && !a.locked);
@@ -1381,14 +1404,19 @@
         const per = a.expected - a.dotExpected * (1 - landed);
         return { a, every, dps: per / every, time: castTime(a) / every, mps: manaOf(a) / every };
       })
-      .filter((d) => d.dps / d.time > best.dps) // better than casting the filler in that time
+      // better than casting the filler in that time (with the faster ticks a channel could give it)
+      .filter((d) => (d.dps * (1 + fastest(d.a.name))) / d.time > best.dps)
       .sort((x, y) => y.dps / y.time - x.dps / x.time);
     for (const d of dots) {
       if (busy + d.time > 0.9 || d.mps > mana) continue;
       // keep it up only if it beats spending that casting time and mana on the filler
+      const next = fillersWith([...kept, d]);
       const without = fillerPick(fillers, best, mana, 1 - busy).d * (1 - busy);
-      const withIt = d.dps + fillerPick(fillers, best, mana - d.mps, 1 - busy - d.time).d * (1 - busy - d.time);
+      const withIt = d.dps + fillerPick(next, next[0], mana - d.mps, 1 - busy - d.time).d * (1 - busy - d.time);
       if (withIt <= without) continue;
+      kept.push(d);
+      fillers = next;
+      best = next[0];
       busy += d.time;
       mana -= d.mps;
       dps += d.dps;
@@ -1452,6 +1480,11 @@
     const fillerMana = free * (pick.starved ? pick.A.mps * pick.f : pick.f * pick.A.mps + (1 - pick.f) * pick.B.mps);
     const manaSpent = Math.max(0, budget.perSec - mana + fillerMana);
     if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
+    for (const f of new Set([pick.A, pick.B])) {
+      if (!f.sped) continue;
+      const names = kept.filter((d) => f.faster.spells.includes(d.a.name)).map((d) => d.a.name);
+      note += `; ${f.a.name}'s number includes the extra ticks it gives ${names.join(" and ")} (${f.faster.share * 100}% faster while you channel it)`;
+    }
     const fd = pick.d * free;
     dps += fd;
     // out of mana: the time you can't afford to cast goes to the wand (Mage, Priest, Warlock), which costs nothing
@@ -1461,14 +1494,17 @@
       dps += wandDps * idle;
     }
     // spell and kind say what each part is for the Priority tab (keep, cooldown, filler, cheap = the cheaper filler);
-    // instead = the filler that would hit harder if the mana lasted
+    // instead = the filler that would hit harder if the mana lasted; faster = how much of a filler's number is the extra
+    // ticks it gives other spells
     const instead = pick.A !== best ? best.a.name : undefined;
+    const faster = (f, d) => (f.sped ? (d * f.sped) / f.dps : undefined);
     if (pick.f >= 0.999 || pick.A === pick.B) {
-      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd, spell: pick.A.a.name, kind: "filler", instead });
+      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd, spell: pick.A.a.name, kind: "filler", instead, faster: faster(pick.A, fd) });
       if (instead) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
     } else {
-      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: pick.f * pick.A.dps * free, spell: pick.A.a.name, kind: "filler", instead },
-        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: (1 - pick.f) * pick.B.dps * free, spell: pick.B.a.name, kind: "cheap" });
+      const da = pick.f * pick.A.dps * free, db = (1 - pick.f) * pick.B.dps * free;
+      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: da, spell: pick.A.a.name, kind: "filler", instead, faster: faster(pick.A, da) },
+        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: db, spell: pick.B.a.name, kind: "cheap", faster: faster(pick.B, db) });
       note += `; mixes ${pick.A.a.name} with the cheaper ${pick.B.a.name} so the mana lasts`;
     }
     if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
@@ -1664,7 +1700,7 @@
     const vile = (1 + talentNumber(ctx, "Vile Poisons", /dealt by your poisons by (\d+)%/) / 100) *
       (1 + venomUp * talentNumber(ctx, "Venom", /Poison damage by (\d+)%/) / 100);
     const perHit = poison ? chance * procAt(poison, level) * vile * ((100 - table(ctx, S, "magic").miss) / 100) * (1 + damagePct(S, 8) / 100) : 0;
-    const swings = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge) / 100) / w.effSpeed)) * (1 + bf / 100);
+    const swings = sum(melee.map((w) => (Math.max(0, 100 - w.miss - w.dodge - w.parry) / 100) / w.effSpeed)) * (1 + bf / 100);
     // poison damage per second with this many ability casts per second and this much extra attack speed (Shank can't miss)
     const poisonDps = (casts, haste) => perHit * (swings * (1 + haste / 100) + Math.max(0, casts) * 0.9 + (shankEvery ? 1 / shankEvery : 0));
     const noSndCasts = (energy / pick.energy) * (pick.n + 1) - replaced;
@@ -1751,7 +1787,7 @@
     const holyPct = 1 + damagePct(S, 2) / 100;
     const vengeance = talentNumber(ctx, "Vengeance", /by (\d+)% for/) * 3; // assumed at full stacks while you crit
     const vMult = 1 + vengeance / 100;
-    const land = Math.max(0, 100 - mh.miss - mh.dodge) / 100;
+    const land = Math.max(0, 100 - mh.miss - mh.dodge - mh.parry) / 100;
     const crit = Math.min(100, S.crit - critSuppression(ctx)) / 100;
     const socRank = learnedTalent(ctx, "Seal of Command") && bookRank("PALADIN", "Seal of Command", level);
     const sorRank = bookRank("PALADIN", "Seal of Righteousness", level);
@@ -1884,7 +1920,7 @@
       const m = /(\d+)% chance of granting you (\d+) extra attacks? with (\d+) extra melee attack power/.exec(wfDesc);
       if (m) {
         const boost = 1 + talentNumber(ctx, "Elemental Weapons", /Windfury Weapon effect by (\d+)%/) / 100;
-        const land = Math.max(0, 100 - mh.miss - mh.dodge) / 100;
+        const land = Math.max(0, 100 - mh.miss - mh.dodge - mh.parry) / 100;
         const extra = parseFloat(m[1]) / 100 * parseFloat(m[2]) * land; // extra attacks per swing
         const d = swingsPerSec * extra * swingWithAp(S, mh, parseFloat(m[3]) * boost);
         parts.push({ name: "Windfury Weapon (extra attacks)", dps: d });
@@ -2090,9 +2126,9 @@
     const t = table(ctx, { hit: 0 }, "melee");
     const glance = GLANCE_CHANCE[d];
     const crit = Math.max(0, talentNumber(ctx, "Ferocity", /by (\d+)%/) - critSuppression(ctx));
-    const hit = 100 - t.miss - t.dodge - glance - crit;
+    const hit = 100 - t.miss - t.dodge - t.parry - glance - crit;
     const perSwing = (hit + crit * 2 + glance * GLANCE_DAMAGE[d]) / 100;
-    const perBite = (100 - t.miss - t.dodge + crit) / 100; // a special attack: no glancing blows
+    const perBite = (100 - t.miss - t.dodge - t.parry + crit) / 100; // a special attack: no glancing blows
     const haste = talentNumber(ctx, "Frenzy", /(\d+)% attack speed/);
     const swingsInFrenzy = (talentNumber(ctx, "Frenzy", /for (\d+) sec/) * (1 + haste / 100)) / PET_SPEED;
     const frenzyChance = (crit / 100) * (talentNumber(ctx, "Frenzy", /(\d+)% chance/) / 100);
@@ -2257,8 +2293,8 @@
       const miss = t.miss;
       const glance = !ranged ? GLANCE_CHANCE[d] : 0;
       const critBase = isWand ? S.spellCrit : S.crit - critSuppression(ctx);
-      const crit = Math.max(0, Math.min(critBase, 100 - miss - t.dodge - glance));
-      const hit = Math.max(0, 100 - miss - t.dodge - glance - crit);
+      const crit = Math.max(0, Math.min(critBase, 100 - miss - t.dodge - t.parry - glance));
+      const hit = Math.max(0, 100 - miss - t.dodge - t.parry - glance - crit);
       const critMult = isWand ? 1.5 : 2;
       const perSwing = avg * (hit + crit * critMult + glance * GLANCE_DAMAGE[d]) / 100;
       // melee procs: Flurry's attack speed, extra swings; Deep Wounds bleeds on crits (ignores armor)
@@ -2273,7 +2309,7 @@
       }
       out.push({
         label, item: item.name, min, max, avg, critAvg: avg * critMult, speed: w.speed, effSpeed, perSwing,
-        dps: (perSwing * swings) / effSpeed, miss, dodge: t.dodge, glance, crit, hit, deepWounds, procs: pr.lines,
+        dps: (perSwing * swings) / effSpeed, miss, dodge: t.dodge, parry: t.parry, glance, crit, hit, deepWounds, procs: pr.lines,
       });
     };
     if (S.mh) swing(S.mh, "Main hand", 1, false);
@@ -2523,7 +2559,7 @@
     const critMult = 1 + (isSpell ? 0.5 : 1) * (1 + mods.pct(15) / 100);
     const t = table(ctx, S, r.kind);
     const miss = Math.max(0, t.miss - mods.flat(16));
-    const land = Math.max(0, 100 - miss - t.dodge) / 100;
+    const land = Math.max(0, 100 - miss - t.dodge - t.parry) / 100;
     const avg = (dmin + dmax) / 2;
     // talents the server works out (a "dummy" effect in the files holds only the number; the tooltip says what it does):
     // Improved Whirlwind hits the closest enemy harder; Lightning Overload sometimes casts a free copy for half damage
@@ -2566,7 +2602,7 @@
     return {
       perRage, hits: r.hits, stack, critMult,
       ...base, rank, kind: r.kind, school: rank.school, dmin, dmax, avg, critAvg: avg * critMult, dot, ticks: r.ticks,
-      heal, healCrit: heal * healCritMult, healCritMult, critChance: Math.min(100, critChance), miss, dodge: t.dodge, expected,
+      heal, healCrit: heal * healCritMult, healCritMult, critChance: Math.min(100, critChance), miss, dodge: t.dodge, parry: t.parry, expected,
       castMs, channelMs, cdMs, cost, costPct: rank.cost || ofBaseMana ? 0 : rank.costPct, powerType: rank.powerType,
       combo: r.combo, aoe: r.area && !r.single,
       // crowd control (root, stun, fear, sleep): not part of a damage rotation
@@ -2782,7 +2818,7 @@
   const averagedText = (ctx, durMs, cdMs, share) => ` (averaged: ${Math.round(durMs / 1000)} sec every ${Math.round(cdMs / 6000) / 10} min` +
     (ctx.fightSec && ctx.restSec != null ? `; leveling: up ${Math.round(share * 100)}% of the fighting, counting the rest between fights)` : ")");
   // The rules the addon's own copy of the Warrior math reads (tools/export_sim.js writes them to its Data/Sim.lua)
-  const simRules = () => ({ meleeMiss: MELEE_MISS, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
+  const simRules = () => ({ meleeMiss: MELEE_MISS, meleeParry: MELEE_PARRY, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
     baseMiss: BASE_MISS, mobSwing: MOB_SWING, revengeWindow: REVENGE_WINDOW, ragePerSwingSec: RAGE_PER_SWING_SEC, offhandRage: OFFHAND_RAGE,
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
@@ -3193,6 +3229,14 @@
     if (MELEE.includes(t)) {
       out.push({ name: "White hits", text: "weapon damage + attack power ÷ 14 × weapon speed. Crits do double damage.",
         numbers: hitsFrom("attack power", FROM.checked("a Warrior's white hits in a combat log: 100 a swing read, 100.4 by this rule")) });
+      out.push({ name: "An enemy you fight from the front",
+        text: `an enemy that's hitting you (you're alone against it, or you're its tank) parries ${MELEE_PARRY[0]}% of your melee attacks, ` +
+          `a raid boss ${MELEE_PARRY[3]}%. From behind, as a damage dealer in a group, nothing is parried.`,
+        numbers: [
+          [`${MELEE_PARRY[0]}%`, "parried by an enemy of your level", FROM.checked("a combat log: 4.7% of a Warrior's 1,376 white swings " +
+            "at enemies near his level were parried")],
+          [`${MELEE_PARRY[3]}%`, "parried by a raid boss, 3 levels above you", FROM.rule],
+        ] });
     }
     if (t === "HUNTER") {
       out.push({ name: "Shots", text: "weapon damage + ranged attack power ÷ 14 × weapon speed. Crits do double damage.",
@@ -3242,6 +3286,6 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
     statWeights, statScan, statTurns, statList };
 })();
