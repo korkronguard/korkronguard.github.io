@@ -592,7 +592,8 @@
     const blastSp = blast ? (blast.pct / 100) * attr.intellect * Math.min(ctx.blastCycle, blast.max) : 0;
     const formAp = form ? form.ap + attr.agility * form.apPerAgi +
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
-    const shield = !!ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6);
+    const shieldItem = (ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6) || {}).item;
+    const shield = !!shieldItem;
     const baseAvoid = BASE_AVOID[cls.token] || {};
     const S = {
       gear, tal, attr, baseAp, form: formKey,
@@ -620,7 +621,9 @@
       dodge: g("dodge") / per("dodge") + tal.dodge + (KP.measured.agiPerCrit[cls.token] ? attr.agility / agiRatio : 0),
       parry: g("parry") / per("parry") + tal.parry + (lvl >= (baseAvoid.parryFrom || 1) ? baseAvoid.parry || 0 : 0),
       block: g("block") / per("block") + tal.block + (shield ? baseAvoid.block || 0 : 0),
-      blockValue: g("blockValue"),
+      // gear's +Block Value and the shield's own (items.js has it where the owner's /kp datamine read it); Strength's
+      // part isn't known on Forever yet
+      blockValue: g("blockValue") + ((shieldItem && shieldItem.block) || 0),
       health: whole((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? whole((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
@@ -1032,8 +1035,8 @@
       spentOn.push("below 20% health, every rage point on Execute");
     }
     const note = `Rage from ${from.join(", ")}. Spent on ${spentOn.join(", ") || "nothing yet"}.` +
-      (use("Shield Slam") ? " Shield Slam counts twice your Block Value, but only the part gear adds: a shield's own and " +
-        "Strength's part aren't in the game files (the addon reads the game's)." : "") + buffNote(ctx);
+      (use("Shield Slam") ? " Shield Slam counts twice your Block Value: what gear adds and the shield's own where it has " +
+        "been read in game, not Strength's part (the addon reads the game's)." : "") + buffNote(ctx);
     // healthSpent: health per second Reckless Swings and Bloodrage cost (leveling counts it as eaten back, like Life
     // Tap's); pullRage: Charge's rage at each pull (counted when the fight's length is known: compute() against a
     // same-level mob)
@@ -2375,7 +2378,8 @@
   // Shield Slam's tooltip says "increased by your Block Value"; a combat log (2026-11-11, the owner at 40, 392 hits) shows twice
   // it: 462 to 482 before armor at a Block Value of 23 and 24 (the blocked part of the hits he took), Defensive Stance and
   // Bastion's 0.99 × (421 to 439 + 2 × Block Value) to the point at both ends; Battle Shout didn't move it (no attack power).
-  // S.blockValue is only what gear adds: a shield's own and Strength's part aren't in the files (the addon reads the game's).
+  // S.blockValue is gear's +Block Value and the shield's own where the datamine read it; Strength's part isn't counted (the
+  // addon reads the game's total).
   const BLOCK_VALUE_SHARE = { "Shield Slam": 2 };
 
   function effectDamage(effects, src, S, ctx, weaponSlot, mods) {
