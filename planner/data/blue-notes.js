@@ -5,6 +5,14 @@
 // cls: the class it's about, when there is one (the class filter uses it).
 window.KP = window.KP || {};
 KP.blueNotes = [
+  // Blizzard's notes for the November 11 hotfixes (posted that night). Twilight Focus and Confounding Flash in Shadowform are in
+  // the game's files (the update of November 12); these are the class changes the files don't show
+  { post: 30863849, update: "f1a478144e", cls: "DRUID", text: "Feral: Rend and Tear now also works on Pounce's bleed." },
+  { post: 30863849, update: "f1a478144e", cls: "HUNTER", text: "Volley stops when its channel breaks (moving, using an item), and its hits no longer set off weapon procs." },
+  { post: 30863849, update: "f1a478144e", cls: "PALADIN", text: "Judgement counts as a ranged attack: it no longer sets off procs that need a melee attack, and it uses your ranged hit chance." },
+  { post: 30863849, update: "f1a478144e", cls: "PALADIN", text: "Retribution: Unsealed Wrath no longer stores copies from Windfury Totem attacks, now that Windfury Totem no longer comes from Holy Strike." },
+  { post: 30863849, update: "f1a478144e", cls: "SHAMAN", text: "Flametongue Totem rank 2 works: it adds fire damage to weapon attacks like the other ranks." },
+
   // Announced for Tuesday, November 10: give these an update when the hotfix lands
   { post: 30783956, text: "Hunter pets and Voidwalkers are to tank about as well as in Classic Era; Blizzard will raise their stats as needed." },
   { post: 30783956, cls: "SHAMAN", text: "Enhancement: Strength is to become the strongest stat, so Mage and Warlock gear stops being the best. Blizzard tells leveling Enhancement Shamans to collect Strength and Attack Power from now on." },
