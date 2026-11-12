@@ -483,6 +483,9 @@
     // the same unique item can't sit in both ring or trinket slots, so move it instead of copying
     const twin = { finger1: "finger2", finger2: "finger1", trinket1: "trinket2", trinket2: "trinket1" }[pickSlot];
     if (twin && gear[twin] === id) delete gear[twin];
+    // a unique weapon moves from one hand to the other too
+    const hand = { mainHand: "offHand", offHand: "mainHand" }[pickSlot];
+    if (hand && gear[hand] === id && !KP.calc.wearableTogether(it, it)) delete gear[hand];
     gear[pickSlot] = id;
     if (pickSlot === "mainHand" && it.inv === 17) delete gear.offHand;
     $("picker").close();
@@ -610,7 +613,8 @@
     for (const it of items.values()) {
       for (const s of [...BIS_SLOTS, "mainHand"]) if (slotByKey[s].inv.includes(it.inv) && ok(it, s, null)) lists[s].push(it);
     }
-    const offFor = (mh) => [...items.values()].filter((it) => slotByKey.offHand.inv.includes(it.inv) && ok(it, "offHand", mh));
+    const offFor = (mh) => [...items.values()].filter((it) => slotByKey.offHand.inv.includes(it.inv) && ok(it, "offHand", mh) &&
+      KP.calc.wearableTogether(mh, it));
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};

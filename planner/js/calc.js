@@ -137,6 +137,8 @@
   // the gate, and that's on the server. Such an item counts from 5 levels below its item level (3,708 of the 4,521 items
   // with stats and a requirement have exactly that), at most 60.
   const wearableFrom = (it) => (it.req > 1 ? it.req : Math.min(60, Math.max(1, it.ilvl - 5)));
+  // Two items in two slots at once (both hands): not the same "Unique" or "Unique-Equipped" item (the game's item data)
+  const wearableTogether = (a, b) => !(a && b && a.id === b.id && a.unique);
 
   // ------------------------------------------------------------ talents
 
@@ -2766,9 +2768,29 @@
   // 23 to 31: flatter, not changed yet); and the seconds between its swings
   const mobDps = (L) => Math.max(Math.min(L - 4, 21), 0.014 * L * L + 0.35 * L);
   const MOB_SWING = 2;
-  // its health (about 1,260 at 30, 4,365 read at 60; the logs read up to 4% more at 27 to 30, 6 to 8% more at 30 to 35 in
-  // two zones, and 10% more at 36 and 37: not changed yet): how long a fight against it lasts
-  const mobHealth = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
+  // Its health, which decides how long a fight lasts: [level, health] as the 13 combat logs of 2026-11-08 to 11-12 read it (every
+  // enemy anyone in them hit; the number the most kinds of enemy share at a level), straight lines between. The original formula
+  // (HEALTH_FORMULA) holds to 24 (within 3% from 8 to 24); above it normal enemies have more: 4% at 26 to 29, 7% at 30 to 34, 10%
+  // at 36 to 40, 13% at 41 to 43 (Blizzard's launch notes give higher level creatures more health). Elites stay near 2.9 times the
+  // formula, so 2.95 to 2.5 times a normal enemy. Before the first reading and past the last, the nearest one's share of the
+  // formula (past 43 an estimate: nothing has been seen there). 35 is left out: two sets of kinds read 1745 and 1824 (Thousand
+  // Needles, Stranglethorn); the line between 34 and 36 lies between. (The old 4,365 "at 60" was a city's Horde Warbringer.)
+  const HEALTH_FORMULA = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
+  const MOB_HEALTH = [[24, 863], [25, 954], [26, 1024], [27, 1092], [28, 1164], [29, 1236], [30, 1366], [31, 1439], [32, 1511],
+    [33, 1587], [34, 1663], [36, 1909], [37, 1998], [38, 2086], [39, 2182], [40, 2278], [41, 2473], [42, 2575], [43, 2677]];
+  const ELITE_HEALTH = [[16, 1281], [17, 1419], [23, 2361], [24, 2538], [25, 2727], [26, 2925], [27, 3120], [28, 3326], [29, 3531],
+    [30, 3726], [31, 3924], [32, 4122], [33, 4328], [34, 4536], [35, 4758], [36, 4980], [37, 5211], [38, 5441], [39, 5691],
+    [40, 5943], [41, 6183], [42, 6438]];
+  function healthFrom(points, L) {
+    const first = points[0], last = points[points.length - 1];
+    if (L <= first[0]) return (HEALTH_FORMULA(L) * first[1]) / HEALTH_FORMULA(first[0]);
+    if (L >= last[0]) return (HEALTH_FORMULA(L) * last[1]) / HEALTH_FORMULA(last[0]);
+    const i = points.findIndex(([level]) => level >= L);
+    const [l0, h0] = points[i - 1], [l1, h1] = points[i];
+    return h0 + ((h1 - h0) * (L - l0)) / (l1 - l0);
+  }
+  const mobHealth = (L) => healthFrom(MOB_HEALTH, L);
+  const eliteHealth = (L) => healthFrom(ELITE_HEALTH, L);
   // its armor: [level, armor] with straight lines between. Read in the logs up to level 42 and at 60: 35 a level from 24 to
   // 35, then 107, 113, 117, 125, 131, 137 and 145 (four kinds of mob agree on 1494 at 36 and 1607 at 37; 38 to 40 from the logs
   // of 2026-11-11, a dungeon's elites the same as mobs outdoors; 41 from two kinds and the 0.81 kind beside them, 42 from one
@@ -2784,15 +2806,15 @@
     const [l0, a0] = MOB_ARMOR[i - 1], [l1, a1] = MOB_ARMOR[i];
     return a0 + ((a1 - a0) * (L - l0)) / (l1 - l0);
   }
-  // An elite: the same armor as a normal mob of its level, 3 times the health, hits about 2.2 times as hard (a dungeon's log reads
-  // 1.8 to 2.8 by level, 2.0 at 28 to 33, Demoralizing Shout lowering it; first seen on 7 tough mobs at levels
+  // An elite: the same armor as a normal mob of its level, its own health (eliteHealth), hits about 2.2 times as hard (a dungeon's
+  // log reads 1.8 to 2.8 by level, 2.0 at 28 to 33, Demoralizing Shout lowering it; first seen on 7 tough mobs at levels
   // 16, 17 and 30 in those logs, picked out by their health: the logs don't label elites). The enemies you can pick: keyed as
   // the planner's Target list and links name them.
-  const ELITE_HEALTH = 3, ELITE_HIT = 2.2;
+  const ELITE_HIT = 2.2;
   const mobTargets = (L) => ({
     same: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: mobHealth(L), hitMult: 1 },
-    elite: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: ELITE_HEALTH * mobHealth(L), hitMult: ELITE_HIT, ownSunder: true },
-    elite3: { diff: 3, armor: Math.round(mobArmor(L + 3)), mode: "same", health: ELITE_HEALTH * mobHealth(L + 3), hitMult: ELITE_HIT, ownSunder: true },
+    elite: { diff: 0, armor: Math.round(mobArmor(L)), mode: "same", health: eliteHealth(L), hitMult: ELITE_HIT, ownSunder: true },
+    elite3: { diff: 3, armor: Math.round(mobArmor(L + 3)), mode: "same", health: eliteHealth(L + 3), hitMult: ELITE_HIT, ownSunder: true },
   });
 
   // Leveling fights end when the mob dies: ctx.fightSec seconds (compute() works it out against a same-level mob;
@@ -2839,9 +2861,10 @@
   const simRules = () => ({ meleeMiss: MELEE_MISS, meleeParry: MELEE_PARRY, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
     baseMiss: BASE_MISS, mobSwing: MOB_SWING, revengeWindow: REVENGE_WINDOW, ragePerSwingSec: RAGE_PER_SWING_SEC,
     ragePerSwingSec2H: RAGE_PER_SWING_SEC_2H, offhandRage: OFFHAND_RAGE, blockValueShare: BLOCK_VALUE_SHARE,
+    comboPoints: COMBO_POINTS, eviscerateApPerPoint: EVISCERATE_AP_PER_POINT, longerPerPoint: LONGER_PER_POINT,
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
-    eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
+    mobHealth: MOB_HEALTH, eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
     tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS });
   // the damage per second its swings do to you: through your misses, dodges, parries, blocks and armor, and changes to
   // the damage you take (Defensive Stance)
@@ -3310,6 +3333,6 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
     statWeights, statScan, statTurns, statList };
 })();
