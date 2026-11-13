@@ -564,13 +564,14 @@
   const weaponDps = (it) => (it.weapon ? (it.weapon.min + it.weapon.max) / 2 / it.weapon.speed : 0);
 
   // the items worth trying for real: the best by the stat weights (and, for weapons, by damage per second), plus items
-  // whose worth isn't all in their stats (equip effects, sets)
+  // whose worth isn't all in their stats (equip effects, "Use:" buffs, sets)
   function shortlist(list, W, n, weapons) {
     const scored = list.map((it) => ({ it, a: linear(it, W.v), b: linear(it, W.e) }));
     scored.sort((x, y) => y.a - x.a || y.b - x.b || y.it.ilvl - x.it.ilvl || y.it.quality - x.it.quality);
     const pick = new Set(scored.slice(0, n).map((x) => x.it));
     if (weapons) [...list].sort((x, y) => weaponDps(y) - weaponDps(x)).slice(0, n).forEach((it) => { pick.add(it); });
-    scored.filter((x) => x.it.set || (x.it.effects || []).some((e) => e.auras && e.auras.length)).slice(0, 10).forEach((x) => { pick.add(x.it); });
+    const effects = (it) => (it.effects || []).some((e) => (e.auras && e.auras.length) || (e.useAuras && e.useAuras.length));
+    scored.filter((x) => x.it.set || effects(x.it)).slice(0, 10).forEach((x) => { pick.add(x.it); });
     return [...pick];
   }
 
@@ -581,8 +582,8 @@
   };
 
   // the best of these items in one slot, the rest of the gear as it is (ties: more survival, then the list's order). It
-  // has to beat the empty slot: an item that adds nothing the math counts (a trinket with only a "Use:" effect) leaves
-  // the slot empty.
+  // has to beat the empty slot: an item that adds nothing the math counts (a trinket whose "Use:" the files can't describe,
+  // like a stun) leaves the slot empty.
   function bestFor(g, slotKey, cands, role) {
     let best = bisEval({ ...g, [slotKey]: null }, role), pick = null;
     for (const it of cands) {
@@ -738,7 +739,8 @@
           "mana weighs more alone, so for raid gear switch the buffs on in the panel first.") + " Dungeon and raid loot with no level requirement counts from 5 levels below its " +
         "item level. Left out: profession items (Engineering…), weapons whose damage isn't confirmed, other classes' tier sets " +
         "and the other faction's gear; " +
-        "proc and \"Use:\" effects aren't in the math. Every item is still in the picker."));
+        "\"chance on hit\" procs aren't in the math, and a \"Use:\" buff counts at its average over the fight (used whenever " +
+        "it's ready, like the racials). Every item is still in the picker."));
     }
   }
 

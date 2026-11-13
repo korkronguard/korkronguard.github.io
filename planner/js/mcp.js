@@ -1,11 +1,12 @@
 // Kor'kron Planner: the Manual Crowd Pummeler check (Gear tab, Druids only).
 // The MCP (item 9449) is a level 29 two-handed mace whose "Use:" gives +50% attack speed for 30 sec, with 3 charges and a
-// 3-minute cooldown (all read from the item's data). In Cat and Bear Form the planner counts only a weapon's stats, not
-// its damage (Classic's rule; a switch tries the other rule), so the haste keeps it worth holding long after its item
-// level says otherwise. This box answers "when does another weapon beat it?" two ways: with the gear on now (each weapon
+// 3-minute cooldown (all read from the item's data). In Cat and Bear Form a weapon's damage counts at the form's speed (a
+// guild Druid's character sheet at 40; a switch tries the original game's rule, where only its stats count and the haste
+// keeps it worth holding long after its item level says otherwise). This box answers "when does another weapon beat it?" two ways: with the gear on now (each weapon
 // against the MCP, and how much of the fight the haste must be up to break even), and level by level with the best gear
 // at each level (Equip BiS's search with the MCP left out). The haste counts as an average over the fight, like the
-// racial cooldowns (calc.js ctx.useBuffs); the other tabs and Equip BiS still leave "Use:" effects out.
+// racial cooldowns (calc.js ctx.useBuffs). Other items' "Use:" buffs count averaged everywhere (calc.js's gearAuras); the
+// MCP's, with its charges, only here.
 (function () {
   "use strict";
 
@@ -33,7 +34,7 @@
     [0, "No haste (out of charges or on cooldown)"],
   ];
   const FORM_NAMES = { cat: "Cat Form", bear: "Bear Form" };
-  const opt = { form: "auto", fight: 180, rule: "stats" };
+  const opt = { form: "auto", fight: 180, rule: "damage" };
   let isOpen = true;
   let nowCache = { key: null, data: null };
   const scan = { key: null, rows: [], next: 0, last: 60, running: false, form: null };
@@ -397,9 +398,8 @@
     det.append(el("p", "muted small mcp-intro", `The MCP is a level ${mcp.req} two-handed mace (${Object.entries(mcp.stats || {})
       .map(([k, v]) => `${v} ${k[0].toUpperCase() + k.slice(1)}`).join(", ")}) whose "Use:" gives +${hasteOf(use)}% attack speed for ` +
       `${use.durMs / 1000} sec, with ${use.charges || "unlimited"} charges and a ${use.cdMs / 60000}-minute cooldown (game data). ` +
-      "In Cat and Bear Form only a weapon's stats count, not its damage (Classic's rule, the planner's default), so that haste keeps " +
-      "it ahead of weapons with a much higher item level. Here it's compared with every weapon you could hold, the haste averaged " +
-      "over the fight."));
+      "In Cat and Bear Form a weapon's damage counts at the form's speed (a guild Druid's character sheet shows it), so the MCP's " +
+      "low damage weighs against its haste. Here it's compared with every weapon you could hold, the haste averaged over the fight."));
 
     const auto = app.prioTank && app.prioTank() ? "Bear" : "Cat";
     const bar = el("div", "mcp-bar");
@@ -407,7 +407,7 @@
       select("Form", opt.form, [["auto", `Auto (${auto}: Priority tab's tank mode)`], ["cat", "Cat Form (damage)"], ["bear", "Bear Form (tanking)"]],
         (v) => { opt.form = v; render(); }),
       select("Fight", opt.fight, FIGHTS, (v) => { opt.fight = +v; render(); }),
-      select("Weapon in forms", opt.rule, [["stats", "Only its stats count (Classic)"], ["damage", "Its damage counts too (guild bear sheet)"]],
+      select("Weapon in forms", opt.rule, [["damage", "Its damage counts too (the game's sheet)"], ["stats", "Only its stats count (the original game)"]],
         (v) => { opt.rule = v; render(); }));
     det.append(bar);
 
@@ -428,11 +428,12 @@
         `it's up all of a fight of ${use.durMs / 1000} sec or less and at least ${Math.round(floorOf(use) * 100)}% of any longer one ` +
         "(while it has charges), so a weapon that ties below that only wins once the charges are gone.",
       "Leveling: with a 3-minute cooldown most mobs get no haste, and the charges run out, so \"No haste\" or \"1 minute\" is closer.",
-      "Which weapon rule Forever uses isn't in the game files. The planner uses Classic's (the form's own attack, so a weapon's damage " +
-        "doesn't matter); the guild's bear spreadsheet counts the weapon's damage per second at the form's speed instead. Check in game.",
+      "Which weapon rule Forever uses isn't in the game files. A guild Druid's character sheet at 40 settles it: Cat and Bear Form hit " +
+        "for the weapon's damage at the form's speed, as the guild's bear spreadsheet said, not with the form's own attack of the " +
+        "original game (the other choice above).",
       "The buff has no weapon requirement or form restriction in the game data, so it may work in form and may stay if you swap " +
         "weapons after using it: check in game. This check assumes you keep holding the MCP.",
-      "Only here: the other tabs and Equip BiS still leave \"Use:\" effects out of the math.",
+      "Only here: the other tabs and Equip BiS leave the MCP's haste out (its charges run out); other items' \"Use:\" buffs count there.",
     ]) notes.append(el("li", null, n));
     det.append(notes);
   }

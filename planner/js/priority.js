@@ -771,13 +771,23 @@
     const desc = (n) => (c.spell(n) || {}).desc || "";
     if (spec === "enh") {
       L.section("Keep up", null);
-      L.add("Windfury Weapon", { tag: "Keep up", text: "Your main-hand imbue: chances of extra attacks on every hit.",
-        facts: [desc("Windfury Weapon").split(".").slice(1, 2).join(".").trim() + " (game data)",
-          c.talent["Elemental Weapons"] ? `Elemental Weapons: Windfury effect +${fmt(talentNumber(c, "Elemental Weapons") ? numberAfter(c.flat.find((t) => t.name === "Elemental Weapons").desc[c.talent["Elemental Weapons"] - 1], "Windfury Weapon effect by") : 0)}%` : null,
-          "On the main hand it turns off the Windfury Totem's benefit for you (game data)"] });
+      // your main-hand imbue: the one the damage estimate uses (calc.js's imbueOf: the better of the two once both are known)
+      const both = c.has("Rockbiter Weapon") && c.has("Windfury Weapon") ? "the damage estimate tries both: this one does more with your gear and talents" : null;
+      if (c.R.S.imbue === "rockbiter") {
+        L.add("Rockbiter Weapon", { tag: "Keep up", text: "Your main-hand imbue: more melee attack power.",
+          facts: [`+${fmt(KP.calc.rockbiterAp(c.ctx))} attack power at your level, with your talents (game data)`, both] });
+      } else {
+        L.add("Windfury Weapon", { tag: "Keep up", text: "Your main-hand imbue: chances of extra attacks on every hit.",
+          facts: [desc("Windfury Weapon").split(".").slice(1, 2).join(".").trim() + " (game data)",
+            c.talent["Elemental Weapons"] ? `Elemental Weapons: Windfury effect +${fmt(talentNumber(c, "Elemental Weapons") ? numberAfter(c.flat.find((t) => t.name === "Elemental Weapons").desc[c.talent["Elemental Weapons"] - 1], "Windfury Weapon effect by") : 0)}%` : null,
+            both] });
+      }
       L.add("Strength of Earth Totem", { tag: "Totem", text: "Strength for your melee group.", facts: [`+${fmt(buffNumber("Strength of Earth", c.level))} Strength at your level`] });
       L.add("Grace of Air Totem", { tag: "Totem", text: "Agility for your melee group.", facts: [`+${fmt(buffNumber("Grace of Air", c.level))} Agility at your level`] });
-      L.add("Windfury Totem", { tag: "Totem", text: "For the rest of your melee group (your own Windfury Weapon replaces it for you)." });
+      // an imbue turned the totem off for the Shaman until the hotfix of Nov 12 (its tooltip said so; calc.js procs reads it)
+      const blocked = /disables any benefit you personally receive from Windfury Totem/.test(desc("Windfury Weapon"));
+      L.add("Windfury Totem", { tag: "Totem", text: blocked ? "For the rest of your melee group (your own Windfury Weapon replaces it for you)."
+        : "Extra attacks for your melee group, you included: it works beside your imbue (the planner counts it when you tick it in the group buffs)." });
       const searing = numbersIn(desc("Searing Totem"), /for (\d+) sec that repeatedly attacks an enemy[\s\S]*?for (\d+) to (\d+) Fire damage/);
       L.add("Searing Totem", { tag: "Totem", source: "theory", text: "Your Fire totem against one target (Magma Totem instead for packs).",
         facts: [searing ? `Attacks an enemy for ${searing[1]} to ${searing[2]} Fire damage for ${searing[0]} sec (game data; how often isn't in the files, so it's not in the estimate)` : null] });
@@ -1455,8 +1465,11 @@
     L.section("Spell priority", "Press the first one that's ready.");
     if (c.talent["Nightfall"]) {
       const nf = numbersIn(talentText(c, "Nightfall"), /(\d+)% chance/);
+      // the estimate counts them from the ticks of what it keeps up and channels (calc.js procsPerSec)
+      const instants = parts.find((p) => p.kind === "proc" && p.spell === "Shadow Bolt");
       L.add("Shadow Bolt", { tag: "With Shadow Trance", score: 990, source: "theory", text: "Nightfall's Shadow Trance makes your next Shadow Bolt instant: cast it right away.",
-        facts: [nf ? `Nightfall: ${nf[0]}% chance on each tick of Corruption, Drain Soul, Drain Life and Wrack (game data)` : null] });
+        facts: [nf ? `Nightfall: ${nf[0]}% chance on each tick of Corruption, Drain Soul, Drain Life and Wrack (game data` +
+          (instants ? `; counted: about ${fmt(instants.perSec * 60, 1)} a minute here)` : ")") : null] });
     }
     if (c.talent["Decimation"]) {
       const dec = numbersIn(talentText(c, "Decimation"), /below (\d+)% health[\s\S]*?cast time reduced by (\d+)%/);
@@ -1485,6 +1498,12 @@
     if (fromMath["Wrack"] && wrack) {
       fromMath["Wrack"].facts.push(`While you channel it, your Siphon Life, Corruption and Bane of Agony on the target tick ${wrack[0]}% faster (game data` +
         (sped ? `; counted: ${fmt(sped.faster, 1)} of Wrack's damage per second here is their extra ticks)` : "; none of them is kept up in this estimate)"));
+    }
+    // Soul Siphon's bonus for each Corruption, Siphon Life and Bane of Agony the estimate keeps up (calc.js perDotBonus)
+    for (const p of parts.filter((x) => x.perDot && fromMath[x.spell])) {
+      const dots = parts.filter((x) => x.kind === "keep" && ["Corruption", "Siphon Life", "Bane of Agony"].includes(x.spell)).length;
+      const pct = (100 * p.perDot) / (p.dps - (p.faster || 0) - p.perDot);
+      fromMath[p.spell].facts.push(`Soul Siphon: +${fmt(pct)}% with ${dots} of your effects on the target (game data; counted: ${fmt(p.perDot, 1)} of its damage per second)`);
     }
     // the estimate counts Incinerate's bonus while it keeps Immolate up (calc.js withAfflictedBonus); the line's
     // damage figure is the plain hit

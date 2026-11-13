@@ -21,8 +21,9 @@
   // others are still Classic's
   const BASE_RAP = { HUNTER: [2, -10], WARRIOR: [1, -20], ROGUE: [1, -10] };
   // Druid forms, from the game data: Cat Form (Passive) 3025, Bear Form (Passive) 1178, Dire Bear Form (Passive) 9635
-  // and SpellShapeshiftForm (attack speed). In a form your weapon's damage is replaced by a base hit that grows with
-  // level; that part isn't in the files, so it uses Classic's rule (0.85-1.25 x level per second of attack speed).
+  // and SpellShapeshiftForm (attack speed). In a form your weapon's damage counts at the form's speed (a guild Druid's
+  // character sheet at 40, 2026-11-12); without a weapon the form's own attack, by the original game's rule (0.85-1.25 x
+  // level per second of attack speed).
   const FORMS = {
     cat: { name: "Cat Form", ap: 12, apPerAgi: 1, speed: 1.0, armorPct: 0, health: 0 },
     bear: { name: "Bear Form", ap: 30, apPerAgi: 0, speed: 2.5, armorPct: 180, health: 20 },
@@ -149,6 +150,13 @@
     const sets = {};
     for (const w of ctx.worn) {
       for (const e of w.item.effects || []) for (const a of e.auras || []) list.push({ ...a, name: w.item.name });
+      // a "Use:" buff on you (game data: its auras, length and cooldown), averaged over the fight like the racials' cooldowns.
+      // One with charges (the Manual Crowd Pummeler) is its own check's to count (ctx.useBuffs)
+      for (const e of w.item.effects || []) {
+        if (!e.useAuras || !(e.durMs > 0) || !(e.cdMs > 0) || e.charges) continue;
+        const share = cooldownShare(ctx, e.durMs, e.cdMs);
+        for (const a of e.useAuras) list.push({ ...a, value: a.value * share, name: `${w.item.name} (Use, averaged)` });
+      }
       if (w.item.set) sets[w.item.set] = (sets[w.item.set] || 0) + 1;
     }
     const allSets = (KP.items && KP.items.sets) || {};
@@ -386,10 +394,15 @@
       }
     });
     handRules(ctx, out);
-    // gear bonuses that work like talents (stat %, crit, hit, ability modifiers from set bonuses)
+    // gear bonuses that work like talents (stat %, crit, hit, ability modifiers from set bonuses; attack and casting speed
+    // from "Use:" buffs, averaged, added like the racials')
     for (const a of gearAuras(ctx)) {
       const v = a.value;
       switch (a.aura) {
+        case 319: case 138: out.meleeHaste += v; break;
+        case 140: out.rangedHaste += v; break;
+        case 342: out.meleeHaste += v; out.rangedHaste += v; break;
+        case 65: out.castHaste += v; break;
         case 52: out.crit += v; break;
         case 290: out.crit += v; out.spellCrit += v; break;
         case 57: out.spellCrit += v; break;
@@ -595,9 +608,12 @@
     const shieldItem = (ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6) || {}).item;
     const shield = !!shieldItem;
     const baseAvoid = BASE_AVOID[cls.token] || {};
+    const hasWeapon = !!(worn("mainHand") && worn("mainHand").item.weapon);
+    const imbue = hasWeapon ? imbueOf(ctx) : null;
     const S = {
-      gear, tal, attr, baseAp, form: formKey,
+      gear, tal, attr, baseAp, form: formKey, imbue,
       ap: (Math.max(0, baseAp + g("attackPower") + g("meleeAttackPower") + attr.strength * cls.apPerStr + attr.agility * cls.apPerAgi) +
+        (imbue === "rockbiter" ? rockbiterAp(ctx) : 0) +
         buffValue(ctx, "Battle Shout") + buffValue(ctx, "Blessing of Might") + formAp + fromStats.ap) * (1 + tal.apPct / 100),
       rap: (Math.max(0, lvl * rapL + rapC + g("attackPower") + g("rangedAttackPower") + attr.agility * cls.rapPerAgi) +
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
@@ -628,16 +644,17 @@
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? whole((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
       mp5: g("manaRegen") + (cls.power === 0 ? buffValue(ctx, "Blessing of Wisdom") : 0), // + Blessing of Wisdom (mana every 5 sec)
-      // in a Druid form the form's own attack replaces the weapon (ctx.formWeaponDps: the weapon's damage per second
-      // at the form's speed instead, the guild's bear sheet's rule; only the MCP check asks for it)
-      mh: form ? formWeapon(form, lvl, ctx.formWeaponDps && worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null)
+      // in a Druid form the weapon's damage at the form's speed (ctx.formWeaponDps false: the form's own attack in its
+      // place, the original game's rule; only the MCP check asks for it)
+      mh: form ? formWeapon(form, lvl, ctx.formWeaponDps !== false && worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null)
         : worn("mainHand") && worn("mainHand").item.weapon ? worn("mainHand").item : null,
       oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
       shield,
     };
     // "Use:" buffs a tool asks for, averaged over the fight (ctx.useBuffs: [{ auras, share }], share = the part of the
-    // fight it's up). Only the MCP check passes them; elsewhere "Use:" effects aren't in the math. Haste multiplies.
+    // fight it's up). Only the MCP check passes them (its charges); worn items' other "Use:" buffs are in gearAuras. Haste
+    // multiplies.
     for (const b of ctx.useBuffs || []) {
       for (const a of b.auras || []) {
         if ([319, 138, 342].includes(a.aura)) S.meleeHaste = ((1 + S.meleeHaste / 100) * (1 + (a.value * b.share) / 100) - 1) * 100;
@@ -810,7 +827,7 @@
       return { name: `${form.name} (${item.name}'s damage)`, class: 2, subclass: 13, inv: 13, form: true,
         weapon: { min: item.weapon.min * k, max: item.weapon.max * k, speed: form.speed } };
     }
-    return { name: `${form.name} (base attack)`, class: 2, subclass: 13, inv: 13, form: true,
+    return { name: `${form.name} (base attack)`, class: 2, subclass: 13, inv: 13, form: true, ownAttack: true,
       weapon: { min: level * 0.85 * form.speed, max: level * 1.25 * form.speed, speed: form.speed } };
   }
 
@@ -851,10 +868,12 @@
     }
     if (S.tal.extraAttack && S.mh) out.extraAttack = S.tal.extraAttack; // Weaponmaster / Hack and Slash
     // Windfury Totem: a chance per main-hand hit of an extra attack with more attack power, in a Druid's form too (a combat log:
-    // 122 on two Druids in Cat Form; no Bear seen yet). A Shaman's own Windfury Weapon turns it off for them (game data; the log
-    // agrees). The chance isn't in the files: Classic's 20%.
+    // 122 on two Druids in Cat Form; no Bear seen yet). A Shaman's imbue turns it off for them when its tooltip says so: Windfury
+    // Weapon's did until the hotfix of November 12 ("When applied to main hand, disables any benefit you personally receive
+    // from Windfury Totem"; the log agreed). The chance isn't in the files: Classic's 20%.
     const wft = buffValue(ctx, "Windfury Totem");
-    if (wft && S.mh && !(ctx.cls.token === "SHAMAN" && bookRank("SHAMAN", "Windfury Weapon", ctx.level))) {
+    const imbueDesc = S.imbue ? (((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === IMBUE_SPELLS[S.imbue]) || {}).desc || "" : "";
+    if (wft && S.mh && !/disables any benefit you personally receive from Windfury Totem/.test(imbueDesc)) {
       const boost = rawSwing(S, S.mh, wft) / rawSwing(S, S.mh);
       out.extraAttack += WF_TOTEM_CHANCE * boost;
       out.lines.push(`Windfury Totem: ${WF_TOTEM_CHANCE * 100}% chance of an extra attack with +${wft} attack power (chance: Classic's)`);
@@ -1353,8 +1372,54 @@
   const TICKS_FASTER = /your ([^.]+?) effects on the target deal their periodic damage (\d+)% faster/;
   function fasterTicks(a) {
     const m = a.channeled && TICKS_FASTER.exec(a.rank.desc || "");
-    return m ? { spells: m[1].split(/,\s*(?:and\s+)?|\s+and\s+/), share: m[2] / 100 } : null;
+    return m ? { spells: nameList(m[1]), share: m[2] / 100 } : null;
   }
+  // "Siphon Life, Corruption, and Bane of Agony" -> the three names
+  const nameList = (text) => text.split(/,\s*(?:and\s+)?|\s+and\s+/);
+  // the first learned talent whose tooltip (at its rank) matches a pattern: the match and the talent's name
+  function talentMatch(ctx, re) {
+    for (const [i, t] of ctx.flat.entries()) {
+      const m = ctx.ranks[i] && re.exec(t.desc[ctx.ranks[i] - 1] || "");
+      if (m) return { m, name: t.name };
+    }
+    return null;
+  }
+
+  // A talent that makes some channels hit harder for each of your damage over time spells on the target (Soul Siphon
+  // since 2026-11-10: "Increases the damage done or health drained by your Drain Life, Drain Soul, and Wrack spells by 12%
+  // per each of your Corruption, Siphon Life, and Bane of Agony effects active on the target, up to a maximum increase of
+  // 36%"): counted for the ones the plan keeps up
+  const PER_DOT = /by your ([^.]+?) spells by (\d+)% per each of your ([^.]+?) effects active on the target, up to a maximum increase of (\d+)%/;
+  function perDotBonus(ctx) {
+    const t = talentMatch(ctx, PER_DOT);
+    return t && { name: t.name, spells: nameList(t.m[1]), per: t.m[2] / 100, dots: nameList(t.m[3]), max: t.m[4] / 100 };
+  }
+
+  // A talent that now and then makes a spell instant (Nightfall: "Gives your Corruption, Drain Soul, Drain Life, and Wrack
+  // spells a 4% chance to cause you to enter a Shadow Trance after damaging the opponent. The Shadow Trance reduces the
+  // casting time of your next Shadow Bolt spell by 100%."): a chance on each tick of those spells
+  const INSTANT_PROC = /Gives your ([^.]+?) spells an? (\d+)% chance to cause you to enter an? ([\w ]+?) after damaging the opponent\. The \3 reduces the casting time of your next ([\w ]+?) spell by 100%/;
+  function instantProc(ctx) {
+    const t = talentMatch(ctx, INSTANT_PROC);
+    return t && { from: nameList(t.m[1]), chance: t.m[2] / 100, buff: t.m[3], spell: t.m[4] };
+  }
+  // Its instant casts a second: the chance on each tick of the damage over time kept up (d.ticks a second; faster while a
+  // channel speeds it up) and of a channel that fills the free time (shares: each filler's share of the fight). Each
+  // instant cast takes a global cooldown from the filler, and with it that time's ticks:
+  // r = chance x (ticks + ticks with the filler x (free - 1.5 r) / free).
+  function procsPerSec(proc, kept, shares, free) {
+    const named = (a) => proc.from.includes(a.name);
+    let fixed = 0, withFiller = 0;
+    for (const d of kept.filter((x) => named(x.a))) {
+      fixed += d.ticks;
+      for (const [f, share] of shares) if (f.faster && f.faster.spells.includes(d.a.name)) withFiller += d.ticks * f.faster.share * share;
+    }
+    for (const [f, share] of shares) if (named(f.a)) withFiller += ((f.a.ticks * (1 - f.a.miss / 100)) / f.time) * share;
+    return (proc.chance * (fixed + withFiller)) / (1 + (1.5 * proc.chance * withFiller) / free);
+  }
+  // each filler of a pick (fillerPick) with its share of the fight
+  const fillerShares = (pick, free) =>
+    [[pick.A, free * pick.f], ...(pick.A !== pick.B && !pick.starved ? [[pick.B, free * (1 - pick.f)]] : [])];
 
   function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0) {
     // Arcane Blast is cast in its windows (below), not as a filler, once compute() picks how many per window
@@ -1372,16 +1437,21 @@
       const refund = (a.school & (4 | 16)) ? moe * a.critChance / 100 : 0;
       return raw * (1 - clearcast) * (1 - refund);
     };
-    const plainFillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled))
-      .map((a) => ({ a, dps: (a.channeled ? a.expected : a.directExpected) / castTime(a), mps: manaOf(a) / castTime(a), faster: fasterTicks(a) }));
+    const plainFillers = usable.filter((a) => !a.cdMs && (a.directExpected > 0 || a.channeled)).map((a) =>
+      ({ a, time: castTime(a), dps: (a.channeled ? a.expected : a.directExpected) / castTime(a), mps: manaOf(a) / castTime(a), faster: fasterTicks(a) }));
     if (!plainFillers.length) return null;
+    const drain = perDotBonus(ctx);
+    const drained = (f) => drain && drain.spells.includes(f.a.name);
     // the fillers with these damage-over-time spells kept up, strongest first: a channel that speeds some of them up gains
-    // what they do a second (sped: that part of its dps)
+    // what they do a second (sped: that part of its dps), one with a bonus for each of them on the target gains that (perDot)
     const fillersWith = (kept) => plainFillers.map((f) => {
       const sped = f.faster ? f.faster.share * sum(kept.filter((d) => f.faster.spells.includes(d.a.name)).map((d) => d.dps)) : 0;
-      return { ...f, dps: f.dps + sped, sped };
+      const perDot = drained(f) ? f.dps * Math.min(drain.max, drain.per * kept.filter((d) => drain.dots.includes(d.a.name)).length) : 0;
+      return { ...f, dps: f.dps + sped + perDot, sped, perDot };
     }).sort((x, y) => y.dps - x.dps);
     const fastest = (name) => Math.max(0, ...plainFillers.filter((f) => f.faster && f.faster.spells.includes(name)).map((f) => f.faster.share));
+    // the most keeping one more of those damage over time spells up can add to such a channel (as if it filled the fight)
+    const drainGain = (name) => (drain && drain.dots.includes(name) ? Math.max(0, ...plainFillers.filter(drained).map((f) => f.dps * drain.per)) : 0);
     const budget = manaBudget(ctx, S, keepWhileCasting);
     // Life Tap: tapShare of the time spent tapping, 1.5 sec each
     let mana = budget.perSec + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0;
@@ -1411,10 +1481,11 @@
         const { everyMs, landed } = dotRecast(ctx, a.durMs, a.ticks);
         const every = Math.max(everyMs / 1000, castTime(a));
         const per = a.expected - a.dotExpected * (1 - landed);
-        return { a, every, dps: per / every, time: castTime(a) / every, mps: manaOf(a) / every };
+        // ticks: the ticks a second that land
+        return { a, every, dps: per / every, time: castTime(a) / every, mps: manaOf(a) / every, ticks: (a.ticks * landed * (1 - a.miss / 100)) / every };
       })
-      // better than casting the filler in that time (with the faster ticks a channel could give it)
-      .filter((d) => (d.dps * (1 + fastest(d.a.name))) / d.time > best.dps)
+      // better than casting the filler in that time (with the faster ticks a channel could give it, or its bonus for it)
+      .filter((d) => (d.dps * (1 + fastest(d.a.name)) + drainGain(d.a.name)) / d.time > best.dps)
       .sort((x, y) => y.dps / y.time - x.dps / x.time);
     for (const d of dots) {
       if (busy + d.time > 0.9 || d.mps > mana) continue;
@@ -1453,6 +1524,15 @@
       })
       // a spell a counted bonus needs (S.tal.upkeep: Shadow and Flame) is cast on cooldown, first, worth it or not
       .filter((x) => (forced(x.a) ? !x.kept : x.per / x.time > best.dps));
+    // a spell a talent makes instant now and then (Nightfall's Shadow Bolt): placed like those, as often as it comes, in
+    // place of a global cooldown of the filler
+    const proc = instantProc(ctx);
+    const instant = proc && usable.find((a) => a.name === proc.spell);
+    if (instant && instant.expected / 1.5 > best.dps) {
+      const free = 1 - busy;
+      const rate = procsPerSec(proc, kept, fillerShares(fillerPick(fillers, best, mana, free), free), free);
+      if (rate > 0) cds.push({ a: instant, rate, per: instant.expected, time: 1.5, mps: manaOf(instant) * rate, proc });
+    }
     // placed one at a time in an order: tried most damage per second of casting first, then most damage per mana first
     // (short on mana, the cheaper spell can do more), and the plan with more damage in all (filler and wand too) kept
     const placeCooldowns = (worth) => {
@@ -1470,8 +1550,9 @@
         m -= x.mps * f;
         d += x.per * x.rate * f;
         used.add(x.a);
-        placed.push({ name: `${x.a.name} (${x.kept ? "kept up" : "on cooldown"}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f,
-          spell: x.a.name, kind: x.kept ? "keep" : "cooldown", execute: x.execute });
+        const how = x.proc ? `instant, ${x.proc.buff}` : x.kept ? "kept up" : "on cooldown";
+        placed.push({ name: `${x.a.name} (${how}${x.execute ? ", last 20%" : ""}${f < 0.99 ? `, ${Math.round(f * 100)}%` : ""})`, dps: x.per * x.rate * f,
+          spell: x.a.name, kind: x.proc ? "proc" : x.kept ? "keep" : "cooldown", execute: x.execute, ...(x.proc ? { perSec: x.rate * f } : {}) });
       }
       const rest = fillerPick(fillers, best, m, 1 - b);
       return { b, m, d, placed, total: d + rest.d * (1 - b) + (rest.starved ? wandDps * (1 - b) * (1 - rest.f) : 0) };
@@ -1489,10 +1570,11 @@
     const fillerMana = free * (pick.starved ? pick.A.mps * pick.f : pick.f * pick.A.mps + (1 - pick.f) * pick.B.mps);
     const manaSpent = Math.max(0, budget.perSec - mana + fillerMana);
     if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
-    for (const f of new Set([pick.A, pick.B])) {
-      if (!f.sped) continue;
-      const names = kept.filter((d) => f.faster.spells.includes(d.a.name)).map((d) => d.a.name);
-      note += `; ${f.a.name}'s number includes the extra ticks it gives ${names.join(" and ")} (${f.faster.share * 100}% faster while you channel it)`;
+    note += fillerNotes(pick, kept, drain);
+    const instants = parts.find((p) => p.kind === "proc");
+    if (instants) {
+      note += `; about ${Math.round(instants.perSec * 600) / 10} instant ${instants.spell}s a minute from ${proc.buff} (${proc.chance * 100}% on each tick of ` +
+        `${proc.from.join(", ")})`;
     }
     const fd = pick.d * free;
     dps += fd;
@@ -1502,18 +1584,19 @@
       parts.push({ name: `Wand (${Math.round(idle * 100)}% of the time, out of mana)`, dps: wandDps * idle, kind: "wand", share: idle });
       dps += wandDps * idle;
     }
-    // spell and kind say what each part is for the Priority tab (keep, cooldown, filler, cheap = the cheaper filler);
-    // instead = the filler that would hit harder if the mana lasted; faster = how much of a filler's number is the extra
-    // ticks it gives other spells
+    // spell and kind say what each part is for the Priority tab (keep, cooldown, proc = instant now and then, filler,
+    // cheap = the cheaper filler); instead = the filler that would hit harder if the mana lasted; faster = how much of a
+    // filler's number is the extra ticks it gives other spells, perDot = its bonus for those on the target
     const instead = pick.A !== best ? best.a.name : undefined;
-    const faster = (f, d) => (f.sped ? (d * f.sped) / f.dps : undefined);
+    const share = (f, d, key) => (f[key] ? (d * f[key]) / f.dps : undefined);
+    const bonuses = (f, d) => ({ faster: share(f, d, "sped"), perDot: share(f, d, "perDot") });
     if (pick.f >= 0.999 || pick.A === pick.B) {
-      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd, spell: pick.A.a.name, kind: "filler", instead, faster: faster(pick.A, fd) });
+      parts.push({ name: `${pick.A.a.name} (filler)`, dps: fd, spell: pick.A.a.name, kind: "filler", instead, ...bonuses(pick.A, fd) });
       if (instead) note += `; ${best.a.name} would hit harder but runs you out of mana over a fight`;
     } else {
       const da = pick.f * pick.A.dps * free, db = (1 - pick.f) * pick.B.dps * free;
-      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: da, spell: pick.A.a.name, kind: "filler", instead, faster: faster(pick.A, da) },
-        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: db, spell: pick.B.a.name, kind: "cheap", faster: faster(pick.B, db) });
+      parts.push({ name: `${pick.A.a.name} (${Math.round(pick.f * 100)}% of fillers)`, dps: da, spell: pick.A.a.name, kind: "filler", instead, ...bonuses(pick.A, da) },
+        { name: `${pick.B.a.name} (the rest, cheaper)`, dps: db, spell: pick.B.a.name, kind: "cheap", ...bonuses(pick.B, db) });
       note += `; mixes ${pick.A.a.name} with the cheaper ${pick.B.a.name} so the mana lasts`;
     }
     if (tapShare) note += `; Life Tap ${Math.round(tapShare * 100)}% of the time (${Math.round(tapMana)} mana each, health assumed healed back)`;
@@ -1522,8 +1605,21 @@
       (budget.extras.length ? `, plus ${budget.extras.join(" and ")}` : "") + "; no potions). " +
       [ctx.flat.some((t, i) => t.name === "Ignite" && ctx.ranks[i]) && "Ignite counted", clearcast && "Clearcasting averaged in",
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
-      "Spells with a cooldown are cast when they beat the filler; damage cooldowns (Arcane Power, Death Wish...) are averaged over their cooldown, procs aren't counted." + buffNote(ctx);
+      "Spells with a cooldown are cast when they beat the filler; damage cooldowns (Arcane Power, Death Wish...) are averaged over their cooldown, " +
+      `${instants ? "other procs" : "procs"} aren't counted.` + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
+  }
+
+  // what a filler's number holds beyond its own damage, for the note: the extra ticks a channel gives (Wrack) and its bonus
+  // for each damage over time on the target (Soul Siphon)
+  function fillerNotes(pick, kept, drain) {
+    const names = (list) => kept.filter((d) => list.includes(d.a.name)).map((d) => d.a.name).join(" and ");
+    let note = "";
+    for (const f of new Set([pick.A, pick.B])) {
+      if (f.sped) note += `; ${f.a.name}'s number includes the extra ticks it gives ${names(f.faster.spells)} (${f.faster.share * 100}% faster while you channel it)`;
+      if (f.perDot) note += `; ${f.a.name} does ${Math.round((100 * f.perDot) / (f.dps - f.sped - f.perDot))}% more with your ${names(drain.dots)} on the target (${drain.name})`;
+    }
+    return note;
   }
 
   // The filler for the casting time and mana that are left: the strongest spell, a strong/cheap mix that just fits
@@ -1908,8 +2004,26 @@
     }
   }
 
-  // Windfury Weapon's extra attacks on white hits, Stormstrike, the best shock (Stormstrike makes the next one
-  // hit harder), Rage of the Farseer's attack speed averaged in, all within your mana.
+  // A Shaman's main-hand imbue: ctx.imbue when given ("none": no imbue; compute() tries both and keeps the better), else
+  // Windfury Weapon once known and Rockbiter Weapon before that. Flametongue Weapon's damage is the server's (its ranks
+  // all point at one scripted spell), so it isn't one of the choices.
+  const IMBUE_SPELLS = { windfury: "Windfury Weapon", rockbiter: "Rockbiter Weapon" };
+  function imbueOf(ctx) {
+    if (ctx.cls.token !== "SHAMAN") return null;
+    if (ctx.imbue) return ctx.imbue === "none" ? null : ctx.imbue;
+    return bookRank("SHAMAN", "Windfury Weapon", ctx.level) ? "windfury" : bookRank("SHAMAN", "Rockbiter Weapon", ctx.level) ? "rockbiter" : null;
+  }
+  // Rockbiter Weapon's melee attack power at your level (game data: each rank's enchant, growing with level), raised by
+  // Elemental Weapons (its tooltip's %)
+  function rockbiterAp(ctx) {
+    let rank = null;
+    for (const r of (KP.abilities.IMBUES || {})["Rockbiter Weapon"] || []) if (r.level <= ctx.level) rank = r;
+    return rank ? procAt(rank, ctx.level) * (1 + talentNumber(ctx, "Elemental Weapons", /Rockbiter Weapon by (\d+)%/) / 100) : 0;
+  }
+
+  // Windfury Weapon's extra attacks on white hits (when it's your imbue: else Rockbiter Weapon's attack power is on your
+  // sheet), Stormstrike, the best shock (Stormstrike makes the next one hit harder), Rage of the Farseer's attack speed
+  // averaged in, all within your mana.
   function enhRotation(ctx, S, white, byName) {
     const mh = white.find((w) => w.label === "Main hand");
     if (!mh) return null;
@@ -1920,10 +2034,11 @@
     const rofDesc = ((((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === "Rage of the Farseer")) || {}).desc || "";
     const haste = rof ? parseFloat((/speed by (\d+)%/.exec(rofDesc) || [])[1] || 0) * cooldownShare(ctx, rof.durMs || 25000, rof.cdMs) : 0;
     const swingsPerSec = (1 + haste / 100) / mh.effSpeed;
-    let dps = mh.perSwing * swingsPerSec;
+    let dps = mh.perSwing * mh.swings * swingsPerSec; // swings: with the extra attacks of Windfury Totem
     parts.push({ name: "White hits", dps });
     // Windfury Weapon: a chance per main-hand hit of extra attacks with bonus attack power
-    const wf = bookRank("SHAMAN", "Windfury Weapon", level);
+    const wf = S.imbue === "windfury" && bookRank("SHAMAN", "Windfury Weapon", level);
+    if (S.imbue === "rockbiter") notes.push(`Rockbiter Weapon on your weapon: +${Math.round(rockbiterAp(ctx))} attack power (game data)`);
     if (wf) {
       const wfDesc = ((((KP.spellbook || {}).SHAMAN || []).find((b) => b.name === "Windfury Weapon")) || {}).desc || "";
       const m = /(\d+)% chance of granting you (\d+) extra attacks? with (\d+) extra melee attack power/.exec(wfDesc);
@@ -1972,7 +2087,7 @@
     if (fitted.some((s) => s.manaCut)) notes.push("your mana doesn't cover everything over a 3-minute fight (the least damage per mana is cut first: " +
       fitted.filter((s) => s.manaCut).map((s) => s.name).join(", ") + ")");
     const manaSpent = manaUsed(fitted);
-    notes.push("Lightning Bolts with Maelstrom Weapon, Flametongue/Rockbiter and Windfury Totem aren't counted yet");
+    notes.push("Lightning Bolts with Maelstrom Weapon and Flametongue Weapon (its damage is the server's) aren't counted yet");
     const note = notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
   }
@@ -2029,7 +2144,8 @@
       "(10 energy per second; whichever mix does the most damage for your numbers)"];
     if (rnt && best.bleedUp) notes.push(`Rend and Tear +${Math.round(rnt * 100)}% while a bleed is up (${Math.round(best.bleedUp * 100)}% of the time)`);
     if (builder.name === "Shred") notes.push("Shred assumes you're behind the target");
-    notes.push("Cat Form's base attack follows Classic's rule (the game files don't hold it)");
+    notes.push(S.mh.ownAttack ? "Cat Form's own attack follows the original game's rule (the game files don't hold it)"
+      : "your weapon's damage counts at Cat Form's speed (a guild Druid's character sheet shows it)");
     return { dps: best.dps, parts: best.parts.filter((p) => p.dps > 0.05),
       note: notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ") + "." + buffNote(ctx) };
   }
@@ -2069,7 +2185,8 @@
     }
     const note = "Rage from your own hits (Classic formula)" + (frenzy ? ", Blood Frenzy counted" : "") +
       "; being hit gives a tank much more, not counted. Primal Bite on cooldown, Lacerate at 5 stacks, Maul with the rest. " +
-      "Bear Form's base attack follows Classic's rule (the game files don't hold it)." + buffNote(ctx);
+      (S.mh.ownAttack ? "Bear Form's own attack follows the original game's rule (the game files don't hold it)."
+        : "Your weapon's damage counts at Bear Form's speed (a guild Druid's character sheet shows it).") + buffNote(ctx);
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note };
   }
 
@@ -2317,7 +2434,7 @@
         deepWounds = uptime * pr.deepWounds * ((w.min + w.max) / 2 + (S.ap / 14) * w.speed) / 12;
       }
       out.push({
-        label, item: item.name, twoHand: item.inv === 17, min, max, avg, critAvg: avg * critMult, speed: w.speed, effSpeed, perSwing,
+        label, item: item.name, twoHand: item.inv === 17, min, max, avg, critAvg: avg * critMult, speed: w.speed, effSpeed, perSwing, swings,
         dps: (perSwing * swings) / effSpeed, miss, dodge: t.dodge, parry: t.parry, glance, crit, hit, deepWounds, procs: pr.lines,
       });
     };
@@ -2698,6 +2815,12 @@
       const [on, off] = [true, false].map((v) => { const R = compute({ ...ctx, shadowAndFlame: v }); return { ...R, played: { ...R.played, shadowAndFlame: v } }; });
       return dps(on) >= dps(off) ? on : off;
     }
+    // A Shaman's imbue: Rockbiter Weapon or Windfury Weapon, whichever does more once both are known (a tie: Windfury)
+    if (ctx.imbue == null && ctx.cls.token === "SHAMAN" && bookRank("SHAMAN", "Windfury Weapon", ctx.level) &&
+      bookRank("SHAMAN", "Rockbiter Weapon", ctx.level)) {
+      const [rb, wf] = ["rockbiter", "windfury"].map((v) => { const R = compute({ ...ctx, imbue: v }); return { ...R, played: { ...R.played, imbue: v } }; });
+      return dps(rb) > dps(wf) ? rb : wf;
+    }
     const S = stats(ctx);
     const white = whiteHits(ctx, S);
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
@@ -2865,7 +2988,7 @@
   const simRules = () => ({ meleeMiss: MELEE_MISS, meleeParry: MELEE_PARRY, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
     baseMiss: BASE_MISS, mobSwing: MOB_SWING, revengeWindow: REVENGE_WINDOW, ragePerSwingSec: RAGE_PER_SWING_SEC,
     ragePerSwingSec2H: RAGE_PER_SWING_SEC_2H, offhandRage: OFFHAND_RAGE, blockValueShare: BLOCK_VALUE_SHARE,
-    comboPoints: COMBO_POINTS, eviscerateApPerPoint: EVISCERATE_AP_PER_POINT, longerPerPoint: LONGER_PER_POINT,
+    comboPoints: COMBO_POINTS, eviscerateApPerPoint: EVISCERATE_AP_PER_POINT, longerPerPoint: LONGER_PER_POINT, poisonChance: POISON_CHANCE,
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
     mobHealth: MOB_HEALTH, eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
@@ -3337,6 +3460,6 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, rockbiterAp, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
     statWeights, statScan, statTurns, statList };
 })();
