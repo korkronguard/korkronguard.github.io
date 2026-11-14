@@ -43,6 +43,7 @@ a.btn { text-decoration: none; }
 .wn-update[aria-pressed="true"] { background: var(--panel-2); border-color: #8a6420; }
 .wn-update .t { font-weight: 600; color: var(--gold); }
 .wn-update .d, .wn-update .note { font-size: 12px; color: var(--muted); }
+.wn-update .classes { font-size: 12.5px; color: var(--blue); }
 .wn-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; }
 .added { color: var(--green); }
 .changed { color: var(--gold); }
@@ -201,6 +202,18 @@ ins { color: #7dff8a; font-weight: 600; text-decoration: none; }
   border-radius: 10px;
 }
 .wn-notes h3 { margin: 0 0 2px; font-size: 16px; color: var(--gold); }
+.wn-also {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid #8a6420;
+  border-radius: 10px;
+}
+.wn-also strong { color: var(--blue); }
 .wn-notes-sub { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
 .wn-notes ul, .wn-post-notes { display: grid; gap: 5px; margin: 0; padding-left: 18px; font-size: 14px; }
 

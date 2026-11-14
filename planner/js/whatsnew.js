@@ -9,7 +9,7 @@
   const { WEAPONS, WEAPON_NAMES, ARMOR_NAMES, INV_NAMES, QUALITY, STAT_TEXT, TRIGGER, SCHOOLS, SOURCE_NAMES,
     wowheadUrl } = KP.itemInfo;
   const { $, el, longDate, fillSelect, expandable, spriteIcon, before, KINDS, KIND_NAME, POST_KINDS, SPELLS, POSTS, spellPasses,
-    renderSpellFilters, renderSpells, renderPostFilters, renderPosts } = KP.whatsNewViews;
+    updateClasses, notesPanel, renderSpellFilters, renderSpells, renderPostFilters, renderPosts } = KP.whatsNewViews;
   const DATA = KP.changes || { updates: [], categories: {} };
   const CLASSES = KP.classes.classes;
 
@@ -250,11 +250,12 @@
       box.append(el("p", "wn-empty", "No updates recorded yet: the next game update will show here."));
       return;
     }
-    const button = (id, title, sub, n, note) => {
+    const button = (id, title, sub, n, note, classes = []) => {
       const b = el("button", "wn-update");
       b.type = "button";
       b.setAttribute("aria-pressed", String(f.u === id));
       b.append(el("span", "t", title), el("span", "d", sub), countLine(n));
+      if (classes.length) b.append(el("span", "classes", `Class changes: ${classes.join(", ")}`));
       if (note) b.append(el("span", "note", note));
       b.addEventListener("click", () => set({ u: id }));
       box.append(b);
@@ -262,7 +263,8 @@
     const entries = f.v === "spells" ? SPELLS : ENTRIES;
     for (const u of DATA.updates) {
       const builds = u.from === u.to ? `Build ${u.to}` : `Build ${u.from} → ${u.to}`;
-      button(u.id, u.title, `${longDate(u.date)} · ${builds}`, counts(entries.filter((e) => e.u === u)), u.note);
+      button(u.id, u.title, `${longDate(u.date)} · ${builds}`, counts(entries.filter((e) => e.u === u)), u.note,
+        updateClasses(u.id));
     }
     if (DATA.updates.length > 1) button("all", "All updates", `${DATA.updates.length} updates`, counts(entries));
   }
@@ -457,6 +459,22 @@
     return li;
   }
 
+  // an update's class changes above its items, so they aren't only on the other tab: which classes, a way there, and
+  // Blizzard's notes on them
+  function classChanges() {
+    const n = inUpdate(SPELLS, f.u).length;
+    const notes = notesPanel(f);
+    if (!n && !notes) return [];
+    const classes = updateClasses(f.u);
+    const box = el("div", "wn-also");
+    box.append(el("strong", null, classes.length ? `Class changes in this update: ${classes.join(", ")}.` : "Changes for every class in this update."));
+    const go = el("button", "btn", n ? `See the ${n} ability and talent change${n === 1 ? "" : "s"}` : "See Blizzard's notes");
+    go.type = "button";
+    go.addEventListener("click", () => set({ v: "spells" }));
+    box.append(go);
+    return notes ? [box, notes] : [box];
+  }
+
   function renderResults() {
     const list = ENTRIES.filter((e) => passes(e, f)).sort((a, b) => SORTS[f.sort](a.card, b.card));
     const total = (f.u === "all" ? ENTRIES : inUpdate(ENTRIES, f.u)).length;
@@ -466,6 +484,7 @@
         ". Click an item for its full tooltip" + (f.k !== "added" ? ", and before and after for changed ones." : ".");
     const out = $("results");
     out.textContent = "";
+    if (f.u !== "all") out.append(...classChanges());
     const groups = new Map();
     for (const e of list) {
       if (!groups.has(e.card.class)) groups.set(e.card.class, []);

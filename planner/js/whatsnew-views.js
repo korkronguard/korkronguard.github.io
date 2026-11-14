@@ -295,6 +295,14 @@
 
   const SPELLS = DATA.updates.flatMap((u) => KINDS.flatMap(([kind]) => ((u.spells || {})[kind] || []).map((card) => ({ u, kind, card }))));
 
+  // the classes an update changed, in class order: its abilities and talents in the game's files and Blizzard's notes on it
+  // (a racial, or a note for everyone, names no class)
+  function updateClasses(id) {
+    const tokens = new Set([...SPELLS.filter((e) => e.u.id === id).map((e) => e.card.cls),
+      ...NOTES.filter((n) => n.update === id).map((n) => n.cls)]);
+    return CLASSES.filter((cl) => tokens.has(cl.token)).map((cl) => cl.name);
+  }
+
   function spellDetail(e) {
     const c = e.card, box = el("div", "wn-detail wn-ranks");
     const changed = e.kind === "changed" ? changedTexts(c) : [];
@@ -500,6 +508,6 @@
   }
 
   KP.whatsNewViews = { $, el, longDate, fillSelect, expandable, spriteIcon, before, KINDS, KIND_NAME, POST_KINDS, SPELLS, POSTS,
-    wordRuns, shortRuns, spellDiffs, changeKind, changedTexts, spellMeta, spellPasses, postPasses, updateNotes, spellGroups,
-    renderSpellFilters, renderSpells, renderPostFilters, renderPosts };
+    wordRuns, shortRuns, spellDiffs, changeKind, changedTexts, spellMeta, spellPasses, postPasses, updateNotes, updateClasses,
+    notesPanel, spellGroups, renderSpellFilters, renderSpells, renderPostFilters, renderPosts };
 })();

@@ -5,6 +5,17 @@
 // cls: the class it's about, when there is one (the class filter uses it).
 window.KP = window.KP || {};
 KP.blueNotes = [
+  // Blizzard's notes for the November 13 hotfixes (posted that evening). Wild Growth's 6.6% of healing power a heal is in the
+  // game's files (the update of build 70938, read from the owner's cache of 9:07 pm); these are the class changes the files don't show
+  { post: 30899768, update: "d3991c8a35", text: "Stuns now have diminishing returns between players and creatures, both ways: creatures' stuns on you and yours on them." },
+  { post: 30899768, update: "d3991c8a35", cls: "DRUID", text: "Restoration: Wild Growth can no longer be cast while moving, and its three ranks share one 6 sec cooldown." },
+  { post: 30899768, update: "d3991c8a35", cls: "MAGE", text: "Frost Nova now breaks on damage from procs and from Blizzard." },
+  { post: 30899768, update: "d3991c8a35", cls: "PALADIN", text: "Judgement of Command counts as a melee attack again and sets off on-hit effects. The other Judgements stay ranged attacks." },
+  { post: 30899768, update: "d3991c8a35", cls: "PRIEST", text: "The Quick and the Dead (legacy perk) now also lowers Divine Spirit's mana cost." },
+  { post: 30899768, update: "d3991c8a35", cls: "SHAMAN", text: "Windfury Totem can now be set off by any melee ability's main-hand strike; off-hand strikes (Whirlwind's, Mutilate's) still can't." },
+  { post: 30899768, update: "d3991c8a35", cls: "WARLOCK", text: "Siphon Life rank 1 can no longer be cast while silenced." },
+  { post: 30899768, update: "d3991c8a35", cls: "WARRIOR", text: "Berserker Rage now removes Sap." },
+
   // Blizzard's notes for the November 11 hotfixes (posted that night). Twilight Focus and Confounding Flash in Shadowform are in
   // the game's files (the update of November 12); these are the class changes the files don't show
   { post: 30863849, update: "f1a478144e", cls: "DRUID", text: "Feral: Rend and Tear now also works on Pounce's bleed." },
