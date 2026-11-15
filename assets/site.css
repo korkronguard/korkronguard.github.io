@@ -163,6 +163,9 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
 .tool .soon { color: var(--muted); }
 /* an odd card out spans the whole row instead of sitting alone */
 .tool-grid > .tool:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* the Guard's own addons: short cards, three to a row (two, then one, on narrower screens) */
+.tool-grid.three { grid-template-columns: repeat(3, 1fr); }
+.tool-grid.three > .tool:last-child { grid-column: auto; }
 .howto { max-width: 760px; margin: 30px auto 0; padding: 18px 22px; font-size: 16px; color: #cdbea5; }
 .howto b { color: #f3e4c6; }
 /* addons made by others that the whole guild runs, below the Guard's own */
@@ -204,8 +207,12 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
   .embers, .hero-scroll::after { display: none; }
   .js .reveal { opacity: 1; transform: none; transition: none; }
 }
+@media (max-width: 1060px) {
+  .tool-grid.three { grid-template-columns: repeat(2, 1fr); }
+  .tool-grid.three > .tool:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
 @media (max-width: 900px) {
-  .pillar-grid, .tool-grid { grid-template-columns: 1fr; }
+  .pillar-grid, .tool-grid, .tool-grid.three { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   body { font-size: 17px; }
