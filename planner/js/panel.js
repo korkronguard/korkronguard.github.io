@@ -1,5 +1,3 @@
-// Kor'kron Planner: the stats + attacks panel (next to the talent trees, and on the Gear tab),
-// target and base-stat settings, change badges, and the "if you add a point" preview for talent tooltips.
 (function () {
   "use strict";
 
@@ -17,21 +15,16 @@
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? "–" : Number(v).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d }));
   const STATS = ["strength", "agility", "stamina", "intellect", "spirit"];
   const STAT_SHORT = { strength: "Str", agility: "Agi", stamina: "Sta", intellect: "Int", spirit: "Spi" };
-  // base values a player can type in from the character screen (no gear): the 5 stats and crit chances
   const BASE = [...STATS, "crit", "spellCrit"];
   const BASE_LABEL = { ...STAT_SHORT, crit: "Crit %", spellCrit: "Spell crit %" };
   const POWER = { 0: "mana", 1: "rage", 3: "energy" };
   const SCHOOL = { 1: "Physical", 2: "Holy", 4: "Fire", 8: "Nature", 16: "Frost", 20: "Frostfire", 32: "Shadow", 64: "Arcane" };
 
-  // ------------------------------------------------------------ settings: target and base stats (in the link)
-
   state.base = state.base || {};
   state.target = state.target || { mode: "boss", armor: null };
-  // group buffs / target debuffs the player can switch on (letter in the link -> name in the data)
   const BUFF_KEYS = { b: "Battle Shout", m: "Blessing of Might", k: "Blessing of Kings", w: "Mark of the Wild",
     e: "Strength of Earth", g: "Grace of Air", y: "Windfury Totem", p: "Leader of the Pack", t: "Trueshot Aura", i: "Arcane Intellect",
     s: "Sunder Armor", x: "Expose Armor", f: "Faerie Fire", r: "Curse of Recklessness", d: "Blessing of Wisdom" };
-  // [name, label, who brings it, what it does ({v} = the number at your level)]
   const BUFF_LIST = [
     ["Group buffs", [
       ["Battle Shout", "Battle Shout", "Warrior", "+{v} melee attack power"],
@@ -59,9 +52,8 @@
     return v;
   };
   state.buffs = state.buffs || {};
-  let buffsOpen = false; // remember whether the buff list is open between redraws
+  let buffsOpen = false;
 
-  // the enemy picked, with its usual armor: a raid boss is 3 levels up; the others are the planner's mob numbers
   function usualTarget(level, mode) {
     return KP.calc.mobTargets(level)[mode] || { diff: 3, armor: Math.round(KP.calc.mobArmor(level + 3)), mode: "boss" };
   }
@@ -89,20 +81,17 @@
     for (const ch of p.get("bf") || "") if (BUFF_KEYS[ch]) state.buffs[BUFF_KEYS[ch]] = true;
   }
 
-  // ------------------------------------------------------------ the character as the math sees it
-
   function ctx(ranks) {
     return {
       cls: state.cls, level: state.level, flat: app.flat(), ranks: ranks || app.liveRanks(),
       race: (KP.classes.races.find((r) => r.id === state.race) || {}).name,
       worn: app.worn ? app.worn() : [], base: state.base, target: target(), buffs: state.buffs,
-      style: state.cls && state.cls.token === "HUNTER" ? (state.prio || {}).style : undefined, // Hunter ranged/melee choice (Priority tab)
-      tank: (state.prio || {}).tank,   // tank mode (a Druid tanks in Bear Form)
+      style: state.cls && state.cls.token === "HUNTER" ? (state.prio || {}).style : undefined,
+      tank: (state.prio || {}).tank,
     };
   }
   app.ctx = ctx;
 
-  // what each talent point would change (for the talent tooltip)
   app.previewTalent = (index) => {
     const now = app.liveRanks();
     const t = app.flat()[index];
@@ -138,7 +127,6 @@
   };
   const sum = (a) => a.reduce((x, y) => x + y, 0);
 
-  // Estimated DPS with a different item (or none) in one slot, for the gear picker.
   app.scoreWith = (slotKey, item) => {
     const c = ctx();
     const others = c.worn.filter((w) => w.slot !== slotKey && !(item && item.inv === 17 && w.slot === "offHand"));
@@ -147,10 +135,8 @@
   };
   app.score = () => KP.calc.compute(ctx()).rotation.dps;
 
-  // ------------------------------------------------------------ drawing
-
-  let prev = null;       // last numbers, to show what changed
-  let badges = {};       // key -> delta text from the latest change
+  let prev = null;
+  let badges = {};
 
   function iconStyle(node, fileId, size) {
     const n = KP.talents.icons[String(fileId)];
@@ -194,7 +180,6 @@
     l2.append(el("span", null, "Armor"), armor);
     box.append(l1, l2);
 
-    // group buffs and target debuffs: off by default (just you); switch on what your group brings
     const on = Object.values(BUFF_KEYS).filter((n) => state.buffs[n]).length;
     const bdet = el("details", "pbuffs-box");
     bdet.open = buffsOpen;
@@ -261,11 +246,7 @@
     return box;
   }
 
-  // "Import from the addon": the code Kor'kron Planner's /kp export shows in game (format in the addon's
-  // Core/Export.lua: KP1|CLASS|RACE|level|str|agi|sta|int|spi|..., each stat base:effective:plus:minus). It fills the
-  // five base stats (the game's own, with no gear) and sets the race and level. Crit isn't taken: the game's crit
-  // includes gear, which the planner adds on its own.
-  let importNote = ""; // what the last import did; a successful one redraws the panel, which shows this once
+  let importNote = "";
   function importRow() {
     const wrap = el("div", "pimport");
     const inp = el("input");
@@ -284,7 +265,6 @@
     return box;
   }
 
-  // returns what happened, in words
   function importCode(text) {
     const f = text.trim().split("|");
     if (f[0] !== "KP1" || f.length < 9) return "That isn't a code from /kp export (it starts with KP1|).";
@@ -298,7 +278,6 @@
       if (base > 0) stats[k] = base;
     });
     if (!(level >= 1 && level <= 60) || Object.keys(stats).length < STATS.length) return "That code is missing some numbers.";
-    // the two Skyborne races share one game name: keep the one already chosen
     const races = KP.classes.races.filter((r) => r.token === f[2] && r.classes.includes(cls.id));
     const race = races.find((r) => r.id === state.race) || races[0];
     if (race) state.race = race.id;
@@ -369,7 +348,6 @@
       ul.append(li);
     }
     box.append(ul);
-    // a tank: threat per second, the bonuses it counts and what it can't
     const th = R.rotation.threat;
     if (th.tank && th.tps > 0) {
       const bonuses = th.mods.map((m) => `${m.name} ${m.value > 0 ? "+" : "−"}${Math.abs(m.value)}%`).join(", ");
@@ -383,7 +361,6 @@
     return box;
   }
 
-  // healers: single-target healing per second you can keep up over a fight
   function healingBox(R) {
     const box = el("div", "prot");
     const top = el("div", "prot-top");
@@ -504,11 +481,10 @@
   function panel(R, opts) {
     const box = el("div", "panel-in");
     if (opts.controls) box.append(controls(R));
-    if (opts.short) { // the Abilities tab: its table already lists the abilities
+    if (opts.short) {
       box.append(statGrid(R), el("p", "muted small pnote", "Target, armor, buffs and base stats here change every number in the table. Hover a stat for details."));
       return box;
     }
-    // healing first when the role is Healing (Priority tab's Role: a healing build, or chosen); damage first otherwise
     const heals = R.healing && R.healing.hps > 0;
     const healerFirst = heals && (app.prioRole ? app.prioRole() === "heal" : !R.rotation || R.healing.hps > R.rotation.dps);
     if (healerFirst) box.append(healingBox(R), rotationBox(R));
@@ -553,7 +529,6 @@
     if (statsBox) { statsBox.textContent = ""; statsBox.append(panel(R, { controls: true, short: true })); }
     const labBox = $("labSide");
     if (labBox && app.view && app.view() === "abilities") {
-      // the Abilities tab's stance / form switches change these stats (Berserker crit, Bear Form armor...)
       const RL = app.labShape ? KP.calc.compute({ ...ctx(), ...app.labShape() }) : R;
       labBox.textContent = "";
       labBox.append(panel(RL, { controls: true, short: true }));
@@ -564,5 +539,5 @@
   addEventListener("hashchange", () => { readHash(); render(); });
   readHash();
   render();
-  app.renderPanel = () => { prev = null; render(); }; // e.g. items finished loading: no change badges
+  app.renderPanel = () => { prev = null; render(); };
 })();

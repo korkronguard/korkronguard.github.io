@@ -1,8 +1,6 @@
-// Shared code for the dark pages: events, roster cards, embers, the skyline, fade-ins.
 document.documentElement.classList.add("js");
 
 var KG = (function () {
-  // The guild schedules everything in US Central; visitors see times converted to their own zone.
   var GUILD_ZONE = "America/Chicago", GUILD_ZONE_NAME = "Central";
   var PILLARS = {
     command:   { label: "Command",          color: "var(--gold)" },
@@ -11,7 +9,6 @@ var KG = (function () {
     hearth:    { label: "Hearth",           color: "var(--hearth)" },
     server:    { label: "Server News",      color: "var(--server)" }
   };
-  // Classic-era class colors.
   var CLASS_COLORS = {
     Druid: "#FF7D0A", Hunter: "#ABD473", Mage: "#69CCF0", Paladin: "#F58CBA", Priest: "#FFFFFF",
     Rogue: "#FFF569", Shaman: "#0070DE", Warlock: "#9482C9", Warrior: "#C79C6E"
@@ -25,8 +22,6 @@ var KG = (function () {
   }
   function pillar(key) { return PILLARS[key] || PILLARS.server; }
 
-  // ---------- time ----------
-  // Minutes guild time is ahead of UTC at a given moment (Central: -360 in winter, -300 in summer).
   var guildParts = new Intl.DateTimeFormat("en-US", {
     timeZone: GUILD_ZONE, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric"
   });
@@ -36,7 +31,6 @@ var KG = (function () {
     var asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute);
     return Math.round((asUtc - date.getTime()) / 60000);
   }
-  // A guild-time (Central) wall-clock time as a real moment.
   function guildTime(y, m, d, hh, mm) {
     var guess = new Date(Date.UTC(y, m - 1, d, hh, mm) + 360 * 60000);
     var off = guildOffset(guess);
@@ -47,7 +41,6 @@ var KG = (function () {
   function ymd(s) { var p = s.split("-"); return [+p[0], +p[1], +p[2]]; }
   function hm(s) { var p = (s || "0:0").split(":"); return [+p[0], +p[1]]; }
 
-  // Every occurrence of every event between two moments.
   function occurrences(events, from, to) {
     var out = [];
     (events || []).forEach(function (ev) {
@@ -67,7 +60,6 @@ var KG = (function () {
           if (start >= from && start <= to) out.push({ ev: ev, start: start, allDay: false });
         }
       } else if (ev.date && ev.endDate && !ev.time) {
-        // Multi-day, all-day event (e.g. the Darkmoon Faire): one occurrence per day, so it shows on each calendar day.
         var a = ymd(ev.date), b = ymd(ev.endDate);
         var last = new Date(b[0], b[1] - 1, b[2]);
         for (var day = new Date(a[0], a[1] - 1, a[2]); day <= last; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
@@ -85,7 +77,6 @@ var KG = (function () {
   }
 
   var viewerZone = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
-  // A friendly name for the visitor's zone, like "Central Time" or "Pacific Time".
   function zoneLabel() {
     try {
       var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "longGeneric" }).formatToParts(new Date())
@@ -124,7 +115,7 @@ var KG = (function () {
     return occurrences(window.KG_EVENTS, start, to).filter(function (o) {
       var end = o.allDay ? new Date(o.start.getTime() + 86400000) : new Date(o.start.getTime() + (o.ev.hours || 2) * 3600000);
       if (end <= now) return false;
-      if (o.span) { if (seen.indexOf(o.ev) >= 0) return false; seen.push(o.ev); }   // a multi-day event appears once in the list
+      if (o.span) { if (seen.indexOf(o.ev) >= 0) return false; seen.push(o.ev); }
       return true;
     }).slice(0, n);
   }
@@ -136,20 +127,16 @@ var KG = (function () {
       '<p class="empty panel">No musters posted yet. Raid nights, battleground pushes and Hearth nights will appear here.</p>';
   }
 
-  // ---------- roster ----------
   function rankOf(m) {
     return (window.KG_RANKS || []).filter(function (r) { return r.name === m.rank; })[0] || { name: m.rank || "", pillar: "hearth" };
   }
-  // A member "has a record" once they've sent a story or a character sheet (or have a hand-made page).
   function hasRecord(m) { return !!(m.page || (m.story && m.story.length) || m.sections); }
   function recordHref(m, root) {
     return root + "players/" + (m.page ? esc(m.page) : "record.html?id=" + encodeURIComponent(m.id));
   }
   function raceClass(m) { return [m.race, m.class].filter(Boolean).join(" "); }
-  // "Played by X" only when the character's name doesn't already start with the player's handle.
   function playedBy(m) { return !!(m.name && m.player && m.name.toLowerCase().indexOf(m.player.toLowerCase()) !== 0); }
   function classColor(m) { return CLASS_COLORS[m.class] || "#e9dcc6"; }
-  // The opening sentence of the player's own story (or their sheet's quote), for the card.
   function firstSentence(m) {
     if (m.blurb) return m.blurb;
     if (m.quote) return m.quote.replace(/\*/g, "");
@@ -185,14 +172,12 @@ var KG = (function () {
       (rc ? '<em style="color:' + classColor(m) + '">' + esc(rc) + "</em>" : "<em>Record awaiting</em>") + "</span></a>";
   }
 
-  // Home page: a few members who have sent their story.
   function renderMembers(el, root, limit) {
     if (!el) return;
     var list = (window.KG_PLAYERS || []).filter(hasRecord).slice(0, limit || 999);
     el.innerHTML = list.map(function (m) { return memberCard(m, root); }).join("");
   }
 
-  // The Guard page: every rank, highest first, with its members.
   function renderRoster(el, root) {
     if (!el) return;
     var players = window.KG_PLAYERS || [];
@@ -219,7 +204,6 @@ var KG = (function () {
     el.innerHTML = html;
   }
 
-  // ---------- atmosphere ----------
   function embers(el, count) {
     if (!el) return;
     var html = "";
@@ -232,7 +216,6 @@ var KG = (function () {
     el.innerHTML = html;
   }
 
-  // Orgrimmar on the horizon: a spiked wall, the gate towers with their tusks, and the great hall.
   function skyline(g) {
     if (!g) return;
     var s = "";
@@ -245,27 +228,22 @@ var KG = (function () {
       return '<line x1="' + x + '" y1="' + (y - 34) + '" x2="' + x + '" y2="' + (y + 4) + '" stroke="#0d0907" stroke-width="3"/>' +
         '<path d="M' + (x + 1) + " " + (y - 32) + " h16 v28 l-8 -6 l-8 6 Z\" fill=\"#8e1c12\"/>";
     };
-    // wall with spikes
     s += '<rect x="420" y="258" width="600" height="50"/>';
     for (var x = 428; x < 1012; x += 26) s += '<path d="M' + x + " 260 L" + (x + 7) + " 236 L" + (x + 14) + ' 260 Z"/>';
-    // great hall
     s += '<path d="M650 300 L650 222 Q720 150 790 222 L790 300 Z"/>';
     s += '<path d="M714 166 L720 128 L726 166 Z"/>';
     s += tusk(668, 214, 1) + tusk(772, 214, -1);
-    // gate towers
     [560, 860].forEach(function (tx) {
       s += '<path d="M' + (tx - 24) + " 300 L" + (tx - 20) + " 196 L" + (tx + 20) + " 196 L" + (tx + 24) + ' 300 Z"/>';
       s += '<path d="M' + (tx - 28) + " 198 L" + tx + " 170 L" + (tx + 28) + ' 198 Z"/>';
       s += tusk(tx - 20, 192, 1) + tusk(tx + 20, 192, -1);
       s += banner(tx - 4, 168);
     });
-    // huts outside the walls
     [[180, 46], [270, 36], [340, 54], [1080, 50], [1160, 38], [1250, 58]].forEach(function (h) {
       var hx = h[0], w = h[1];
       s += '<path d="M' + hx + " 304 Q" + (hx + w / 2) + " " + (304 - w) + " " + (hx + w) + ' 304 Z"/>';
       s += '<path d="M' + (hx + w / 2 - 3) + " " + (306 - w) + " L" + (hx + w / 2) + " " + (284 - w) + " L" + (hx + w / 2 + 3) + " " + (306 - w) + ' Z"/>';
     });
-    // ground
     s += '<path d="M0 360 L0 300 Q360 286 720 298 T1440 296 L1440 360 Z"/>';
     g.innerHTML = s;
   }

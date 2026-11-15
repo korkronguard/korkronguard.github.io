@@ -1,11 +1,9 @@
-// Kor'kron Planner: talent calculator.
-// The build is a list of talent picks in the order they were clicked; that order is the leveling path.
 (function () {
   "use strict";
 
   const MAX_POINTS = 51;
   const FIRST_TALENT_LEVEL = 10;
-  const PER_ROW = 5;          // points needed in a tree to unlock each new row
+  const PER_ROW = 5;
   const LINK_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
 
   const DATA = window.KP || {};
@@ -21,17 +19,14 @@
     return e;
   };
 
-  // ------------------------------------------------------------ state
-
   const state = { cls: null, race: null, level: 60, seq: [] };
-  let flat = [];        // this class's talents, in link order: tree by tree, row by row
-  let byId = new Map(); // talent id -> entry in flat
+  let flat = [];
+  let byId = new Map();
 
-  // Shared with the gear page (js/gear.js): it adds its own part of the link and redraws after changes.
   const app = (window.KP.app = {
     state,
-    encoders: [],   // functions returning extra link parts, e.g. "&g=..."
-    hooks: [],      // called after every change
+    encoders: [],
+    hooks: [],
     flat: () => flat,
     liveRanks: () => tally(state.seq.slice(0, pointsForLevel(state.level))).ranks,
     changed: () => changed(),
@@ -39,7 +34,7 @@
   });
 
   const pointsForLevel = (lvl) => Math.max(0, Math.min(MAX_POINTS, lvl - FIRST_TALENT_LEVEL + 1));
-  const levelForPoint = (n) => n + FIRST_TALENT_LEVEL; // n = 0-based pick number
+  const levelForPoint = (n) => n + FIRST_TALENT_LEVEL;
 
   function loadClass(token) {
     state.cls = classes.find((c) => c.token === token) || classes[0];
@@ -57,7 +52,6 @@
     document.documentElement.style.setProperty("--class", state.cls.color);
   }
 
-  // Replays picks and returns counts, or the first pick that isn't allowed.
   function tally(seq) {
     const ranks = new Array(flat.length).fill(0);
     const treePts = [0, 0, 0];
@@ -70,7 +64,6 @@
     return { ranks, treePts, bad: -1 };
   }
 
-  // Why a point can't go into talent t right now (null if it can).
   function problem(t, ranks, treePts, total) {
     if (ranks[t.index] >= t.ranks.length) return "Already at max rank.";
     if (total >= MAX_POINTS) return "All " + MAX_POINTS + " points are spent.";
@@ -82,7 +75,6 @@
     return null;
   }
 
-  // Put picks in a valid order, keeping the original order as much as possible. null if impossible.
   function reorder(seq) {
     const rest = seq.slice();
     const out = [];
@@ -99,7 +91,6 @@
     return out;
   }
 
-  // For a damaged link: keep the picks that work, in order, and drop the rest.
   function keepValid(seq) {
     const out = [];
     const ranks = new Array(flat.length).fill(0);
@@ -148,19 +139,12 @@
     changed();
   }
 
-  // ------------------------------------------------------------ share link
-
   function encode() {
     const seq = state.seq.map((i) => LINK_CHARS[i]).join("");
     return `#c=${state.cls.token.toLowerCase()}&r=${state.race}&l=${state.level}&t4=${seq}` +
       app.encoders.map((f) => f()).join("");
   }
 
-  // Share link versions, oldest first: "t2" (2026-10-27), "t3" (after the 30 Oct 2026 hotfixes), "t4" (Forever's launch
-  // trees, 4 Nov 2026). data/links.js keeps a version's talent order for the classes whose trees changed after it; such
-  // picks are matched by talent name (renamed talents follow, points in a removed talent are dropped). A class with no
-  // saved order for a version had the same order as the next version. Older "t" links pointed into the pre-trait
-  // layout, so their picks are dropped.
   const LINK_VERSIONS = ["t2", "t3", "t4"];
 
   function decode(hash) {
@@ -196,8 +180,6 @@
     if (openTip) showTip(openTip.talent, openTip.anchor, openTip.sticky);
     app.hooks.forEach((f) => { f(); });
   }
-
-  // ------------------------------------------------------------ drawing
 
   function iconStyle(node, fileId, size) {
     const n = T.icons[String(fileId)];
@@ -243,10 +225,9 @@
     const { ranks } = tally(state.seq);
     const avail = pointsForLevel(state.level);
     const activeSeq = state.seq.slice(0, avail);
-    const live = tally(activeSeq); // what's learned at the chosen level
+    const live = tally(activeSeq);
     const g = geometry();
 
-    // class buttons, race, level
     for (const b of $("classPicker").children) b.setAttribute("aria-checked", b.dataset.token === state.cls.token);
     const sel = $("race");
     sel.textContent = "";
@@ -259,7 +240,6 @@
     $("levelRange").value = state.level;
     $("levelNum").value = state.level;
 
-    // points summary
     const pts = $("points");
     pts.textContent = "";
     if (state.level < FIRST_TALENT_LEVEL) {
@@ -271,7 +251,6 @@
     pts.append(el("span", "split", `(${live.treePts.join(" / ")})`));
     if (state.seq.length > avail) pts.append(el("span", "split", `+${state.seq.length - avail} planned later`));
 
-    // trees
     const box = $("trees");
     box.textContent = "";
     T.trees[state.cls.token].forEach((tree, ti) => {
@@ -290,7 +269,6 @@
       grid.append(svg);
       const mine = flat.filter((t) => t.tree === ti);
       for (const t of mine) {
-        // prerequisite arrows
         for (const req of t.requires || []) {
           const p = byId.get(req.talent);
           if (p) drawArrow(svg, g, p, t, live.ranks[p.index] >= req.rank);
@@ -300,7 +278,7 @@
         b.style.left = g.x(t.col) + "px";
         b.style.top = g.y(t.row) + "px";
         b.dataset.index = t.index;
-        iconStyle(b, t.icon, g.size - 4); // inside the 2px border
+        iconStyle(b, t.icon, g.size - 4);
         const now = live.ranks[t.index];
         const planned = ranks[t.index] - now;
         const max = t.ranks.length;
@@ -325,7 +303,6 @@
       box.append(panel);
     });
 
-    // leveling path
     const ol = $("path");
     ol.textContent = "";
     if (!state.seq.length) ol.append(el("li", "empty", "No talents picked yet."));
@@ -345,7 +322,6 @@
     $("dataNote").textContent = `Data: WoW: Forever game files, build ${m.build || "?"}, read from the game client with its server hotfixes on ${m.built || "?"}.`;
   }
 
-  // Arrow from talent a down/across to talent b (straight, or across then down).
   function drawArrow(svg, g, a, b, on) {
     const ns = "http://www.w3.org/2000/svg";
     const half = g.size / 2;
@@ -370,8 +346,6 @@
     svg.append(path, poly);
   }
 
-  // ------------------------------------------------------------ input and tooltip
-
   let lastPointer = "mouse";
   let openTip = null;
   document.addEventListener("pointerdown", (e) => { lastPointer = e.pointerType; }, true);
@@ -379,7 +353,7 @@
   function hookTalent(b, t) {
     b.addEventListener("click", (e) => {
       if (lastPointer === "touch") {
-        showTip(t, b, true); // on phones: tap shows details with + / - buttons
+        showTip(t, b, true);
         return;
       }
       if (e.shiftKey) removePoint(t); else addPoint(t);
@@ -395,7 +369,6 @@
   }
 
   function showTip(t, anchor, sticky) {
-    // the grid is redrawn on every change, so find the fresh button for this talent
     if (!anchor.isConnected) {
       anchor = document.querySelector(`.talent[data-index="${t.index}"]`);
       if (!anchor) return hideTip();
@@ -424,7 +397,6 @@
     } else if (t.estimated) {
       tip.append(el("div", "note", "Numbers per rank are estimated from Classic (Forever's files only give one rank)."));
     }
-    // what one more point would change in the numbers (from js/panel.js)
     if (now < max && app.previewTalent) {
       const lines = app.previewTalent(t.index) || [];
       if (lines.length) {
@@ -490,8 +462,6 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
   }
 
-  // ------------------------------------------------------------ controls
-
   function setLevel(v) {
     const lvl = Math.max(1, Math.min(60, parseInt(v, 10) || 1));
     if (lvl === state.level) return;
@@ -523,8 +493,6 @@
     }
   });
   if ("ontouchstart" in window) $("hint").textContent = "Tap a talent to see it, then use + and − to add or remove points.";
-
-  // ------------------------------------------------------------ start
 
   buildClassPicker();
   if (!decode(location.hash)) {

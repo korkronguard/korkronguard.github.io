@@ -58,7 +58,6 @@
 <script src="../assets/site.js"></script>
 <script src="../assets/nav.js" data-root="../" data-page="guard"></script>
 <script>
-  // Fills the scroll from data/players.js. The player's own words are shown exactly as given.
   (function () {
     var id = new URLSearchParams(location.search).get("id") || "";
     var m = (window.KG_PLAYERS || []).filter(function (p) { return p.id === id; })[0];
@@ -111,15 +110,11 @@
     }
     el.innerHTML = html + back;
 
-    // ---- full character sheets (tools/add-sheet.js): every section, in the order the player wrote it ----
-    // The player's own **bold** and *italic*, made safe first.
     function inline(s) {
       return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>");
     }
     function lineKind(l) { return l.indexOf("- ") === 0 ? "item" : /^\*\*.+?:\*\*/.test(l) ? "label" : "para"; }
 
-    // Neighbouring lines of one kind form a block: a list, a set of labelled lines, or paragraphs.
-    // The template's own sections get the hand-made scrolls' looks (ledger, traits, kin, sayings, whispers).
     function blockHtml(kind, lines, heading) {
       if (kind === "item") {
         return '<ul class="' + (/saying/.test(heading) ? "sayings" : "runes") + '">' +

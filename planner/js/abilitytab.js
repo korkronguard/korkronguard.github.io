@@ -1,9 +1,3 @@
-// Kor'kron Planner: the Abilities tab. A spreadsheet-style table of every class ability with this character's numbers:
-// one hit, the average per use (misses, dodges, crits), the total on the chosen number of targets, cost, damage per
-// point of cost and per second of casting. A row opens to show which talents change that ability and the result of
-// every combination of them (each at 0 or all its points; the other talents stay as in the build), the damage by
-// number of targets, and for a stacking bleed (Lacerate) by stack. Talent abilities the build hasn't taken are worked
-// out as if it had; a Druid's abilities each in the form they need (rage in Bear Form, energy in Cat Form).
 (function () {
   "use strict";
 
@@ -23,16 +17,13 @@
   const sec = (ms) => fmt(ms / 1000, ms % 1000 ? 1 : 0) + " sec";
   const POWER = { 0: "mana", 1: "rage", 3: "energy" };
   const SCHOOL = { 1: "Physical", 2: "Holy", 4: "Fire", 8: "Nature", 16: "Frost", 20: "Frostfire", 32: "Shadow", 64: "Arcane" };
-  // "on your next swing" attacks: they replace a normal swing, so they add their damage minus that swing's
   const NEXT_SWING = ["Heroic Strike", "Maul", "Cleave", "Raptor Strike"];
-  const MAX_PICK = 6;          // talents in the combinations at once (2^6 = 64 rows)
+  const MAX_PICK = 6;
   const TARGET_CHIPS = [1, 2, 3, 4, 5, 10];
   const MAX_TARGETS = 20;
   const NO_AP = ["MAGE", "PRIEST", "WARLOCK"];
   const SPELLS = ["PALADIN", "SHAMAN", "DRUID", "PRIEST", "MAGE", "WARLOCK"];
   const HEALERS = ["PALADIN", "SHAMAN", "DRUID", "PRIEST"];
-
-  // ------------------------------------------------------------ settings (in the link)
 
   state.lab = state.lab || { targets: 1, ap: null, sp: null, healing: null, shape: {} };
   app.encoders.push(() => {
@@ -42,7 +33,6 @@
     if (L.ap != null) s += "&xa=" + L.ap;
     if (L.sp != null) s += "&xs=" + L.sp;
     if (L.healing != null) s += "&xh=" + L.healing;
-    // stance / form switches that aren't Auto: "&sh=stance.berserker_prowl.off"
     const sh = Object.entries(L.shape || {}).filter(([, v]) => v && v !== "auto").map(([k, v]) => k + "." + v).join("_");
     if (sh) s += "&sh=" + sh;
     return s;
@@ -55,10 +45,6 @@
     state.lab = { targets: Math.max(1, Math.min(MAX_TARGETS, num("nt") || 1)), ap: num("xa"), sp: num("xs"), healing: num("xh"), shape };
   }
 
-  // ------------------------------------------------------------ stances and forms
-
-  // The switches per class (the game's own stances and forms: KP.abilities.STANCES). Auto works each ability out in
-  // a stance or form it can be used in. A switch only shows what's learned at this level.
   const learnedShape = (name) => {
     const s = (((KP.abilities.STANCES || {})[state.cls.token]) || []).find((x) => x.name === name);
     if (!s) return false;
@@ -100,12 +86,9 @@
     return out;
   }
   const STANCE_LABEL = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
-  // the Warrior's main stance (calc's rule, shared with the estimates and builds): tank -> Defensive, Fury -> Berserker,
-  // else Battle
   const warriorDefault = () => KP.calc.warriorStance(app.ctx());
   const setting = (key) => ((state.lab.shape || {})[key]) || "auto";
   const bookOf = (ab) => (((KP.spellbook || {})[state.cls.token] || []).find((b) => b.name === ab.name)) || {};
-  // what the math needs to know about the stance or form one ability is worked out in (ctx fields), and its name
   function shapeFor(ab) {
     const tok = state.cls.token;
     const book = bookOf(ab);
@@ -140,12 +123,10 @@
     if (tok === "PRIEST" && setting("shadowform") === "off") o.shadowform = false;
     else if (tok === "PRIEST" && learnedShape("Shadowform")) o.shadowform = true;
     if (tok === "HUNTER" && setting("aspect") !== "auto") o.aspect = setting("aspect");
-    // the row tag: only where Auto picks per ability (a chosen stance is in the toolbar already)
     const auto = tok === "WARRIOR" ? setting("stance") === "auto" : tok === "DRUID" ? setting("form") === "auto" : true;
     const opener = (tok === "ROGUE" || tok === "DRUID") && book.stealthOnly && label && /Stealth|Prowl/.test(label);
     return { o, label, tag: auto ? label : opener ? (tok === "ROGUE" ? "Stealth" : "Prowl") : null };
   }
-  // the same for the side panel's stats: the switches that are set (a Warrior on Auto shows its usual stance)
   app.labShape = () => {
     if (!state.cls) return {};
     const tok = state.cls.token, o = {};
@@ -156,17 +137,13 @@
     return o;
   };
 
-  // on-page choices (not in the link)
-  const open = new Set();   // "<class>:<ability>" rows that are open
-  const picked = {};        // "<class>:<ability>" -> talent indexes in its combinations (the player's choice)
+  const open = new Set();
+  const picked = {};
   let sort = { key: null, dir: -1 };
   const keyOf = (ab) => state.cls.token + ":" + ab.name;
 
-  // ------------------------------------------------------------ the math
-
   const abilities = () => KP.abilities[state.cls.token] || [];
   const isDruid = () => state.cls.token === "DRUID";
-  // the talent that teaches an ability (Mortal Strike, Primal Bite...)
   const grantIndex = (ab) => (ab.talent ? app.flat().findIndex((t) => t.id === ab.talent) : -1);
   const withRank = (ranks, i, r) => { const x = ranks.slice(); x[i] = r; return x; };
 
@@ -177,7 +154,6 @@
     if (L.healing != null) o.healing = L.healing;
     return Object.keys(o).length ? o : undefined;
   }
-  // the character as the math sees it, with the stance / form fields (shape.o) for one ability
   function ctxFor(ranks, n, shape) {
     const c = app.ctx(ranks);
     c.targets = n;
@@ -186,8 +162,6 @@
     return c;
   }
 
-  // Every ability's result for these talent ranks and number of targets (null where there's nothing to count),
-  // each in its own stance or form, talent abilities as if learned. `only` = ability indexes to work out.
   function evaluate(ranks, n, only) {
     const list = abilities();
     const out = new Array(list.length).fill(null);
@@ -213,11 +187,8 @@
   const healAvg = (r) => r.heal * (1 + Math.min(100, r.critChance) / 100 * ((r.healCritMult || 1.5) - 1));
   const isHealing = (r) => !(r.expected > 0) && r.heal > 0;
   const critMult = (r) => (isHealing(r) ? r.healCritMult || 1.5 : r.critMult || 2);
-  // a placeholder number (Swiftmend's heal is 1 in the files: the server works it out from your HoT)
   const placeholder = (r) => usable(r) && Math.max(r.expected || 0, r.heal || 0) < 2;
   const rowValue = (r) => (!usable(r) ? 0 : isHealing(r) ? healAvg(r) : r.expected);
-  // mana costs given as a share of base mana; a helper "rank" with no cost (Holy Nova's heal) takes the cost of the
-  // spell you cast at that level
   function costOf(r) {
     if (r.cost) return r.cost;
     if (r.costPct) {
@@ -229,7 +200,6 @@
   }
   const channelMs = (r) => r.channelMs || 0;
 
-  // The numbers in a table row. r = result on the chosen targets, one = on one target.
   function metrics(r, one) {
     if (!usable(r) || !usable(one) || placeholder(one)) return null;
     const heal = isHealing(r);
@@ -241,7 +211,6 @@
       perSec: timeMs ? total / (timeMs / 1000) : null, timeMs };
   }
 
-  // the numbers that tell whether a talent changes an ability
   const KEYS = ["expected", "heal", "cost", "castMs", "cdMs", "critChance", "durMs", "dot"];
   function differs(a, b) {
     if (!usable(a) || !usable(b)) return usable(a) !== usable(b);
@@ -249,7 +218,6 @@
     return KEYS.some((k) => !near(a[k], b[k])) || !near(a.stack && a.stack.weaponHit, b.stack && b.stack.weaponHit);
   }
 
-  // what a talent does to one ability, going from 0 to all its points
   function changeText(a, b) {
     if (!usable(a) || !usable(b)) return [usable(b) ? "makes it usable" : "makes it unusable"];
     const out = [];
@@ -276,7 +244,6 @@
     const ranks = app.liveRanks();
     const atN = evaluate(ranks, n);
     const at1 = n > 1 ? evaluate(ranks, 1) : atN;
-    // which talents change which ability: each talent at 0 and at all its points, the others as in the build
     const changes = list.map(() => []);
     flat.forEach((t, ti) => {
       const full = t.ranks.length, now = ranks[ti] || 0;
@@ -287,8 +254,6 @@
         if (differs(zero[i], max[i])) changes[i].push({ ti, zero: zero[i], max: max[i] });
       });
     });
-    // a talent that changes only a few abilities is "for this ability"; one that changes most of them works through
-    // your stats (crit, attack power, Strength...) and is listed apart
     const reach = new Array(flat.length).fill(0);
     changes.forEach((c) => { c.forEach((x) => { reach[x.ti]++; }); });
     const rows = [];
@@ -306,7 +271,6 @@
     return { list, flat, n, ranks, rows };
   }
 
-  // talents chosen for an ability's combinations: the player's pick, else the ones for this ability (biggest first)
   function pickedFor(row) {
     const k = keyOf(row.ab);
     if (!picked[k]) {
@@ -317,8 +281,6 @@
     }
     return picked[k].filter((ti) => row.changes.some((c) => c.ti === ti)).sort((a, b) => a - b);
   }
-
-  // ------------------------------------------------------------ drawing
 
   function iconStyle(node, fileId, size) {
     const n = KP.talents.icons[String(fileId)];
@@ -338,7 +300,6 @@
 
   function bar(M) {
     const box = el("div", "prio-toggles lab-bar");
-    // number of targets
     const tg = el("div", "lab-field");
     tg.append(el("span", "lab-label", "Targets"));
     const chips = el("div", "lab-chips");
@@ -365,7 +326,6 @@
     tg.title = "Enemies in reach (or allies, for group heals). Area attacks hit all of them up to the game's limit; chain attacks jump to their own number.";
     box.append(tg);
 
-    // what-if numbers
     const tok = state.cls.token;
     const S = KP.calc.stats({ ...app.ctx(), ...app.labShape() });
     const fields = [];
@@ -401,7 +361,6 @@
     wf.append(wrap);
     box.append(wf);
 
-    // stance / form switches (Warrior stance, Druid form and Prowl, Rogue Stealth, Shadowform, Hunter aspect)
     const sw = shapeSwitches();
     if (sw.length) {
       const sf = el("div", "lab-field");
@@ -540,7 +499,6 @@
   }
 
   const lockText = (row) => row.r.locked || (placeholder(row.one) ? "Its number is worked out by the server (see the tooltip)" : "–");
-  // talents for this ability (the general ones, which change most abilities, in the tooltip)
   function talentCount(row) {
     const own = row.changes.filter((c) => c.specific).length, rest = row.changes.length - own;
     const td = el("td", "num", own ? String(own) : "–");
@@ -548,8 +506,6 @@
     td.title = `${own} talent${own === 1 ? "" : "s"} for this ability` + (rest ? `, ${rest} more that change most of your abilities (crit, hit, damage %...)` : "");
     return td;
   }
-
-  // ------------------------------------------------------------ an opened row
 
   function detailRow(row, M) {
     const tr = el("tr", "lab-detail");
@@ -580,7 +536,6 @@
     const kind = r.kind === "magic" ? "spell" : r.kind;
     add(`${SCHOOL[r.school] || ""} ${kind}`.trim() + " · " + (channelMs(r) ? `channeled ${sec(channelMs(r))}` : r.castMs ? `${sec(r.castMs)} cast` : "instant") +
       (r.cdMs >= 1500 ? ` · ${sec(r.cdMs)} cooldown` : "") + (row.shape && row.shape.label ? ` · in ${row.shape.label}` : ""));
-    // how many it hits
     const e = targetRule(r);
     if (e) add(e);
     if (one.dmax > 0) add(`One hit: ${fmt(one.dmin)}` + (Math.round(one.dmin) !== Math.round(one.dmax) ? ` to ${fmt(one.dmax)}` : "") + (r.combo ? " (at 5 combo points)" : ""));
@@ -606,7 +561,6 @@
     return box;
   }
 
-  // what the game data says about its targets
   function targetRule(r) {
     const effects = [...r.rank.effects, ...Object.values(r.rank.triggers || {}).flatMap((t) => t.effects)];
     const chain = effects.find((e) => e.chain > 1 && e.target !== 1);
@@ -656,7 +610,6 @@
     return box;
   }
 
-  // a stacking bleed (Lacerate): what one more application does at each number of stacks already on the target
   function stacks(row) {
     const s = row.one && row.one.stack;
     if (!s || !row.m) return null;
@@ -735,7 +688,6 @@
       const one = M.n > 1 ? evaluate(ranks, 1, [row.i])[row.i] : r;
       rows.push({ mask, n: chosen.filter((_, b) => mask & (1 << b)).length, m: metrics(r, one), ranks });
     }
-    // the build's own row: its ranks if they're all 0 or full, else an extra row
     const mineMask = chosen.reduce((acc, ti, b) => acc | ((M.ranks[ti] || 0) === flat[ti].ranks.length ? 1 << b : 0), 0);
     const exact = chosen.every((ti) => !M.ranks[ti] || M.ranks[ti] === flat[ti].ranks.length);
     if (!exact) rows.push({ mask: -1, n: 99, m: row.m, ranks: M.ranks, mine: true });
@@ -808,7 +760,6 @@
     box.append(frag);
   }
 
-  // the table takes 50-150 ms: changes that come quickly (dragging the level slider) draw it once per frame
   let queued = false;
   function soon() {
     if (queued || !app.view || app.view() !== "abilities") return;

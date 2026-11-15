@@ -1,7 +1,3 @@
-// Kor'kron Planner: the Stat Weights tab. For each of this character's two numbers (staying alive and damage, or healing),
-// the stats that count: how much of each it has, what 1 more point adds, how that compares with its main stat, and how far
-// a cap is. The addon's Stats tab shows the same in game for the character you're playing (its UI/Stats.lua). The math
-// and the list are calc.js's (statWeights, statList); this file draws them.
 (function () {
   "use strict";
 
@@ -20,10 +16,8 @@
 
   const NAMES = { ...STAT_TEXT, armor: "Armor", bonusArmor: "Bonus Armor", mainHand: "Main-hand weapon", offHand: "Off-hand weapon", ranged: "Ranged weapon" };
   const WEAPON = { mainHand: true, offHand: true, ranged: true };
-  // every stat an item can have that the math could count: not resistances or professions
   const KEYS = ["armor", ...Object.keys(STAT_TEXT).filter((k) => !/Resist|^resistAll$|^cooking$/.test(k))];
-  const NO_PARRY = ["MAGE", "PRIEST", "WARLOCK", "DRUID"]; // classes that never parry: parry rating isn't listed for them
-  // a section per number: its heading, the character's own total in words, what a point adds in words, what the number is
+  const NO_PARRY = ["MAGE", "PRIEST", "WARLOCK", "DRUID"];
   const SECTION = {
     survival: { title: "Staying alive", total: "your effective health is", unit: "effective health",
       about: "Effective health is how much damage you can take before you die: your health, and what your armor, dodge, parry and block " +
@@ -34,9 +28,7 @@
       about: "Your healing a second on one target, as much as your mana keeps up over a fight: the planner's own estimate." },
   };
 
-  // "1,759", "61.3": a whole number with its thousands apart, a small one with a decimal
   const amount = (x) => (x < 100 ? Number(x.toFixed(1)) : Math.round(x)).toLocaleString("en-US");
-  // "+31", "+1.4", "+0.61", "+0.027": two figures for small numbers, so a point's worth still shows
   const worth = (x) => {
     const a = Math.abs(x);
     if (a < 0.0005) return null;
@@ -44,14 +36,12 @@
   };
   const pct = (x, d = 1) => Number(x.toFixed(d)).toString();
 
-  // "47 more, then nothing" for the nearest turn of a stat's worth, "capped: 12 to spare" past one; "" when none is in reach
   function coming(turn) {
     if (!turn) return "";
     if (turn.spare != null) return `capped: ${Math.round(turn.spare)} to spare`;
     const first = turn.turns[0];
     return first ? `${Math.round(first.at)} more, then ${worth(first.worth) || "nothing"}` : "";
   }
-  // the same in a sentence, for the line's hover text
   function comingLine(turn) {
     if (turn.spare != null) return `More adds nothing: you have ${Math.round(turn.spare)} more than you need.`;
     const [first, second] = turn.turns;
@@ -59,7 +49,6 @@
     return `That holds for the next ${Math.round(first.at)} points, then each adds ${worth(first.worth) || "nothing"}` +
       (second ? ` for ${Math.round(second.at) - Math.round(first.at)} more, then ${worth(second.worth) || "nothing"}` : "") + ".";
   }
-  // what hit has to reach against the target
   function hitLine(W) {
     const caps = KP.calc.hitCaps(W.ctx), S = W.base.R.S;
     if (W.spells) return `Against this target your spells stop missing at ${pct(caps.spell)}% hit (1% always miss). You have ${pct(S.spellHit)}%.`;
@@ -67,7 +56,6 @@
       (S.oh ? `, your white swings with two weapons at ${pct(caps.dualWhite)}%` : "") + `. You have ${pct(S.hit)}%.`;
   }
 
-  // a line's hover text: the stat in full sentences
   function about(W, section, row) {
     const s = SECTION[section.kind], name = NAMES[row.key] || row.key;
     const out = [`${WEAPON[row.key] ? "Each 1 more damage a second on it" : "1 more point"} adds ${worth(row.worth)} ${s.unit}.`];
@@ -85,8 +73,6 @@
   function table(W, section) {
     const s = SECTION[section.kind];
     const box = el("div", "stat-sec");
-    // against an elite a Warrior's damage counts their own Sunder Armor (calc.js ownSunder): said here, because the number is
-    // so much higher than against a normal enemy
     const sunder = section.kind === "damage" && KP.calc.ownSunder(W.ctx);
     const h = el("h3", null, `${s.title}: ${s.total} ${amount(section.total)}${s.after ? " " + s.after : ""}` +
       (sunder ? `, with your Sunder Armor at ${sunder.stacks} stacks` : ""));
@@ -131,7 +117,7 @@
     }
     const role = kit.bisRole();
     const ctx = app.ctx();
-    if (role === "tank") ctx.tank = true; // a Druid tanks in Bear Form
+    if (role === "tank") ctx.tank = true;
     const W = KP.calc.statWeights(ctx, role, KEYS.filter((k) => !(k === "parry" && NO_PARRY.includes(state.cls.token))));
     const sections = KP.calc.statList(W);
     head.append(el("p", "muted", "Worked out for this character as it stands: its level, race and talents, the gear picked on the Gear & Stats tab, " +
@@ -153,7 +139,6 @@
     box.append(frag);
   }
 
-  // the list takes 50-300 ms: changes that come quickly (dragging the level slider) draw it once they stop
   let timer = 0;
   function soon() {
     if (!app.view || app.view() !== "stats") return;

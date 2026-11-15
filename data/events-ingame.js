@@ -1,4 +1,3 @@
-// Written by the Sync Guild Site script from the in-game calendar. Don't edit by hand; run the sync instead.
 window.KG_INGAME = {
   "updated": "2026-11-08T18:31:04.000Z",
   "realm": "CAMWOW US2 Realm 2 PvP",

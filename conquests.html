@@ -40,7 +40,6 @@
 <script src="assets/site.js"></script>
 <script src="assets/nav.js" data-root="" data-page="conquests"></script>
 <script>
-  // A party member whose character has a record on the site links to it.
   function partyMember(name) {
     var m = (window.KG_PLAYERS || []).filter(function (p) { return p.name === name && KG.hasRecord(p); })[0];
     if (!m) return "<li>" + KG.esc(name) + "</li>";

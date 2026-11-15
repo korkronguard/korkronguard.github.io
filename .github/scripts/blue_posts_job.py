@@ -1,13 +1,3 @@
-"""The hourly job on GitHub: keeps the live What's New page's list of Blizzard's posts current and tells the guild's Discord.
-
-It runs from the guild site's public repo (.github/workflows/blue-posts.yml); tools/copy_to_site.py copies this file and
-blue_posts.py there, so change them here. It needs no game client and keeps no post text. The list it keeps is the site's own
-data/blueposts.js, which nothing else writes, so it can't clash with a publish from the PC.
-
-    python3 blue_posts_job.py look     update the list, and note what's new for notify
-    python3 blue_posts_job.py notify   tell Discord what look found (needs the DISCORD_WEBHOOK secret; without it, nothing)
-    python3 blue_posts_job.py test     send the newest post to Discord, to see that the webhook works
-"""
 import json
 import os
 import sys
@@ -15,14 +5,14 @@ import tempfile
 import time
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # .github/scripts, next to blue_posts.py
-import blue_posts  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import blue_posts
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(REPO, "data", "blueposts.js")
 NEWS = os.path.join(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir(), "blue_posts_news.json")
 PAGE = "https://korkronguard.github.io/planner/whats-new.html"
-MAX_MESSAGES = 5  # more than this at once becomes one line pointing to the page
+MAX_MESSAGES = 5
 EXCERPT_CHARS = 300
 RED = 0xC41F3B
 
@@ -41,7 +31,6 @@ def look(data=DATA, news=NEWS):
 
 
 def embed(post, label=""):
-    """A post as a Discord message's card. Its words come from the forum, so send() stops them pinging anyone."""
     text = post["excerpt"]
     if len(text) > EXCERPT_CHARS:
         text = text[:EXCERPT_CHARS - 1].rstrip() + "…"
@@ -54,7 +43,7 @@ def send(webhook, body):
     request = urllib.request.Request(webhook, data=json.dumps({**body, "allowed_mentions": {"parse": []}}).encode("utf-8"),
                                      headers={"Content-Type": "application/json", "User-Agent": "Kor'kron Guard post job"})
     urllib.request.urlopen(request, timeout=30).close()
-    time.sleep(1)  # Discord allows a few messages a second
+    time.sleep(1)
 
 
 def notify(news=NEWS, webhook=None):
@@ -88,7 +77,7 @@ def main():
     elif command == "test":
         test(webhook)
     else:
-        raise SystemExit(__doc__)
+        raise SystemExit("usage: blue_posts_job.py look | notify | test")
 
 
 if __name__ == "__main__":

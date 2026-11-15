@@ -1,12 +1,3 @@
-// Kor'kron Planner: the Manual Crowd Pummeler check (Gear tab, Druids only).
-// The MCP (item 9449) is a level 29 two-handed mace whose "Use:" gives +50% attack speed for 30 sec, with 3 charges and a
-// 3-minute cooldown (all read from the item's data). In Cat and Bear Form a weapon's damage counts at the form's speed (a
-// guild Druid's character sheet at 40; a switch tries the original game's rule, where only its stats count and the haste
-// keeps it worth holding long after its item level says otherwise). This box answers "when does another weapon beat it?" two ways: with the gear on now (each weapon
-// against the MCP, and how much of the fight the haste must be up to break even), and level by level with the best gear
-// at each level (Equip BiS's search with the MCP left out). The haste counts as an average over the fight, like the
-// racial cooldowns (calc.js ctx.useBuffs). Other items' "Use:" buffs count averaged everywhere (calc.js's gearAuras); the
-// MCP's, with its charges, only here.
 (function () {
   "use strict";
 
@@ -24,7 +15,6 @@
   const QUALITY = ["poor", "common", "uncommon", "rare", "epic", "legendary", "artifact", "heirloom"];
 
   const MCP_ID = 9449;
-  // fight lengths to compare in (seconds; 0 = no haste at all)
   const FIGHTS = [
     [20, "20 sec (a mob, when it's ready)"],
     [60, "1 minute"],
@@ -44,7 +34,6 @@
   const useOf = (it) => it && (it.effects || []).find((e) => e.useAuras && e.useAuras.some((a) => a.aura === 319));
   const hasteOf = (use) => use.useAuras.find((a) => a.aura === 319).value;
 
-  // the part of a fight of `sec` seconds the buff is up, used at the pull and again whenever it's ready (charges allowing)
   function shareOf(sec, use) {
     if (!sec) return 0;
     const dur = use.durMs / 1000, cd = use.cdMs ? use.cdMs / 1000 : Infinity;
@@ -52,14 +41,11 @@
     for (let k = 0; k < (use.charges || Infinity) && k * cd < sec; k++) up += Math.min(dur, sec - k * cd);
     return Math.min(1, up / sec);
   }
-  // every share the fight choices need, so changing the fight doesn't redo the work
   const sharesFor = (use) => [...new Set(FIGHTS.map(([s]) => shareOf(s, use)).concat([0, 1]))].sort((a, b) => a - b);
 
-  // the character settings for one evaluation: the form, the weapon rule, the MCP's haste (only when holding it)
   const extra = (form, use, share) => ({ form, formWeaponDps: opt.rule === "damage",
     useBuffs: use ? [{ auras: use.useAuras, share }] : undefined });
 
-  // the MCP's result ({ v, e, dps }) at every share: [[share, result], ...]
   function mcpPoints(g, form, role, use) {
     const kit = app.gearKit;
     return sharesFor(use).map((x) => [x, kit.withCtx(extra(form, use, x), () => kit.bisEval(g, role))]);
@@ -69,7 +55,6 @@
     return p ? p[1] : pts[0][1];
   };
 
-  // the haste share where the MCP ties a score: 0 = its stats alone are worth as much; Infinity = never (even all fight)
   function breakEven(pts, v) {
     if (v <= pts[0][1].v) return 0;
     for (let i = 1; i < pts.length; i++) {
@@ -78,7 +63,6 @@
     }
     return Infinity;
   }
-  // a's lead over b in %: damage for Cat; for Bear the tank score (0.7 survival + 0.3 threat, in logs) as one number
   const lead = (role, a, b) => (role === "tank" ? (Math.exp(a.v - b.v) - 1) * 100 : b.v ? (a.v / b.v - 1) * 100 : 0);
   const fmt1 = (v) => (Math.round(v * 10) / 10).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const fmtPct = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v) < 10 ? Math.abs(v).toFixed(1) : Math.round(Math.abs(v))}%`;
@@ -86,16 +70,13 @@
     const t = Math.round(s);
     return t < 90 ? `${t} sec` : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
   };
-  // "a 3-minute fight" / "3-minute fights" (no haste: "a fight with no haste")
   const fightWords = (plural) => {
     if (!opt.fight) return plural ? "fights with no haste" : "a fight with no haste";
     const len = opt.fight < 60 ? `${opt.fight}-second` : `${opt.fight / 60}-minute`;
     return plural ? `${len} fights` : `a ${len} fight`;
   };
 
-  // the least share of any fight the haste is up when used whenever it's ready (30 sec / 3 min), while it has charges
   const floorOf = (use) => (use.cdMs ? Math.min(1, use.durMs / use.cdMs) : 0);
-  // when another weapon beats the MCP, from the break-even share
   function evenText(b, use) {
     if (b === 0) return "Never (the MCP's stats alone are worth more)";
     if (b === Infinity) return "Always (even with the haste up all fight)";
@@ -115,14 +96,11 @@
     return td;
   }
 
-  // a key for what the numbers depend on (the link minus the tab, plus the settings here)
   function keyOf(drop) {
     const p = new URLSearchParams(location.hash.replace(/^#/, ""));
     for (const k of ["v", "bd", ...drop]) p.delete(k);
     return p.toString() + "|" + opt.form + "|" + opt.rule + "|" + formNow();
   }
-
-  // ------------------------------------------------------------ with your gear now
 
   function nowData(form, role, use) {
     const kit = app.gearKit, items = kit.items();
@@ -136,7 +114,6 @@
       const keys = new Set(["armor"]);
       for (const it of items.values()) if (it.class === 2 || it.inv === 23) for (const k of Object.keys(it.stats || {})) keys.add(k);
       const W = kit.bisWeights(rest, role, [...keys]);
-      // the best few two-handers, and one-handers with the best off-hand item for them (Druids can't dual wield)
       const twos = kit.shortlist(mains.filter((it) => it.inv === 17), W, 8, true);
       const ones = kit.shortlist(mains.filter((it) => it.inv !== 17), W, 6, true);
       const one = ones.length ? kit.bestFor(rest, "mainHand", ones, role) : null;
@@ -170,7 +147,7 @@
     const d = nowCache.data;
     const u = shareOf(opt.fight, use);
     const m = at(d.pts, u);
-    const best = d.top.reduce((a, s) => (!a || s.r.v > a.r.v ? s : a), null); // the best other weapon, yours included
+    const best = d.top.reduce((a, s) => (!a || s.r.v > a.r.v ? s : a), null);
     const head = el("p", "mcp-head");
     if (best) {
       const l = lead(role, m, best.r);
@@ -201,7 +178,6 @@
       td.append(b);
       return td;
     };
-    // the MCP's own row (the haste for the chosen fight; without it underneath)
     const self = el("tr", "mcp-row mcp-self");
     const selfName = el("td", "mcp-name");
     selfName.append(itemName(mcp), el("div", "muted small", opt.fight ? `haste up ${Math.round(u * 100)}% of the fight; with none: ${fmt1(at(d.pts, 0).dps)}` : "no haste: just its stats"));
@@ -230,12 +206,10 @@
       "or weapons whose damage isn't confirmed."));
   }
 
-  // ------------------------------------------------------------ level by level
-
   function scanLevel(L, form, role, use, mcp) {
     const kit = app.gearKit;
     const keep = state.level;
-    state.level = L; // the talents (your leveling path up to L), item levels and form ranks all follow the level
+    state.level = L;
     try {
       const { g } = kit.computeBis({ role, ctx: extra(form, null, 0), skip: new Set([MCP_ID]), passes: 1 });
       const other = kit.withCtx(extra(form, null, 0), () => kit.bisEval(g, role));
@@ -256,7 +230,7 @@
   }
   function step() {
     if (!scan.running) return;
-    if (scan.key !== keyOf(["l", "g"])) { scan.running = false; render(); return; } // something changed: stop
+    if (scan.key !== keyOf(["l", "g"])) { scan.running = false; render(); return; }
     const items = app.gearKit.items(), mcp = items.get(MCP_ID), use = useOf(mcp);
     const t0 = performance.now();
     try {
@@ -272,7 +246,6 @@
     if (scan.running) setTimeout(step, 0);
   }
 
-  // "29-35, 38, 40-60"
   function ranges(levels) {
     const out = [];
     for (const l of levels) {
@@ -299,7 +272,6 @@
     if (!fresh && !scan.running) box.append(el("p", "muted small", `These results (${FORM_NAMES[scan.form]}) are from before your last change.`));
 
     const u = shareOf(opt.fight, use);
-    // who's ahead at each level; within half a percent counts as even (the math isn't that exact)
     const EVEN = 0.5;
     const rows = scan.rows.map((r) => {
       const l = lead(role, r.other, at(r.pts, u));
@@ -314,7 +286,6 @@
       sum.append(el("strong", null, `the MCP is never beaten ${scan.running ? "so far" : `from level ${rows[0].level} to ${lastRow.level}`}`),
         even.length ? ` (about even at ${ranges(even)}).` : ".");
     } else {
-      // from which level another weapon stays ahead to the end (if it does)
       let k = rows.length;
       while (k > 0 && rows[k - 1].side === "other") k--;
       const parts = [];
@@ -359,8 +330,6 @@
       "without checking again."));
     if (!state.seq.length) box.append(el("p", "small warn", "No talents picked: load a Feral build on the Builds tab first for a truer picture."));
   }
-
-  // ------------------------------------------------------------ the box
 
   function select(label, value, options, onChange) {
     const lab = el("label", "pfield");

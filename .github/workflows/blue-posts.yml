@@ -1,6 +1,3 @@
-# Every hour: new and edited Blizzard posts about WoW: Forever go on the What's New page, and to the guild's Discord when the
-# DISCORD_WEBHOOK secret is set (repo settings, Secrets and variables, Actions). The scripts are copies: change them in the
-# Planner project (tools/blue_posts.py, tools/blue_posts_job.py), and its copy_to_site.py brings them here.
 name: Blizzard's posts
 
 on:

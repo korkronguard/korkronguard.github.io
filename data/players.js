@@ -1,17 +1,3 @@
-// The Guard's ranks and roster on the website.
-//
-// KG_RANKS: the rank ladder, highest first (the roster page is grouped by these).
-// KG_PLAYERS: one entry per character.
-//   id        short name used in the record link (players/record.html?id=...)
-//   player    the member's handle (what the guild calls them)
-//   rank      exactly one of the KG_RANKS names
-//   name, race, class      the character, as the player gave it ("" / missing if not given)
-//   portrait  an image in players/images, or video: a link to a short clip
-//   story, appearance      the player's own words, one string per paragraph. NEVER edit or add to these.
-//   tagline, quote, intro, sections   a full character sheet instead of story/appearance, written by
-//             tools/add-sheet.js from the player's .md (never by hand); the record page shows every section
-//   page      a hand-made page in players/ instead of the generated record (Grimscar's scrolls)
-//   alt       true for a second character of the same player
 window.KG_RANKS = [
   {
     "name": "High Overlord",

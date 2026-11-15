@@ -1,5 +1,3 @@
-// Draws the site header and footer on every page, so the menu lives in one place.
-// Each page loads this with data-root (path back to the site root) and data-page (which link to highlight).
 (function () {
   var me = document.currentScript;
   var root = me.getAttribute("data-root") || "";
@@ -46,10 +44,6 @@
     '<p class="fine">The Kor\'kron Guard is a Horde guild of WoW: Forever. This is a fan site, not affiliated with Blizzard Entertainment. World of Warcraft and Warcraft are trademarks of Blizzard Entertainment, Inc.</p>';
   document.body.appendChild(footer);
 
-  // Background music: "Gathering Force", quiet and looping, with an on/off button in the corner.
-  // Browsers won't play sound until the visitor clicks or presses a key, so it starts on the first one.
-  // Every visit starts with music on; turning it off lasts for the rest of that visit (sessionStorage).
-  // Home page only; it starts from the beginning every time the home page is opened.
   if (page !== "home") return;
   var VOLUME = 0.15;
   var store = function (kind, key, value) {
@@ -63,7 +57,7 @@
   music.loop = true;
   music.volume = VOLUME;
   music.preload = "auto";
-  try { localStorage.removeItem("kg-music"); } catch (e) {} // clear the old remember-forever setting
+  try { localStorage.removeItem("kg-music"); } catch (e) {}
   var wantOn = store("sessionStorage", "kg-music") !== "off";
 
   var soundBtn = document.createElement("button");
@@ -91,7 +85,7 @@
     if (wantOn && music.paused) start();
   };
   if (wantOn) {
-    start(); // works if the browser allows it; otherwise wait for the first click or key
+    start();
     document.addEventListener("pointerdown", firstTouch);
     document.addEventListener("keydown", firstTouch);
   }
@@ -101,7 +95,6 @@
     if (wantOn) start(); else music.pause();
     paint();
   });
-  // The Back button can bring the page back from memory, mid-song; rewind so it restarts instead.
   window.addEventListener("pagehide", function () { music.pause(); music.currentTime = 0; });
   window.addEventListener("pageshow", function (e) { if (e.persisted && wantOn) start(); });
   paint();

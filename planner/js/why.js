@@ -1,8 +1,3 @@
-// Kor'kron Planner: "Why these talents", under the leveling path on the Talents tab. For every talent picked: what
-// it does (the game's tooltip), why it's worth the points (measured by taking it out and comparing, or a written
-// note when the math can't see it), what it unlocks, and when it's taken while leveling. When the picks are one of
-// the suggested builds (Builds tab), the build's own measurements at level 60 are used: for a level 60 build its
-// damage/healing/survival in a group, for a leveling build how much faster it levels solo (kills plus resting).
 (function () {
   "use strict";
 
@@ -28,7 +23,6 @@
     node.style.backgroundPosition = `${-(n % cols) * size}px ${-Math.floor(n / cols) * size}px`;
   }
 
-  // the suggested build these picks came from, if they still match it point for point
   function loadedBuild() {
     if (!state.loadedBuild || !state.cls) return null;
     const b = ((KP.builds || {})[state.cls.token] || []).find((x) => x.key === state.loadedBuild);
@@ -38,10 +32,8 @@
     return seq.length === state.seq.length && seq.every((v, i) => v === state.seq[i]) ? b : null;
   }
 
-  // survival: health through armor and avoidance (the same measure the builds use)
   const ehp = (R, level) => KP.calc.ehp(R, level);
 
-  // what each picked talent is worth now (your level, gear and buffs): take all its points out and compare
   function liveWorth(ranks) {
     const base = KP.calc.compute(app.ctx(ranks));
     const b = { dps: (base.rotation && base.rotation.dps) || 0, hps: (base.healing && base.healing.hps) || 0, ehp: ehp(base, state.level) };
@@ -64,7 +56,6 @@
     return m ? parseInt(m[1], 10) : null;
   }
 
-  // when the math can't put a number on it: what kind of talent it is, from its tooltip
   function kindOf(t, desc, manaCover, build) {
     const d = desc || "";
     if (!t.passive) return `It gives you a new ability (${t.name}). The Priority tab shows when to use it.`;
@@ -89,7 +80,6 @@
     return "Its effect isn't part of the planner's math yet.";
   }
 
-  // for a talent the math did measure: what kind of gain that is, in plain words
   function gainKind(desc) {
     const d = desc || "";
     if (/critical strike/i.test(d)) return "More critical strikes: a crit hits for double (more with some talents), and several talents trigger on crits.";
@@ -122,7 +112,6 @@
     const where = leveling ? "in this build at level 60 solo (gear for your level, a same-level mob, eating and drinking counted)"
       : build ? "in this build at level 60 (its reference gear, raid buffs on)" : `at level ${state.level} with your gear and buffs`;
 
-    // the main number for each talent, to rank them
     const main = (w) => !w ? 0 : leveling ? w.levelPct || 0 : role === "tank" ? w.ehpPct * 2 + (w.dps || 0) / 10 : role === "heal" ? w.hps : Math.max(w.dps, w.hps);
     const ranked = flat.map((t, i) => i).filter((i) => all[i] && main(worth[flat[i].id]) > 0.05)
       .sort((a, b) => main(worth[flat[b].id]) - main(worth[flat[a].id]));

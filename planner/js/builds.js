@@ -1,7 +1,3 @@
-// Kor'kron Planner: the Builds tab. Suggested builds per class (data/builds.js, made by tools/make_builds.js) on three
-// paths per spec: Solo (questing alone, 10-60), Dungeon (ready for groups while leveling, then dungeons and raids at 60)
-// and PvP (fighting players), each with the order to take every point, close alternatives to the measured points and
-// a few "your choice" points. "Load" puts a build into the Talents tab, leveling path included.
 (function () {
   "use strict";
 
@@ -19,8 +15,6 @@
   const ROLE = { dps: "Damage", tank: "Tank", heal: "Healer" };
   const PATHS = [["solo", "Solo"], ["dungeon", "Dungeon"], ["pvp", "PvP"]];
 
-  // the loaded build goes in the link (&bd=key) so a shared link keeps its explanations; it only counts while the
-  // picks still match the build
   const readBuild = () => { state.loadedBuild = new URLSearchParams(location.hash.replace(/^#/, "")).get("bd") || null; };
   readBuild();
   addEventListener("hashchange", readBuild);
@@ -40,7 +34,6 @@
     node.style.backgroundPosition = `${-(n % cols) * size}px ${-Math.floor(n / cols) * size}px`;
   }
 
-  // the build's points in the order they're taken, as indexes into this class's talent list (the link format)
   function sequence(build) {
     const flat = app.flat();
     return build.order.map((o) => flat.findIndex((t) => t.id === o.id)).filter((i) => i >= 0);
@@ -48,14 +41,11 @@
 
   function load(build) {
     state.seq = sequence(build);
-    state.loadedBuild = build.key; // "Why these talents" uses the build's own numbers while the picks still match
-    // set the Priority tab up for the build too
+    state.loadedBuild = build.key;
     if (state.prio) {
-      // the Priority tab's weapon choice (a Rogue picks a main hand: daggers or anything else)
       if (build.weapons) state.prio.weapons = state.cls.token === "ROGUE" ? (build.weapons === "daggers" ? "dagger" : "other") : build.weapons;
-      if (build.style && state.cls.token === "HUNTER") state.prio.style = build.style; // ranged or melee Hunter
+      if (build.style && state.cls.token === "HUNTER") state.prio.style = build.style;
       state.prio.tank = build.role === "tank";
-      // leveling builds deal damage (even the "healer who fights" ones); level 60 healer builds heal
       state.prio.role = build.kind === "leveling" ? "dps" : build.role === "heal" ? "heal" : "auto";
     }
     app.setView("talents", false);
@@ -63,8 +53,6 @@
     app.toast(`Loaded "${build.name}". Its leveling path and why each talent is picked are under the trees.`);
   }
 
-  // The stance or form a build lives in (the same rule the estimates use: calc.js warriorStance, tank mode, Shadowform,
-  // Moonkin Form), with that stance's numbers from the game data and when to dance out of it.
   const STANCE_KEY = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
   function stanceNumbers(name) {
     const s = (((KP.abilities.STANCES || {})[state.cls.token]) || []).find((x) => x.name === name);
@@ -136,7 +124,6 @@
       p.append(el("strong", null, "Judgment, not measured: "), build.judgment);
       box.append(p);
     }
-    // how much of the build the math stands behind: talents whose points change nothing in it are judgment
     const judged = build.unmeasured.reduce((n, u) => n + u.points, 0);
     const measured = el("p", "muted small", `Measured by the planner's math: ${51 - judged} of 51 points` + (judged
       ? `. Picked by judgment (the math can't put a number on them yet): ${build.unmeasured.map((u) => `${u.name} ${u.points}`).join(", ")}.`
@@ -187,7 +174,6 @@
       if (t) iconStyle(ti, t.icon, 20);
       li.append(el("span", "build-lv", `Lv ${o.level}`), ti, el("span", null, `${o.name} ${o.rank}/${t ? t.ranks.length : "?"}`),
         el("span", "muted small", " " + o.why));
-      // close alternatives: as good or nearly as good at this level (from outside the build: the build's last point makes room)
       if (o.alts) {
         li.append(el("span", "muted small", " · or " + o.alts.map((a) =>
           `${a.name}${a.outside ? " (not in this build)" : ""}: ${a.why}`).join("; or ")));

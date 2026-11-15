@@ -1,7 +1,3 @@
-// Kor'kron Planner: the Priority tab. "What should I press?" for this character, worked out from its talents,
-// level and gear. The order inside each group comes from the game's numbers (damage per rage / mana, cooldowns,
-// stance rules); the groups themselves (keep buffs up, then cooldown attacks, then a rage dump...) are standard
-// theory, and each line says which is which.
 (function () {
   "use strict";
 
@@ -18,20 +14,16 @@
   };
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? "–" : Number(v).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d }));
   const sec = (ms) => (ms >= 60000 && ms % 60000 === 0 ? `${ms / 60000} min` : `${fmt(ms / 1000, ms % 1000 ? 1 : 0)} sec`);
-  // the first number in a tooltip; a range ("421 to 439") counts as its average
   const firstNumber = (text) => {
     const m = /(\d+(?:\.\d+)?)(?: to (\d+(?:\.\d+)?))?/.exec(text || "");
     return m ? (parseFloat(m[1]) + parseFloat(m[2] || m[1])) / 2 : null;
   };
-  // the number after a phrase in a tooltip, e.g. numberAfter(desc, "Attack Power by") -> 120
   const numberAfter = (text, phrase) => { const i = (text || "").indexOf(phrase); return i < 0 ? null : firstNumber(text.slice(i + phrase.length)); };
 
-  // Warrior stances in the game's SpellShapeshift mask
   const STANCE = { battle: 1 << 16, defensive: 1 << 17, berserker: 1 << 18 };
   const STANCE_NAME = { battle: "Battle Stance", defensive: "Defensive Stance", berserker: "Berserker Stance" };
-  const TWO_HAND = [1, 5, 6, 8, 10]; // weapon subclasses: 2H axe, 2H mace, polearm, 2H sword, staff
+  const TWO_HAND = [1, 5, 6, 8, 10];
 
-  // Settings on this tab (in the link): tank mode, Hunter style, weapons, role (damage or healing)
   state.prio = state.prio || { tank: null, style: "auto", weapons: "auto", role: "auto" };
   const WEAPON_SETUPS = { "2h": "Two-hander", dw: "Dual wield", shield: "Sword and board" };
   const WS_LINK = { "2h": "2", dw: "d", shield: "s" };
@@ -52,9 +44,6 @@
       role: { d: "dps", h: "heal" }[p.get("rl")] || "auto" };
   }
 
-  // Classes that can heal: their healing tree(s). The Role setting picks the damage or the healing list. Auto means
-  // healing only for a committed healing build (the healing tree is the main tree, 21+ points): while leveling or
-  // lightly talented you're dealing damage (Judgement, Smite, Wrath...), and a Holy "Shockadin" can pick Damage.
   const HEAL_TREES = { PALADIN: [0], PRIEST: [0, 1], DRUID: [2], SHAMAN: [2] };
   function autoRole(token, treePts) {
     const trees = HEAL_TREES[token];
@@ -67,8 +56,6 @@
     options: [["auto", `Auto (${autoRole(c.token, c.treePts) === "heal" ? "Healing" : "Damage"})`], ["dps", "Damage"], ["heal", "Healing"]],
     help: "Damage: what to press when you're dealing damage (leveling, a Holy Shockadin, a Shadow Priest). Healing: keeping your " +
       "group alive. Auto picks Healing only for a healing build with 21+ points in its healing tree." });
-  // Tank mode as the Priority tab works it out (the setting, else Protection Warrior/Paladin or a Bear Druid with
-  // Natural Reaction or Thick Hide), for the gear tab's Equip BiS
   app.prioTank = () => {
     if (!state.cls) return false;
     if (state.prio.tank != null) return state.prio.tank;
@@ -80,7 +67,6 @@
     if (state.cls.token === "DRUID") return b > Math.max(a, c) && !!(talent["Natural Reaction"] || talent["Thick Hide"]);
     return false;
   };
-  // the same choice for the side panel (healing estimate first or second)
   app.prioRole = () => {
     if (!state.cls || !HEAL_TREES[state.cls.token]) return "dps";
     if (state.prio.role === "dps" || state.prio.role === "heal") return state.prio.role;
@@ -89,12 +75,10 @@
     return autoRole(state.cls.token, pts);
   };
 
-  // ------------------------------------------------------------ what this character has
-
   function character() {
     const ctx = app.ctx();
     const flat = app.flat(), ranks = app.liveRanks();
-    const talent = {}; // name -> points
+    const talent = {};
     const treePts = [0, 0, 0];
     flat.forEach((t, i) => {
       if (!ranks[i]) return;
@@ -120,11 +104,9 @@
       shield: !!(oh && oh.class === 4 && oh.subclass === 6),
       dualWield: !!(oh && oh.class === 2),
     };
-    // what's in your hands: from the gear (the Warrior's Weapons choice can override it)
     c.hold = { known: c.gearKnown, shield: c.shield, twoHand: c.twoHand, dual: c.dualWield, oneHand: !!(c.mh && !c.twoHand),
       ranged: !!(c.ranged && SHOOTING_SUBCLASSES.includes(c.ranged.subclass)) };
     c.spell = (name) => book.find((b) => b.name === name);
-    // a race's own spell (Starshards: Night Elf Priests) that this race doesn't learn
     c.otherRace = (b) => !!(b && b.races && !b.races.includes(ctx.race));
     c.rank = (name) => {
       const b = c.spell(name);
@@ -132,11 +114,9 @@
       let r = null;
       for (const x of b.ranks) if ((x.level || 1) <= c.level) r = x;
       if (r || !b.talent) return r;
-      // a talent gives its ability whatever level the files give its first rank (as in calc.js's abilityResult)
       const taken = talentById(b.talent);
       return taken && taken.rank && c.level >= KP.calc.talentOpensAt(taken.t) ? b.ranks[0] : null;
     };
-    // learned = trained by this level and, if it comes from a talent, that talent has a point
     c.why = (name) => {
       const b = c.spell(name);
       if (!b) return "not in this class's spellbook";
@@ -152,9 +132,6 @@
     return c;
   }
 
-  // ------------------------------------------------------------ building the list
-
-  // A priority list: sections of entries; abilities the character doesn't have yet go to "later".
   function list(c) {
     const out = { title: "", facts: [], toggles: [], sections: [], later: [], stanceSkipped: [], c };
     const current = { section: null };
@@ -162,7 +139,6 @@
       current.section = { title, note, items: [] };
       out.sections.push(current.section);
     };
-    // opts: tag, text (when/how), facts (data lines), source ("data" | "theory"), stance (key), score
     out.add = (name, opts = {}) => {
       if (!opts.always && !c.has(name)) {
         const why = c.why(name);
@@ -186,7 +162,6 @@
       current.section.items.push(item);
       return item;
     };
-    // sort the items added since `from` by score (highest first): the data-driven part of the order
     out.sortFrom = (from) => {
       const items = current.section.items;
       const head = items.slice(0, from), tail = items.slice(from);
@@ -196,15 +171,11 @@
     return out;
   }
 
-  // What an item requirement (from the game's SpellEquippedItems) asks for: "shield", "dual", "ranged", "twoHand" or null.
-  // Weapon subclass bits: one-handers 0 axe, 4 mace, 7 sword, 13 fist, 15 dagger; shield = armor subclass bit 6.
-  // Two-handers: 1 axe, 5 mace, 6 polearm, 8 sword, 10 staff. Ranged: 2 bow, 3 gun, 16 thrown, 18 crossbow, 19 wand.
   const ONE_HAND_BITS = (1 << 0) | (1 << 4) | (1 << 7) | (1 << 13) | (1 << 15);
   const TWO_HAND_BITS = (1 << 1) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 10);
   const RANGED_BITS = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
-  // the only ranged requirement in the game data: the Hunter's shots and stings, a bow, gun or crossbow
   const SHOOTING_SUBCLASSES = [2, 3, 18];
-  const OFF_HAND_WEAPON = 1 << 22; // inventory type 22
+  const OFF_HAND_WEAPON = 1 << 22;
   function holdNeed(needs) {
     if (!needs) return null;
     if (needs.class === 4 && needs.subclassMask & (1 << 6)) return "shield";
@@ -223,7 +194,6 @@
     return need && c.hold.known && !c.hold[need] ? NEED_TEXT[need] : null;
   }
 
-  // "Not yet": level-locked spells always; talent-locked ones only from a tree you've put real points into
   function worthMentioning(c, name) {
     const b = c.spell(name);
     if (c.otherRace(b)) return false;
@@ -245,8 +215,6 @@
     return bits.join(" · ");
   };
 
-  // ------------------------------------------------------------ Warrior
-
   function warrior(c) {
     const L = list(c);
     const [arms, fury, prot] = c.treePts;
@@ -256,7 +224,7 @@
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
       help: "On: you hold the boss (Defensive Stance, threat first). Off: you're free to deal damage, e.g. an off-tank between pulls." });
     const specName = { arms: "Arms", fury: "Fury", prot: "Protection" }[spec];
-    L.title = `${arms + fury + prot ? specName + " " : ""}Warrior${tank ? ", tanking" : ""}`; // no talents yet: just "Warrior"
+    L.title = `${arms + fury + prot ? specName + " " : ""}Warrior${tank ? ", tanking" : ""}`;
     L.facts.push(`Talents: ${arms} / ${fury} / ${prot}` + (c.talent["Mortal Strike"] ? " · Mortal Strike" : "") +
       (c.talent["Bloodthirst"] ? " · Bloodthirst" : "") + (c.talent["Shield Slam"] ? " · Shield Slam" : ""));
     const setup = weaponSetup(c, L, spec === "prot" ? "shield" : spec === "fury" ? "dw" : "2h", ["2h", "dw", "shield"]);
@@ -266,8 +234,6 @@
 
     if (tank) return warriorTank(c, L, A, unit);
 
-    // stance: Arms lives in Battle Stance (Overpower, Sweeping Strikes, Spearing Strike are Battle-only),
-    // Fury in Berserker Stance (+crit; Whirlwind is Berserker-only)
     const berserkerCrit = firstNumber((c.spell("Berserker Stance") || {}).desc);
     const stance = spec === "fury" && c.has("Berserker Stance") ? "berserker" : "battle";
     L.facts.push(`Stance: ${STANCE_NAME[stance]}` + (stance === "berserker" && berserkerCrit ? ` (+${berserkerCrit}% crit, from the game data)` : "") +
@@ -278,7 +244,6 @@
     L.add("Bloodrage", { tag: "At the pull", text: "For rage: between pulls is best (the rage isn't lost while you wait), or whenever you're short.",
       facts: [c.talent["Improved Bloodrage"] ? `Improved Bloodrage: +${fmt(talentNumber(c, "Improved Bloodrage"))}% rage from it` : "20 rage over 10 sec for some health"] });
 
-    // ---- before and during the fight: buffs and debuffs
     L.section("Keep up", "Buffs and debuffs first: they make everything else hit harder.");
     const bs = c.rank("Battle Shout");
     L.add("Battle Shout", { tag: "Keep up", text: "Refresh before it runs out (lasts " + sec((bs || {}).durMs || 120000) + ").",
@@ -293,11 +258,9 @@
         facts: [`5 stacks: −${fmt(buffNumber("Sunder Armor", c.level) * 5)} armor on the target` + (gain > 0.5 ? `, about +${fmt(gain)}% damage for you` : ""),
           "Switch on \"Sunder Armor ×5\" in the panel if your raid keeps it up."] });
     }
-    // with Bloodthrill, Rend lights up Overpower, so it's kept up; without, it's one more attack ranked by damage per rage
     const bloodthrill = c.talent["Bloodthrill"];
     if (bloodthrill) L.add("Rend", rendLine(c, A, unit, stance));
 
-    // ---- the attacks: on cooldown, ordered by damage per rage
     L.section("Attack priority", "Press the first one that's ready. Within this group the order is damage per rage with your current talents and gear.");
     const attacks = L.sections[L.sections.length - 1];
     const start = 0;
@@ -314,8 +277,6 @@
         text: "Only after the target dodges" + (c.talent["Bloodthrill"] ? " or Bloodthrill procs" : "") + ". Cheap and can't be dodged.",
         facts: [dmgLine(op, unit), c.talent["Improved Overpower"] ? `Improved Overpower: +${fmt(talentNumber(c, "Improved Overpower"))}% crit chance on it` : null] });
     }
-    // Slam as the damage estimate plays it: its cast pauses your swings (the white damage lost counts against it) until
-    // Improved Slam says it no longer does
     const slam = c.rank("Slam");
     const impSlam = talentText(c, "Improved Slam");
     const slamPart = ((c.R.rotation || {}).parts || []).find((p) => p.spell === "Slam");
@@ -336,7 +297,6 @@
     if (!bloodthrill) L.add("Rend", { ...rendLine(c, A, unit, stance), score: perCost(A["Rend"]) });
     addVictoryRush(L, A, unit, stance);
     L.sortFrom(start);
-    // spare rage last; Hamstring's own damage is tiny, so it's only there for what its hit or crit sets off
     const onCrit = ["Deep Wounds", "Flurry"].filter((n) => c.talent[n]);
     if (onCrit.length) {
       L.add("Hamstring", { tag: "Spare rage", stance, source: "theory",
@@ -352,15 +312,13 @@
           c.talent["Improved Heroic Strike"] ? `Improved Heroic Strike: −${fmt(talentNumber(c, "Improved Heroic Strike"))} rage` : null] });
     }
 
-    // ---- Execute phase
     if (c.has("Execute")) {
       const ex = A["Execute"];
       L.section("Below 20% health: Execute phase", "The order changes: rage is worth more in Execute than almost anywhere else.");
-      const pool = 30; // a typical rage pool when you press it
+      const pool = 30;
       const exPerRage = ex && !ex.locked && ex.expected ? (ex.expected + Math.max(0, pool - ex.cost) * ex.perRage) / Math.max(pool, ex.cost) : 0;
-      // the attacks above that still beat Execute per rage (free ones always do) stay ahead of it, the rest wait
       const rate = (name) => { const a = A[name]; return a && !a.locked && a.expected ? (a.cost ? a.expected / a.cost : Infinity) : 0; };
-      const scored = attacks.items.filter((it) => it.score != null); // not the spare-rage lines added after the sort
+      const scored = attacks.items.filter((it) => it.score != null);
       const ahead = scored.filter((it) => rate(it.name) > exPerRage);
       const vsExecute = (name) => (exPerRage && rate(name) ? (rate(name) === Infinity ? "Costs no rage" :
         `${name}: ${fmt(rate(name), 1)} damage per rage vs Execute ${fmt(exPerRage, 1)} (at ${pool} rage)`) : null);
@@ -378,7 +336,6 @@
       if (c.has("Heroic Strike")) L.add("Heroic Strike", { tag: "Stop", text: "Don't: every rage point is worth more in Execute." });
     }
 
-    // ---- big cooldowns
     L.section("Cooldowns", "Long cooldowns: line them up with each other and with the Execute phase.");
     L.add("Death Wish", { tag: "Cooldown", text: "On cooldown in long fights; otherwise save it for the Execute phase.",
       facts: [c.spell("Death Wish") ? `+${fmt(firstNumber(c.spell("Death Wish").desc))}% physical damage for 30 sec, ${sec(c.rank("Death Wish")?.cdMs || 180000)} cooldown` : null] });
@@ -386,14 +343,12 @@
       facts: [c.rank("Recklessness") ? `+100% crit for 15 sec, ${sec(c.rank("Recklessness").cdMs)} cooldown; you take 20% more damage` : null] });
     L.add("Reckless Swings", { tag: "On cooldown", text: "Costs a quarter of your base health: your next 4 swings give 5 extra rage each. Every 15 sec." });
 
-    // ---- several targets
     L.section("Several targets", null);
     L.add("Sweeping Strikes", { tag: "First", stance, text: "Your next 5 hits also strike a second enemy." });
     L.add("Whirlwind", { tag: "On cooldown", stance: "berserker", text: "Up to 4 enemies (Berserker Stance).",
       facts: [c.talent["Improved Whirlwind"] ? "Improved Whirlwind: " + talentText(c, "Improved Whirlwind") : null] });
     L.add("Cleave", { tag: "Rage dump", text: "Instead of Heroic Strike when 2+ enemies stand together." });
     L.add("Thunder Clap", { tag: "Optional", stance, text: "Slows their attacks; small damage." });
-    // off-tank: free to deal damage now, but ready to take the boss
     if (spec === "prot" || c.hold.shield) {
       L.section("Off-tanking: when you have to take the boss", "Turn on Tank mode above to see the threat priority.");
       const tm = talentNumber(c, "Improved Tactical Mastery");
@@ -403,13 +358,11 @@
       L.add("Taunt", { tag: "Then", text: "Pull the boss to you (Defensive Stance)." });
       L.add("Revenge", { tag: "After that", text: "Back in Defensive Stance, Revenge and Shield Slam lead your threat." });
     }
-    // the 31-point talents exclude each other in practice: don't suggest the other one
     L.later = L.later.filter((l) => !(["Mortal Strike", "Bloodthirst", "Shield Slam"].includes(l.name) &&
       ["Mortal Strike", "Bloodthirst", "Shield Slam"].some((n) => c.talent[n])));
     return L;
   }
 
-  // Charge only works out of combat; the stances it needs come from the game data (Vanguard adds Defensive Stance)
   function addCharge(c, L, stance) {
     const b = c.spell("Charge");
     if (!b) return;
@@ -419,7 +372,6 @@
       (vanguard ? " Vanguard: usable in Defensive Stance." : b.stances & STANCE[stance] ? "" : ` Needs ${needs}: charge, then switch to ${STANCE_NAME[stance]}.`) });
   }
 
-  // Rend: a bleed, worth it only on a target that lives through most of it; with Bloodthrill it also lights up Overpower
   function rendLine(c, A, unit, stance) {
     const bt = c.talent["Bloodthrill"];
     return { tag: bt ? "Keep up" : "If missing", stance,
@@ -429,15 +381,12 @@
         dmgLine(A["Rend"], unit), "Bleed: armor doesn't reduce it"] };
   }
 
-  // Victory Rush: free, for 20 sec after a kill that gives experience (game data)
   function addVictoryRush(L, A, unit, stance) {
     L.add("Victory Rush", { tag: "When it lights up", stance, score: 999,
       text: "Free, for 20 sec after a kill: use it when you're missing health, or before it runs out.",
       facts: [dmgLine(A["Victory Rush"], unit) || "Costs no rage; also heals you for 10% of your health"] });
   }
 
-  // Weapons: from the gear unless the player picks a setup (any setup can tank or deal damage).
-  // guess = the setup to assume without gear; allowed = the setups this class can use.
   function weaponSetup(c, L, guess, allowed) {
     const fromGear = c.twoHand ? "2h" : c.dualWield ? "dw" : c.shield ? "shield" : null;
     const auto = fromGear && allowed.includes(fromGear) ? fromGear : guess;
@@ -455,12 +404,9 @@
     return setup;
   }
 
-  // ------------------------------------------------------------ Paladin
-
   function paladin(c) {
     const L = list(c);
     const [holy, prot, ret] = c.treePts;
-    // the spec is the main tree (a Holy build that borrows Seal of Command from Retribution is still Holy)
     const spec = prot > holy && prot >= ret ? "prot" : ret >= holy && ret > 0 ? "ret" : holy > 0 ? "holy" : "none";
     const tank = state.prio.tank != null ? state.prio.tank : spec === "prot";
     L.toggles.push({ key: "tank", label: "Tank mode", on: tank,
@@ -472,7 +418,6 @@
         : `${{ prot: "Protection ", ret: "Retribution ", none: "" }[spec]}Paladin${role === "heal" ? ", healing" : ""}`;
     L.facts.push(`Talents: ${holy} / ${prot} / ${ret}` + (c.talent["Holy Shield"] ? " · Holy Shield" : "") +
       (c.talent["Seal of Command"] ? " · Seal of Command" : "") + (c.talent["Light's Vigil"] ? " · Light's Vigil" : ""));
-    // leveling and Retribution: a two-hander; tanks and healers: a shield
     const setup = weaponSetup(c, L, spec === "prot" || role === "heal" ? "shield" : "2h", ["shield", "2h"]);
     weaponTalents(c, L, setup);
     const A = c.res;
@@ -525,9 +470,7 @@
       return L;
     }
 
-    // dealing damage (Retribution, or a Protection Paladin off-tanking)
     L.section("Keep up", null);
-    // the Seal the damage estimate found better (both are worked out once Seal of Command is learned)
     const rot = c.R.rotation || {};
     const sealDps = rot.sealDps || {};
     const sealFact = sealDps.Command && sealDps.Righteousness
@@ -574,8 +517,6 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Druid
-
   function druid(c) {
     const L = list(c);
     const [bal, feral, resto] = c.treePts;
@@ -593,7 +534,7 @@
     const desc = (n) => (c.spell(n) || {}).desc || "";
     const cost = (n, unit) => {
       const a = c.res[n];
-      if (a && !a.locked && a.expected) return dmgLine(a, unit); // damage, cost and damage per point of rage/energy
+      if (a && !a.locked && a.expected) return dmgLine(a, unit);
       const r = c.rank(n);
       return r ? `${fmt(r.cost / (unit === "rage" ? 10 : 1))} ${unit}` + (r.cdMs ? `, ${sec(r.cdMs)} cooldown` : "") : null;
     };
@@ -657,15 +598,12 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Rogue
-
   function rogue(c) {
     const L = list(c);
     const [ass, com, sub] = c.treePts;
     L.title = `${ass >= com && ass >= sub && ass ? "Assassination" : com >= sub && com ? "Combat" : sub ? "Subtlety" : ""} Rogue`.trim();
     L.facts.push(`Talents: ${ass} / ${com} / ${sub}` + ["Mutilate", "Seal Fate", "Blade Flurry", "Adrenaline Rush", "Hemorrhage", "Preparation"]
       .filter((n) => c.talent[n]).map((n) => " · " + n).join(""));
-    // main-hand weapon type: Backstab, Mutilate and Ambush need a dagger (game data)
     const fromGear = c.mh ? (c.mh.subclass === 15 ? "dagger" : "other") : null;
     const guess = c.talent["Mutilate"] || c.talent["Puncturing Wounds"] || c.talent["Opportunity"] || sub > com ? "dagger" : "other";
     const auto = fromGear || guess;
@@ -751,13 +689,10 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Shaman
-
   function shaman(c) {
     const [ele, enh, resto] = c.treePts;
     const role = roleOf(c);
     if (role === "heal") return healer(c, "Restoration Shaman", `Talents: ${ele} / ${enh} / ${resto}`, [roleToggle(c)]);
-    // dealing damage: Enhancement's melee list or Elemental's spells, whichever tree has more (Restoration levels in melee)
     const spec = c.talent["Stormstrike"] || enh > ele || (resto > ele && resto > 0) ? "enh" : "ele";
     const L = list(c);
     L.toggles.push(roleToggle(c));
@@ -771,7 +706,6 @@
     const desc = (n) => (c.spell(n) || {}).desc || "";
     if (spec === "enh") {
       L.section("Keep up", null);
-      // your main-hand imbue: the one the damage estimate uses (calc.js's imbueOf: the better of the two once both are known)
       const both = c.has("Rockbiter Weapon") && c.has("Windfury Weapon") ? "the damage estimate tries both: this one does more with your gear and talents" : null;
       if (c.R.S.imbue === "rockbiter") {
         L.add("Rockbiter Weapon", { tag: "Keep up", text: "Your main-hand imbue: more melee attack power.",
@@ -784,7 +718,6 @@
       }
       L.add("Strength of Earth Totem", { tag: "Totem", text: "Strength for your melee group.", facts: [`+${fmt(buffNumber("Strength of Earth", c.level))} Strength at your level`] });
       L.add("Grace of Air Totem", { tag: "Totem", text: "Agility for your melee group.", facts: [`+${fmt(buffNumber("Grace of Air", c.level))} Agility at your level`] });
-      // an imbue turned the totem off for the Shaman until the hotfix of Nov 12 (its tooltip said so; calc.js procs reads it)
       const blocked = /disables any benefit you personally receive from Windfury Totem/.test(desc("Windfury Weapon"));
       L.add("Windfury Totem", { tag: "Totem", text: blocked ? "For the rest of your melee group (your own Windfury Weapon replaces it for you)."
         : "Extra attacks for your melee group, you included: it works beside your imbue (the planner counts it when you tick it in the group buffs)." });
@@ -794,8 +727,6 @@
       L.section("Attack priority", "Press the first one that's ready.");
       L.add("Stormstrike", { tag: "On cooldown", score: 1000, text: "Weapon damage, and your next Earth Shock, Lightning Bolt or Chain Lightning hits 20% harder.",
         facts: [dmgLine(A["Stormstrike"], unit), c.talent["Improved Stormstrike"] ? "Improved Stormstrike: 50% mana regeneration while casting for 15 sec after it" : null] });
-      // shocks share one cooldown: Flame Shock once per burn (a new one replaces the old burn; its burn outlasts the
-      // cooldown), the best direct shock on the other cooldowns (the same plan as the damage estimate)
       const shocks = ["Earth Shock", "Flame Shock", "Frost Shock"].filter((n) => c.has(n));
       const usable = (n) => A[n] && !A[n].locked && A[n].expected;
       const direct = ["Earth Shock", "Frost Shock"].filter(usable).sort((x, y) => A[y].expected - A[x].expected)[0];
@@ -824,7 +755,6 @@
       L.add("Flame Shock", { tag: "If missing", text: "Its burn is worth keeping on the target: cast it again once the burn has run out (a new Flame Shock replaces the burn still going).",
         facts: [dmgLine(A["Flame Shock"], unit)] });
       L.section("Spell priority", "Press the first one that's ready.");
-      // Lightning Overload: a server rule (its tooltip's chance of a free half-damage copy), counted in the numbers
       const overload = c.talent["Lightning Overload"] ? `Lightning Overload: ${fmt(talentNumber(c, "Lightning Overload"))}% chance of a free second bolt at half damage (counted)` : null;
       const thunder = c.talent["Call of Thunder"] ? `Call of Thunder: +${fmt(talentNumber(c, "Call of Thunder"))}% crit` : null;
       L.add("Chain Lightning", { tag: "On cooldown", score: 500, text: "On cooldown if your mana allows; best with several targets.",
@@ -839,8 +769,6 @@
     return L;
   }
 
-  // A Druid casting for damage (Balance, Restoration while leveling, or no talents yet): Moonkin Form and buffs, then
-  // the damage estimate's plan, with Eclipse's Starfires from its tooltip (the estimate doesn't count them)
   function druidCaster(c, L) {
     const [bal, feral, resto] = c.treePts;
     const A = c.res, unit = "mana";
@@ -881,14 +809,11 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Priest
-
   function priest(c) {
     const [disc, holy, shadow] = c.treePts;
     const role = roleOf(c);
     const line = `Talents: ${disc} / ${holy} / ${shadow}`;
     if (role === "heal") return healer(c, disc > holy ? "Discipline Priest" : "Holy Priest", line, [roleToggle(c)]);
-    // dealing damage: Shadow, or Holy/Discipline while leveling: buffs, then the damage estimate's plan
     const shadowSpec = shadow > Math.max(disc, holy) || c.talent["Shadowform"];
     const L = list(c);
     L.toggles.push(roleToggle(c));
@@ -914,10 +839,7 @@
     return L;
   }
 
-  // ------------------------------------------------------------ healers (any class)
-
   const HEALER_TOOLS = {
-    // Light's Vigil lost its mana refund on 30 Oct 2026: it now heals the target's party
     PALADIN: { emergency: ["Holy Shock", "Divine Favor", "Lay on Hands", "Divine Shield"], mana: ["Blessing of Wisdom"],
       group: ["Light's Vigil"] },
     DRUID: { emergency: ["Swiftmend", "Nature's Swiftness", "Barkskin"], mana: ["Innervate"], group: ["Wild Growth", "Tranquility"] },
@@ -939,7 +861,6 @@
     const crit = Math.min(100, c.R.S.spellCrit) / 100;
     if (H) L.facts.push(`Estimate: ${fmt(H.hps, 1)} healing per second on one target, sustained over a 3-minute fight (no overhealing).`);
     const tools = HEALER_TOOLS[c.token] || { emergency: [], mana: [], group: [] };
-    // what the estimate keeps up or uses on cooldown
     const steady = (H ? H.parts : []).filter((p) => /kept up|on cooldown|absorb/.test(p.name));
     const oath = c.token === "PALADIN" && c.talent["Oath of Light"];
     if (steady.length || oath) {
@@ -958,12 +879,10 @@
           facts: [`${fmt(p.dps, 1)} healing per second in the estimate`] });
       }
     }
-    // every single-target heal, by healing per mana (what decides most of a healer's casts)
     const heals = c.R.abilities.filter((a) => !a.locked && a.heal > 10 && !tools.group.includes(a.name) && !(a.cdMs >= 60000));
     const main = H && H.parts.find((p) => /main heal|% of casts/.test(p.name));
     L.section("Your heals by the numbers", "Most efficient first. When mana is tight, lean on the top of this list; when someone is dropping fast, the biggest heal wins.");
     for (const a of heals) {
-      // Binding Heal: the target's half; each heal's own crit chance and crit size (Holy Power)
       const amount = a.heal * (a.name === "Binding Heal" ? 0.5 : 1) *
         (1 + Math.min(100, a.critChance != null ? a.critChance : crit * 100) / 100 * ((a.healCritMult || 1.5) - 1));
       const mana = manaOf(a);
@@ -994,7 +913,6 @@
     return t && t.icon;
   }
 
-  // learned talents that only work with one weapon setup: say whether they count with this one
   function weaponTalents(c, L, setup) {
     const ranks = app.liveRanks();
     const rows = [];
@@ -1064,7 +982,6 @@
         dmgLine(A["Thunder Clap"], unit),
         c.talent["Improved Thunder Clap"] ? `Improved Thunder Clap: −${fmt(talentNumber(c, "Improved Thunder Clap"))} rage` : null] });
     L.add("Rend", { ...rendLine(c, A, unit, stance), source: "theory" });
-    // Slam as the math plays it: alone, after Rend. A tank holding a group's enemies spends that rage on Sunder Armor instead
     L.add("Slam", { tag: "Solo", stance, facts: [dmgLine(A["Slam"], unit)],
       text: (talentText(c, "Improved Slam") ? "Alone, with rage left after Rend: with Improved Slam it no longer delays your swing."
         : "Alone, with rage left after Rend: press it right after a swing, as its cast holds back your next one.") +
@@ -1085,13 +1002,11 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Hunter
-
   function hunter(c) {
     const L = list(c);
     const [bm, mm, sv] = c.treePts;
     const meleeTalents = ["Lacerating Strikes", "Strider Kick", "Predator's Edge", "Savage Strikes", "Expose Prey"].filter((n) => c.talent[n]);
-    const auto = KP.calc.hunterStyle({ ...c.ctx, style: "auto" }); // same rule as the damage estimate
+    const auto = KP.calc.hunterStyle({ ...c.ctx, style: "auto" });
     const style = state.prio.style === "auto" ? auto : state.prio.style;
     L.toggles.push({ key: "style", label: "Style", value: state.prio.style, auto,
       options: [["auto", `Auto (${auto})`], ["ranged", "Ranged"], ["melee", "Melee"]],
@@ -1137,15 +1052,12 @@
         c.talent["Expose Prey"] ? "Expose Prey: your attacks on a Marked target can allow Mongoose Bite" : null] });
 
     if (style === "ranged") {
-      // the damage math's own order (calc.js fitShots): with mana short, the most damage per mana first; otherwise the
-      // most damage per second spent shooting (a cast pauses Auto Shot; an instant shot takes the 1.5 sec global cooldown)
       const byMana = starved.length > 0;
       const rank = (a) => (byMana ? perCost(a) : perUse(a) / Math.max(1.5, ((a && a.castMs) || 0) / 1000));
       L.section("Shot priority", "Keep Auto Shot going and fit these in without delaying it. " + (byMana
         ? "Your mana runs out before your cooldowns do, so the most damage per mana goes first."
         : "The most damage per second spent shooting goes first (casting pauses Auto Shot)."));
       const aimed = A["Aimed Shot"], multi = A["Multi-Shot"];
-      // Aimed Shot and Multi-Shot share a cooldown: pick the bigger hit
       if (c.has("Aimed Shot") || c.has("Multi-Shot")) {
         const useAimed = c.has("Aimed Shot") && perUse(aimed) >= perUse(multi);
         const pick = useAimed ? "Aimed Shot" : "Multi-Shot";
@@ -1160,12 +1072,9 @@
       const sniper = A["Sniper Shot"];
       L.add("Sniper Shot", { tag: "On cooldown", score: rank(sniper), text: "Long-range hit; also gives your next 3 shots +10 yards range.",
         facts: [dmgLine(sniper, unit), sniper && sniper.castMs ? `Cast: ${sec(sniper.castMs)} (game data)` : null] });
-      // Arcane Shot and Summon Hawk share a cooldown
       const hawkTalents = ["Unleashed Fury", "Ferocity"].filter((n) => c.talent[n]);
-      // only the hawk's dive is in the game files (base + 5% of ranged attack power); its 18 sec of attacks after aren't
       const diveBeats = A["Summon Hawk"] && A["Arcane Shot"] && perUse(A["Summon Hawk"]) > perUse(A["Arcane Shot"]);
       const hawkFirst = c.has("Summon Hawk") && (hawkTalents.length || diveBeats);
-      // the hawk takes Arcane Shot's place, Arcane Shot right after it (same score: the sort keeps the order they're added)
       const arcaneScore = rank(A["Arcane Shot"]);
       if (hawkFirst) {
         L.add("Summon Hawk", { tag: "On cooldown", score: arcaneScore, source: "theory",
@@ -1230,13 +1139,6 @@
     return L;
   }
 
-  // ------------------------------------------------------------ everyone else: from the numbers alone
-
-  // ------------------------------------------------------------ casters (the damage estimate's own plan)
-
-  // The parts of the damage estimate's caster plan (calc.js casterRotationWith) of the given kinds ("keep",
-  // "cooldown", "filler", "cheap") as lines, leaving out `skip`; returns the lines by spell name. With the fillers comes
-  // the wand, when the plan runs out of mana (no spell of its own in the spellbook: your wand's icon)
   function casterLines(c, L, unit, kinds, skip = []) {
     const out = {};
     for (const p of (c.R.rotation || {}).parts || []) {
@@ -1246,9 +1148,7 @@
         continue;
       }
       if (!p.spell || !kinds.includes(p.kind) || skip.includes(p.spell)) continue;
-      // a burn that's also the filler (Holy Fire) is renewed by casting the filler: listed once, as the filler
       if (p.kind === "keep" && c.R.rotation.parts.some((q) => q.kind === "filler" && q.spell === p.spell)) continue;
-      // a same-level mob dies before the burn runs out (the leveling fight): one cast covers the fight
       const fightSec = c.R.fightSec || c.ctx.fightSec;
       const once = fightSec && (c.res[p.spell] || {}).durMs >= fightSec * 1000;
       const line = {
@@ -1265,13 +1165,9 @@
     return out;
   }
 
-  // numbers read from a tooltip with a pattern, or null when the text doesn't match (a later patch reworded it)
   const numbersIn = (text, re) => { const m = re.exec(text || ""); return m ? m.slice(1).map(Number) : null; };
-  // damage per second spent casting (a channel's whole length; an instant takes the 1.5 sec global cooldown)
   const perCastSec = (a) => perUse(a) / Math.max(1.5, ((a && (a.channelMs || a.castMs)) || 0) / 1000);
 
-  // Spells the estimate leaves out on mana: more damage per second of casting than its filler but less per mana,
-  // listed with that reason for when your mana can spare them
   function spareMana(c, L, unit, fromMath) {
     const name = Object.keys(fromMath).find((n) => fromMath[n].tag === "Filler");
     const filler = name && c.res[name];
@@ -1285,8 +1181,6 @@
       }
     }
   }
-
-  // ------------------------------------------------------------ Mage
 
   function mage(c) {
     const L = list(c);
@@ -1323,7 +1217,6 @@
     if (c.talent["Arcane Blast"]) {
       const [int, cost, max, dur] = numbersIn(desc("Arcane Blast"),
         /gain (\d+)% of your Intellect as Spell Damage and the mana cost of Arcane Blast is increased by (\d+)%\. Effect stacks up to (\d+) times and lasts (\d+) sec/) || [];
-      // the estimate's window (calc.js: the number of Blasts per window that does the most for your mana)
       const blasts = ((rot.parts || []).find((p) => p.spell === "Arcane Blast") || {}).blasts;
       const window = dur || 18;
       L.add("Arcane Blast", { tag: blasts ? `${blasts} per ${window} sec` : "Skip", facts: [dmgLine(A["Arcane Blast"], unit),
@@ -1365,7 +1258,6 @@
         text: "When Missile Barrage lights up, your next Arcane Missiles is free and twice as fast: use it.",
         facts: [dmgLine(A["Arcane Missiles"], unit), mb ? `Missile Barrage: ${mb[0]}% chance from Arcane Blast, ${mb[1]}% from your other bolts (game data)` : null] });
     }
-    // the estimate's cooldowns and filler (a spell with a proc line above can still be the filler: cast without the proc)
     const fromMath = casterLines(c, L, unit, ["cooldown", "filler", "cheap"]);
     if (c.talent["Heating Up"]) {
       if (fromMath["Fire Blast"]) fromMath["Fire Blast"].facts.push("Heating Up: every Fire Blast adds a stack (game data)");
@@ -1399,9 +1291,7 @@
     return L;
   }
 
-  // ------------------------------------------------------------ Warlock
-
-  const BANES = ["Bane of Agony", "Bane of Doom"]; // one Bane per Warlock on a target (game data): chosen here, not by the estimate
+  const BANES = ["Bane of Agony", "Bane of Doom"];
 
   function warlock(c) {
     const L = list(c);
@@ -1420,7 +1310,6 @@
     L.section("Before the fight", null);
     const armor = ["Demon Armor", "Demon Skin"].find((n) => c.has(n));
     if (armor) L.add(armor, { tag: "Keep up", text: "Armor and health regeneration." });
-    // the damage estimate tries both demons and keeps the better one (calc.js compute)
     const sacrificed = (c.R.S.tal.dmgPct || []).find((d) => d.name === "Demonic Sacrifice");
     const md = numbersIn(talentText(c, "Master Demonologist"), /Imp - Increases Fire damage done by (\d+)%[\s\S]*?Succubus\/Incubus - Increases Shadow damage done by (\d+)%/);
     if (sacrificed) {
@@ -1430,7 +1319,6 @@
         facts: [`+${fmt(sacrificed.value)}% ${imp ? "Shadow" : "Fire"} damage for 2 hours (game data); the estimate tried both demons and this one does more for you`,
           md && c.talent["Demonic Pact"] ? `Master Demonologist with the next demon out: the Succubus +${md[1]}% Shadow, the Imp +${md[0]}% Fire damage (game data)` : null] });
     } else if (c.talent["Master Demonologist"]) {
-      // a build that keeps its demon (make_builds: sacrifice "none"): the one whose bonus fits the filler's school
       const fill = parts.find((p) => p.kind === "filler");
       const shadow = !fill || !A[fill.spell] || A[fill.spell].school !== 4;
       L.add(shadow ? "Summon Succubus" : "Summon Imp", { tag: "Pet out", source: "theory",
@@ -1444,7 +1332,6 @@
       facts: [elements ? `+${elements[0]}% Magic damage taken by the target, Shadow and Fire included (game data)` : null] });
     const perSec = (n) => { const r = c.rank(n); return c.has(n) && r && r.durMs > 0 ? perUse(A[n]) / (r.durMs / 1000) : 0; };
     const agony = perSec("Bane of Agony"), doom = perSec("Bane of Doom");
-    // the Bane the damage estimate keeps (against a mob of your level, one that dies before Doom's minute is up)
     const planned = parts.find((p) => /^Bane of/.test(p.spell || ""));
     if (planned ? planned.spell === "Bane of Doom" : doom > agony) {
       L.add("Bane of Doom", { tag: "Keep up", text: "Your Bane while the target will live another minute: its damage lands after 1 min.",
@@ -1465,7 +1352,6 @@
     L.section("Spell priority", "Press the first one that's ready.");
     if (c.talent["Nightfall"]) {
       const nf = numbersIn(talentText(c, "Nightfall"), /(\d+)% chance/);
-      // the estimate counts them from the ticks of what it keeps up and channels (calc.js procsPerSec)
       const instants = parts.find((p) => p.kind === "proc" && p.spell === "Shadow Bolt");
       L.add("Shadow Bolt", { tag: "With Shadow Trance", score: 990, source: "theory", text: "Nightfall's Shadow Trance makes your next Shadow Bolt instant: cast it right away.",
         facts: [nf ? `Nightfall: ${nf[0]}% chance on each tick of Corruption, Drain Soul, Drain Life and Wrack (game data` +
@@ -1484,29 +1370,23 @@
         : "It consumes your Immolate: cast Immolate again right after (game data)");
     }
     if (snf) {
-      // the estimate counts both Shadow and Flame bonuses as if Conflagrate and Shadowburn are used on cooldown
-      // (calc.js handRules), so a spell its plan leaves out is listed for its bonus
       for (const [n, pct, school] of [["Conflagrate", snf[0], "Shadow"], ["Shadowburn", snf[2], "Fire"]]) {
         const it = fromMath[n] || L.add(n, { tag: "On cooldown", score: 500, source: "theory", text: `Keeps Shadow and Flame's ${school} bonus up.`,
           facts: [dmgLine(A[n], unit)] });
         if (it && n === "Shadowburn") it.facts.push(`Shadow and Flame: +${pct}% ${school} damage for ${snf[1]} sec (game data, counted)`);
       }
     }
-    // the estimate adds the extra ticks to Wrack's own number (calc.js fasterTicks), for the spells it keeps up
     const wrack = numbersIn(desc("Wrack"), /deal their periodic damage (\d+)% faster/);
     const sped = parts.find((p) => p.spell === "Wrack" && p.faster);
     if (fromMath["Wrack"] && wrack) {
       fromMath["Wrack"].facts.push(`While you channel it, your Siphon Life, Corruption and Bane of Agony on the target tick ${wrack[0]}% faster (game data` +
         (sped ? `; counted: ${fmt(sped.faster, 1)} of Wrack's damage per second here is their extra ticks)` : "; none of them is kept up in this estimate)"));
     }
-    // Soul Siphon's bonus for each Corruption, Siphon Life and Bane of Agony the estimate keeps up (calc.js perDotBonus)
     for (const p of parts.filter((x) => x.perDot && fromMath[x.spell])) {
       const dots = parts.filter((x) => x.kind === "keep" && ["Corruption", "Siphon Life", "Bane of Agony"].includes(x.spell)).length;
       const pct = (100 * p.perDot) / (p.dps - (p.faster || 0) - p.perDot);
       fromMath[p.spell].facts.push(`Soul Siphon: +${fmt(pct)}% with ${dots} of your effects on the target (game data; counted: ${fmt(p.perDot, 1)} of its damage per second)`);
     }
-    // the estimate counts Incinerate's bonus while it keeps Immolate up (calc.js withAfflictedBonus); the line's
-    // damage figure is the plain hit
     const incinerate = numbersIn(desc("Incinerate"), /additional (\d+)% damage if the target is afflicted by Immolate/);
     if (fromMath["Incinerate"] && incinerate && inMath("Immolate", "keep")) {
       fromMath["Incinerate"].facts.push(`+${incinerate[0]}% on a target with your Immolate (game data, counted in its place here)`);
@@ -1532,27 +1412,21 @@
   }
 
 
-  // ------------------------------------------------------------ data helpers
-
   function buffNumber(name, level) {
     let v = 0;
     for (const r of (KP.abilities.BUFFS || {})[name] || []) if (r.level <= level) v = Math.max(v, r.value);
     return v;
   }
-  // a talent's first number at the learned rank (from its own tooltip text, which uses the game's rank values)
   function talentNumber(c, name) {
     const i = c.flat.findIndex((t) => t.name === name);
     const r = i >= 0 ? app.liveRanks()[i] : 0;
     return r ? firstNumber(c.flat[i].desc[r - 1]) : null;
   }
-  // a learned talent's tooltip at its rank ("" if not learned), for reading a number after a phrase
   function talentText(c, name) {
     const i = c.flat.findIndex((t) => t.name === name);
     const r = i >= 0 ? app.liveRanks()[i] : 0;
     return r ? c.flat[i].desc[r - 1] || "" : "";
   }
-
-  // ------------------------------------------------------------ drawing
 
   function iconStyle(node, fileId, size) {
     const n = KP.talents.icons[String(fileId)];
@@ -1588,9 +1462,6 @@
     return box;
   }
 
-  // ------------------------------------------------------------ "why here" for each line
-
-  // the reasoning behind each kind of line (its tag), in plain words
   const TAG_WHY = {
     "Keep up": "It keeps working for its whole duration (a buff, a debuff or damage over time), so one press is worth more than one attack. If it drops, everything after it gets weaker, so it comes first.",
     "Once per mob": "Damage over time that lasts longer than a mob of your level lives: cast it early so every tick lands before the mob dies, and once is enough.",
@@ -1643,7 +1514,6 @@
   };
   const POWER_UNIT = { 0: "mana", 1: "rage", 3: "energy" };
 
-  // the number the order is based on: damage (or healing) per point of resource, else per use
   function rateOf(it) {
     const a = it.res;
     if (!a || a.locked) return null;
@@ -1660,9 +1530,8 @@
     const mine = rateOf(it);
     if (it.score >= 900 && it.tag === "On cooldown") bits.push("It sits at the top because its cooldown, not your resource, is what limits it: press it every time it's ready.");
     else if (mine) {
-      // compare with the nearest line in this group that has comparable numbers
       const unit = it.res.heal && !it.res.expected ? "healing" : "damage";
-      const per = POWER_UNIT[it.res.powerType != null ? it.res.powerType : state.cls.power] || "point"; // the ability's own resource (a Cat uses energy)
+      const per = POWER_UNIT[it.res.powerType != null ? it.res.powerType : state.cls.power] || "point";
       const same = (x) => { const r = rateOf(x); return r && r.per === mine.per && x.tag === it.tag && !(x.score >= 900); };
       const next = s.items.slice(idx + 1).find(same);
       const prev = s.items.slice(0, idx).reverse().find(same);
@@ -1734,7 +1603,6 @@
       "Damage is an estimate (see the panel's notes)."));
   }
 
-  // the list for the current character, without drawing it (tools/make_builds.js also runs it for the addon)
   const RULES = { WARRIOR: warrior, HUNTER: hunter, PALADIN: paladin, DRUID: druid, ROGUE: rogue, SHAMAN: shaman, PRIEST: priest, MAGE: mage,
     WARLOCK: warlock };
   app.priorityList = () => {

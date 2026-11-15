@@ -1,5 +1,3 @@
-// Parchment effects for the scroll pages: ragged edges, and each part fading in as it comes into view.
-// Load with data-seed="<number>" so each scroll tears a little differently.
 (function () {
   var seedStart = parseInt(document.currentScript.getAttribute("data-seed"), 10) || 27;
   document.documentElement.classList.add("js");
@@ -10,7 +8,6 @@
   }
 
   ready(function () {
-    // Ragged, worn left and right edges on the parchment.
     var el = document.getElementById("parchment");
     if (el) {
       var seed;
@@ -31,7 +28,6 @@
       else window.addEventListener("resize", tear);
     }
 
-    // Fade each part of the scroll in as it comes into view.
     var items = document.querySelectorAll(".reveal");
     if (!("IntersectionObserver" in window)) { items.forEach(function (i) { i.classList.add("seen"); }); return; }
     var io = new IntersectionObserver(function (entries) {

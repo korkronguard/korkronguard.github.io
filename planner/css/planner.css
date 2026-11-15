@@ -32,7 +32,7 @@ button, select, input { font: inherit; color: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px max(20px, calc((100% - 1520px) / 2)); /* lines up with the content below */
+  padding: 14px max(20px, calc((100% - 1520px) / 2));
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #1a1416, var(--bg));
 }
@@ -53,7 +53,6 @@ button, select, input { font: inherit; color: inherit; }
 
 main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
 
-/* ---------- character controls ---------- */
 .controls {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -94,7 +93,6 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
 
 .hint { color: var(--muted); font-size: 13px; margin: 12px 2px; }
 
-/* ---------- trees ---------- */
 .trees { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .tree {
   background: var(--panel);
@@ -179,7 +177,6 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
   flex: none;
 }
 
-/* ---------- leveling path ---------- */
 .path {
   margin-top: 16px;
   background: var(--panel);
@@ -211,7 +208,6 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
 .path li.planned { opacity: .5; }
 .path .empty { color: var(--muted); font-size: 14px; }
 
-/* ---------- tooltip ---------- */
 .tooltip {
   position: fixed;
   z-index: 10;
@@ -258,7 +254,6 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
   font-size: 12px;
 }
 
-/* ---------- tabs ---------- */
 .tabs { display: flex; gap: 6px; margin: 16px 0 0; border-bottom: 1px solid var(--line); }
 .tabs button {
   background: none;
@@ -278,22 +273,20 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
   margin-bottom: -1px;
 }
 
-/* ---------- item quality colors (the game's) ---------- */
 .q-poor { color: #9d9d9d; } .q-common { color: #ffffff; } .q-uncommon { color: #1eff00; }
 .q-epic { color: #a335ee; } .q-legendary { color: #ff8000; }
 .q-artifact { color: #e6cc80; } .q-heirloom { color: #00ccff; }
-.q-rare { color: #3d93ff; } /* a little lighter than the game so it reads on dark panels */
+.q-rare { color: #3d93ff; }
 .q-border-poor { border-color: #9d9d9d !important; } .q-border-common { border-color: #cfcfcf !important; }
 .q-border-uncommon { border-color: #1eff00 !important; } .q-border-rare { border-color: #3d93ff !important; }
 .q-border-epic { border-color: #a335ee !important; } .q-border-legendary { border-color: #ff8000 !important; }
 
-/* ---------- gear page ---------- */
 .gear-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
 .slots {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-auto-flow: column;
-  grid-template-rows: repeat(9, auto); /* left column head to legs, right column feet to ranged, like the game */
+  grid-template-rows: repeat(9, auto);
   gap: 6px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -356,7 +349,6 @@ main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 32px; }
 ul.plain { list-style: none; padding: 0; margin: 0; font-size: 13px; }
 ul.plain li { padding: 2px 0; }
 
-/* ---------- item picker ---------- */
 .picker {
   width: min(640px, calc(100% - 24px));
   max-height: min(86vh, 900px);
@@ -384,7 +376,6 @@ ul.plain li { padding: 2px 0; }
 .picker-list { list-style: none; margin: 0; padding: 0 14px 14px; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .pick .stext { flex: 1; }
 
-/* ---------- item tooltip ---------- */
 .itip { min-width: 230px; color: #fff; font-size: 13px; }
 .itip h4 { font-size: 15px; margin: 0 0 2px; }
 .itip .two { display: flex; justify-content: space-between; gap: 16px; }
@@ -392,7 +383,6 @@ ul.plain li { padding: 2px 0; }
 .itip .setname { color: #ffd100; margin-top: 8px; }
 .itip .green { color: #1eff00; }
 
-/* ---------- stats + abilities panel ---------- */
 .talents-layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
 .side {
   background: var(--panel);
@@ -484,7 +474,6 @@ ul.plain li { padding: 2px 0; }
 .picker-sort { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 14px 0; font-size: 13px; color: var(--muted); }
 .picker-sort select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--text); }
 .picker-hint { margin-left: auto; font-size: 12px; }
-/* filter buttons (weapon hand and type, armor type, source) */
 .picker-filters { display: flex; flex-direction: column; gap: 5px; padding: 8px 14px 0; }
 .picker-filters[hidden] { display: none; }
 .fgroup { display: flex; align-items: flex-start; gap: 5px; }
@@ -494,7 +483,6 @@ ul.plain li { padding: 2px 0; }
 .chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .chip.primary .n { color: #c9a35a; }
 .picker-filters .clear { align-self: flex-start; margin-left: 57px; color: var(--muted); }
-/* the Wowhead link beside an item */
 .slot-row, .picker-list li { display: flex; gap: 5px; min-width: 0; }
 .slot-row .slot, .picker-list .pick { flex: 1; width: auto; }
 a.wh {
@@ -512,8 +500,6 @@ a.wh {
 }
 a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 
-/* ---------- smaller screens ---------- */
-/* Builds tab */
 .build-kinds { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .build-how { margin: 0 0 12px; }
 .build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
@@ -534,7 +520,6 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .build-lv { color: var(--muted); }
 .build-ticon { width: 20px; height: 20px; border-radius: 3px; }
 
-/* Priority tab */
 .prio-layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
 .prio { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .prio-head h2 { margin: 0 0 4px; font-size: 20px; color: var(--gold); }
@@ -559,7 +544,6 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .prio-why strong { color: var(--gold); }
 .prio-how { margin-top: 6px !important; }
 
-/* ---------- why these talents ---------- */
 .why { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .why h2 { margin: 0; font-size: 16px; }
 .why-summary { font-size: 14px; margin: 8px 0 4px; }
@@ -576,13 +560,11 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .build-stance { margin: 6px 0; font-size: 13px; padding: 4px 8px; border-left: 2px solid #6b5a2c; background: var(--panel-2); border-radius: 0 6px 6px 0; }
 .build-stance strong { color: var(--gold); }
 
-/* ---------- gear tab: Equip BiS ---------- */
 .gear-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
 .gear-tools .pfield select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; }
 .gear-tools .btn:disabled { opacity: .55; cursor: default; }
 .gear-bis-note { flex-basis: 100%; margin: 0; }
 
-/* ---------- gear tab: Manual Crowd Pummeler check (Druids) ---------- */
 .mcp { margin: 16px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; scroll-margin-top: 12px; }
 .mcp-details > summary { cursor: pointer; font-weight: 600; color: var(--gold); padding: 2px 0; }
 .mcp-intro { margin: 8px 0 10px; }
@@ -601,13 +583,11 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .mcp-notes { margin: 14px 0 4px; padding-left: 18px; }
 .mcp-notes li { margin: 2px 0; }
 
-/* ---------- stat weights tab ---------- */
 .stat-role { margin-top: 8px; }
 .stat-role select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; color: var(--text); font-size: 13px; }
 .stat-sec { margin-top: 18px; }
 .stat-sec h3 { display: inline-block; margin: 0; font-size: 15px; color: var(--gold); letter-spacing: .3px; }
 .stat-sec .lab-scroll { margin-top: 6px; }
-/* fixed widths, so the columns of the two lists line up */
 .stat-table { width: 100%; min-width: 600px; table-layout: fixed; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .stat-table th { padding: 5px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; white-space: nowrap; }
 .stat-table th:nth-child(1) { width: 27%; }
@@ -622,7 +602,6 @@ a.wh:hover, a.wh:focus-visible { color: var(--gold); border-color: #4a525e; }
 .stat-adds { color: var(--green); }
 .stat-cap { color: #7cc4ff; }
 
-/* ---------- abilities tab (spreadsheet-style table) ---------- */
 .lab-bar { gap: 8px 22px; }
 .lab-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .lab-label { font-weight: 600; font-size: 13px; }
@@ -667,7 +646,6 @@ td.lab-total.green { color: var(--green); }
 .lab-ctable { width: 100%; }
 .lab-chip { display: inline-block; margin: 1px 4px 1px 0; padding: 0 7px; border: 1px solid #4a3f22; border-radius: 10px; background: #221f19; font-size: 11px; white-space: nowrap; }
 .lab-later { margin-top: 8px; }
-/* an opened row's details stay in view while the wide table scrolls sideways (phones) */
 .lab-detail .lab-grid, .lab-detail .lab-talents { position: sticky; left: 12px; max-width: calc(100vw - 92px); }
 @media (max-width: 1250px) {
   .prio-layout.lab-layout { grid-template-columns: minmax(0, 1fr); }

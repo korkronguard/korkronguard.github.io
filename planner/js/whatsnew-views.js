@@ -1,6 +1,3 @@
-// Kor'kron Planner: two of the What's New page's views. Abilities & Talents shows what each game update changed for the
-// classes (data/changes.js, each card's ranks and tooltips); Blizzard's Posts lists what Blizzard said (data/blueposts.js,
-// with our own notes from data/blue-notes.js). whatsnew.js runs the page and calls these.
 (function () {
   "use strict";
 
@@ -16,8 +13,8 @@
   const POST_KINDS = [["notes", "Hotfixes & class notes"], ["news", "News"], ["reply", "Forum replies"], ["other", "Other posts"]];
   const POST_KIND_NAME = Object.fromEntries(POST_KINDS);
   const POWER = { 0: "mana", 1: "rage", 3: "energy" };
-  const ROWS_SHOWN = 40;   // per group, until "Show all"
-  const KEEP_WORDS = 8;    // unchanged words kept each side of a change in a row's short view
+  const ROWS_SHOWN = 40;
+  const KEEP_WORDS = 8;
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -31,10 +28,8 @@
     const [y, m, d] = iso.split("-").map(Number);
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
-  // a post's time (UTC from the forum) as the day it was where the reader is
   const postDate = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-  // a dropdown's choices; the one chosen stays listed (with 0) when the other filters leave nothing in it
   function fillSelect(select, first, options, value, label) {
     select.textContent = "";
     select.append(new Option(first, ""));
@@ -43,7 +38,6 @@
     select.value = value;
   }
 
-  // a row's button opens and closes its details; `open` remembers which across redraws
   function expandable(li, btn, key, open, detail) {
     if (open.has(key)) li.append(detail());
     btn.setAttribute("aria-expanded", String(open.has(key)));
@@ -54,7 +48,6 @@
     });
   }
 
-  // an icon from the update's sprite sheet
   function spriteIcon(u, fileId, cls) {
     const span = el("span", cls);
     const i = u.icons[fileId];
@@ -68,7 +61,6 @@
     return span;
   }
 
-  // a card before the update: its old values put back (null = it didn't have that)
   function before(c) {
     const old = { ...c };
     delete old.was;
@@ -79,9 +71,6 @@
     return old;
   }
 
-  // ------------------------------------------------------------ two versions of a tooltip
-
-  // the two texts as runs of words: { kind, text } with kind "same", "old" (only in a) or "new" (only in b)
   function wordRuns(a, b) {
     const x = a.split(" "), y = b.split(" ");
     const lcs = Array.from({ length: x.length + 1 }, () => new Array(y.length + 1).fill(0));
@@ -105,7 +94,6 @@
     return runs;
   }
 
-  // the runs with long stretches of unchanged words cut down, so a row shows the change and its surroundings
   function shortRuns(runs) {
     return runs.map((r, n) => {
       if (r.kind !== "same") return r;
@@ -125,8 +113,6 @@
     }
   }
 
-  // ------------------------------------------------------------ reading an ability, talent or racial card
-
   function timeText(ms) {
     const sec = ms / 1000;
     if (sec >= 3600) return `${+(sec / 3600).toFixed(2)} hr`;
@@ -137,11 +123,10 @@
   function costText(r) {
     const power = POWER[r.powerType || 0] || "power";
     if (r.costPct) return `${r.costPct}% ${power}`;
-    if (r.cost) return `${r.powerType === 1 ? r.cost / 10 : r.cost} ${power}`; // the game stores rage x 10
+    if (r.cost) return `${r.powerType === 1 ? r.cost / 10 : r.cost} ${power}`;
     return "no cost";
   }
 
-  // a rank's numbers a player can see: [label, its text, its value, is a higher one better?]
   const RANK_NUMBERS = [
     ["Learned at level", (r) => String(r.level || 1), (r) => r.level || 1, false],
     ["Cost", costText, (r) => r.costPct || r.cost || 0, false],
@@ -173,7 +158,6 @@
     }
   }
 
-  // masks hold a bit per form (form number - 1): `forms` = the forms it needs or works in, `notIn` = the ones it's barred from
   function formDiffs(old, now, add) {
     const has = (mask, bit) => Boolean(((mask || 0) >>> bit) & 1);
     for (let bit = 0; bit < 32; bit++) {
@@ -186,7 +170,6 @@
     }
   }
 
-  // what changed besides the tooltip's words, one short line each; dir "up" = better for the player, "down" = worse
   function spellDiffs(c) {
     const old = before(c), out = [], fields = Object.keys(c.was);
     const add = (text, better) => out.push({ text, dir: better === undefined ? "" : better ? "up" : "down" });
@@ -196,14 +179,14 @@
         case "ranks": rankDiffs(old.ranks || [], c.ranks || [], add); break;
         case "name": add(`Renamed from “${old.name}”`); break;
         case "forms": case "notIn":
-          if (field === "notIn" && fields.includes("forms")) break; // one pass for both
+          if (field === "notIn" && fields.includes("forms")) break;
           formDiffs(old, c, add);
           break;
         case "stealthOnly": add(c.stealthOnly ? "Now only from stealth" : "No longer needs stealth"); break;
         case "passive": add(c.passive ? "Now passive" : "No longer passive"); break;
         case "tree": add(`Moved from the ${old.tree} tree to ${c.tree}`); break;
         case "row": case "col":
-          if (field === "col" && fields.includes("row")) break; // one line for both
+          if (field === "col" && fields.includes("row")) break;
           add("Moved within its talent tree");
           break;
         case "requires": add(`Needs first: ${list(old.requires)} → ${list(c.requires)}`); break;
@@ -216,8 +199,6 @@
     return out;
   }
 
-  // how to read a change: "tooltip" = only the words moved, the spell's numbers in the game's files didn't (usually a
-  // corrected tooltip); "hidden" = the numbers moved and the tooltip doesn't show it; "" = neither
   function changeKind(c) {
     const a = before(c).ranks || [], b = c.ranks || [];
     if (!c.was.ranks || a.length !== b.length) return "";
@@ -234,7 +215,6 @@
     hidden: ["Numbers changed, tooltip didn't", "The spell's numbers in the game's files changed, and its tooltip doesn't show how."],
   };
 
-  // the ranks whose tooltip changed, as positions; none when the number of ranks changed (they can't be paired up)
   function changedTexts(c) {
     const a = before(c).ranks || [], b = c.ranks || [];
     if (!c.was.ranks || a.length !== b.length) return [];
@@ -251,8 +231,6 @@
       .filter(Boolean).join(" · ");
   }
 
-  // ------------------------------------------------------------ filters
-
   const updateMatches = (e, f) => f.u === "all" || e.u.id === f.u;
   const forClass = (c, token) => {
     if (c.type !== "racial") return c.cls === token;
@@ -264,7 +242,6 @@
     return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => h.includes(w));
   };
 
-  // f: { u (update id or "all"), k (kind or "all"), q (search), cls (class token), st (ability, talent, racial) }
   function spellPasses(e, f) {
     const c = e.card;
     if (!updateMatches(e, f)) return false;
@@ -278,25 +255,19 @@
 
   const notesForPost = (p) => NOTES.filter((n) => n.post === p.id);
 
-  // f: { q (search), pk (post kind or "all") }
   function postPasses(p, f) {
     if (f.pk !== "all" && p.kind !== f.pk) return false;
     if (!f.q) return true;
     return wordsMatch([p.title, p.author, p.role, p.excerpt, ...notesForPost(p).map((n) => n.text)].join(" "), f.q);
   }
 
-  // Blizzard's words on a game update, in our own: what the game's files can't show
   function updateNotes(f) {
     return NOTES.filter((n) => n.update && (f.u === "all" || n.update === f.u) && (!f.cls || !n.cls || n.cls === f.cls)
       && (!f.q || wordsMatch(n.text, f.q)));
   }
 
-  // ------------------------------------------------------------ the Abilities & Talents view
-
   const SPELLS = DATA.updates.flatMap((u) => KINDS.flatMap(([kind]) => ((u.spells || {})[kind] || []).map((card) => ({ u, kind, card }))));
 
-  // the classes an update changed, in class order: its abilities and talents in the game's files and Blizzard's notes on it
-  // (a racial, or a note for everyone, names no class)
   function updateClasses(id) {
     const tokens = new Set([...SPELLS.filter((e) => e.u.id === id).map((e) => e.card.cls),
       ...NOTES.filter((n) => n.update === id).map((n) => n.cls)]);
@@ -325,7 +296,6 @@
       }
       return box;
     }
-    // new or removed, or a change that left the words alone: each rank as it reads
     if (e.kind === "changed") box.append(el("div", "lbl", "Tooltip (unchanged)"));
     if (e.kind === "removed") box.append(el("div", "lbl", "Before it was removed"));
     for (const [i, r] of c.ranks.entries()) {
@@ -401,7 +371,6 @@
       (TYPES.find(([t]) => t === f.st) || [])[1]);
   }
 
-  // groups in class order, racials last
   function spellGroups(list) {
     const groups = [...CLASSES.map((cl) => [cl.token, cl.name, cl.color]), ["", "Racials", null]];
     return groups.map(([token, name, color]) => ({ token, name, color, entries: list.filter((e) => e.card.cls === token) }))
@@ -438,8 +407,6 @@
       out.append(section);
     }
   }
-
-  // ------------------------------------------------------------ the Blizzard's Posts view
 
   function postLink(p, text) {
     const a = el("a", "wn-link", text);

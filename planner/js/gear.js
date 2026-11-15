@@ -1,5 +1,3 @@
-// Kor'kron Planner: gear slots, item picker and character sheet.
-// Item data (data/items.js, ~1.4 MB) loads the first time the Gear tab is opened or a link has gear in it.
 (function () {
   "use strict";
 
@@ -15,8 +13,6 @@
     if (text != null) e.textContent = text;
     return e;
   };
-
-  // ------------------------------------------------------------ slots and who can use what
 
   const SLOTS = [
     { key: "head", name: "Head", inv: [1] },
@@ -47,9 +43,6 @@
     dodge: "Dodge", parry: "Parry", block: "Block", blockValue: "Block Value", rangedAttackPower: "RAP",
     manaRegen: "Mp5", haste: "Haste" };
 
-  // Filter buttons in the item picker. Several buttons in one row = any of them; none = everything.
-  // Armor and source choices carry over between slots (Plate picked for the head stays on for the chest);
-  // weapon choices are kept per slot. A row only shows when it can narrow the list.
   const HAND_NAMES = { 13: "One-Hand", 21: "Main Hand", 22: "Off Hand", 17: "Two-Hand", 14: "Shield", 23: "Held in off hand" };
   const FILTERS = [
     { id: "hand", label: "Hand", slots: ["mainHand", "offHand"],
@@ -65,19 +58,16 @@
     { id: "source", label: "Source", shared: true, order: Object.values(SOURCE_NAMES), value: (it) => SOURCE_NAMES[it.src] },
   ];
 
-  // ------------------------------------------------------------ state
-
-  const gear = {};      // slot key -> item id
-  let items = null;     // id -> item, once data/items.js has loaded
+  const gear = {};
+  let items = null;
   let loading = false;
   let view = "talents";
   let pickSlot = null;
-  // Worked out once each time the picker opens (nothing about the character changes while it's open):
-  let usable = [];         // items this character can put in the open slot
-  let gainCache = null;    // item id -> damage change if worn in the open slot
-  let gainBase = 0;        // the score with what's in the slot now
-  const chosen = {};       // filter key -> Set of chosen values
-  const hayCache = new Map(); // item id -> the text the search looks through
+  let usable = [];
+  let gainCache = null;
+  let gainBase = 0;
+  const chosen = {};
+  const hayCache = new Map();
 
   const slotByKey = Object.fromEntries(SLOTS.map((s) => [s.key, s]));
 
@@ -90,7 +80,7 @@
     s.onload = () => {
       items = new Map(KP.items.items.map((i) => [i.id, i]));
       then && then();
-      if (app.renderPanel) app.renderPanel(); // the stats panel can now count the gear
+      if (app.renderPanel) app.renderPanel();
       if (app.renderPriority) app.renderPriority();
       if (app.renderAbilities) app.renderAbilities();
       if (app.renderStats) app.renderStats();
@@ -99,11 +89,9 @@
     document.head.append(s);
   }
 
-  // ------------------------------------------------------------ rules
-
   function armorAllowed(it) {
     const cls = state.cls;
-    if (it.subclass === 0) return true; // rings, necks, trinkets, held items
+    if (it.subclass === 0) return true;
     if (!(cls.armorMask & (1 << it.subclass))) return false;
     const late = ARMOR_AT_40[cls.token];
     if (late && it.subclass === late && state.level < 40) return false;
@@ -112,8 +100,6 @@
 
   const myFaction = () => (KP.classes.races.find((r) => r.id === state.race) || {}).faction;
 
-  // Why this item can't go in this slot for this character (null if it can). `mh` = the main hand to check an off-hand
-  // item against (default: the one worn now; Equip BiS passes its own).
   function whyNot(it, slotKey, mh) {
     const slot = slotByKey[slotKey];
     const cls = state.cls;
@@ -141,7 +127,6 @@
   }
 
   function equipped() {
-    // items that are actually worn: usable now and allowed in their slot
     const out = [];
     if (!items) return out;
     for (const s of SLOTS) {
@@ -150,8 +135,6 @@
     }
     return out;
   }
-
-  // ------------------------------------------------------------ link
 
   app.encoders.push(() => {
     const ids = SLOTS.map((s) => (gear[s.key] ? gear[s.key].toString(36) : ""));
@@ -168,8 +151,6 @@
     });
     return { view: ["gear", "stats", "priority", "abilities", "builds"].includes(p.get("v")) ? p.get("v") : "talents", hasGear: !!p.get("g") };
   }
-
-  // ------------------------------------------------------------ icons and tooltips
 
   function iconStyle(node, fileId, size) {
     const n = KP.items.icons[String(fileId)];
@@ -284,8 +265,6 @@
     return parts.join(", ");
   }
 
-  // ------------------------------------------------------------ slots
-
   function renderSlots() {
     const box = $("slots");
     box.textContent = "";
@@ -326,8 +305,6 @@
     return a;
   }
 
-  // ------------------------------------------------------------ picker
-
   function openPicker(slotKey) {
     pickSlot = slotKey;
     const slot = slotByKey[slotKey];
@@ -355,15 +332,12 @@
     return h;
   }
 
-  // damage change if this item replaced what's in the slot now (estimated DPS from the panel's math)
   function gainOf(it) {
     let g = gainCache.get(it.id);
     if (g == null) { g = app.scoreWith(pickSlot, it) - gainBase; gainCache.set(it.id, g); }
     return g;
   }
 
-  // The filter rows for the open slot: which buttons to offer (from every item the character can use here, so they
-  // don't jump around while typing) and which are switched on.
   function filterRows() {
     const rows = [];
     for (const f of FILTERS) {
@@ -372,7 +346,7 @@
       let untagged = false;
       for (const it of usable) { const v = f.value(it); if (v) present.add(v); else untagged = true; }
       const options = f.order.filter((v) => present.has(v));
-      if (options.length < 2 && !(options.length === 1 && untagged)) continue; // nothing to narrow
+      if (options.length < 2 && !(options.length === 1 && untagged)) continue;
       const key = f.shared ? f.id : f.id + ":" + pickSlot;
       const on = new Set([...(chosen[key] || [])].filter((v) => present.has(v)));
       rows.push({ f, key, options, on });
@@ -391,7 +365,6 @@
       line.setAttribute("aria-label", row.f.label);
       const chips = el("div", "fchips");
       line.append(el("span", "flabel", row.f.label), chips);
-      // how many items each button would show, with the search and the other rows applied
       const counts = {};
       for (const it of matches) if (passes(it, row)) { const v = row.f.value(it); if (v) counts[v] = (counts[v] || 0) + 1; }
       for (const v of row.options) {
@@ -480,10 +453,8 @@
 
   function equip(id) {
     const it = items.get(id);
-    // the same unique item can't sit in both ring or trinket slots, so move it instead of copying
     const twin = { finger1: "finger2", finger2: "finger1", trinket1: "trinket2", trinket2: "trinket1" }[pickSlot];
     if (twin && gear[twin] === id) delete gear[twin];
-    // a unique weapon moves from one hand to the other too
     const hand = { mainHand: "offHand", offHand: "mainHand" }[pickSlot];
     if (hand && gear[hand] === id && !KP.calc.wearableTogether(it, it)) delete gear[hand];
     gear[pickSlot] = id;
@@ -493,22 +464,13 @@
     app.changed();
   }
 
-  // ------------------------------------------------------------ Equip BiS
-
-  // Fills every slot with the best item this character can use at its level, by the planner's own numbers (the panel's
-  // math): damage per second, healing per second for a healer, or survival plus some threat for a tank (0.7 / 0.3, like
-  // the tank builds). Trying every item takes seconds, so first each stat's worth is measured on the character (+25 of it,
-  // +300 armor); in each slot the items worth most by those weights, plus items with an equip effect or a set (which
-  // weights can't see), are then tried for real. Weapons: the best two-hander against the best one-hander + off hand.
-  // Run twice, the second time with the whole set on (hit caps, set bonuses). Left out: items that need a profession,
-  // weapons whose damage isn't confirmed, and the other faction's gear (whyNot).
   const BIS_SLOTS = ["head", "neck", "shoulder", "back", "chest", "wrist", "hands", "waist", "legs", "feet",
     "finger1", "finger2", "trinket1", "trinket2", "ranged"];
   const TWIN = { finger1: "finger2", finger2: "finger1", trinket1: "trinket2", trinket2: "trinket1" };
   const ROLE_NAMES = { dps: "Damage", heal: "Healing", tank: "Tanking" };
   const CAN_HEAL = ["PALADIN", "PRIEST", "DRUID", "SHAMAN"], CAN_TANK = ["WARRIOR", "PALADIN", "DRUID"];
-  let bisFor = "auto";   // the player's choice: auto, dps, heal, tank
-  let bisNote = null;    // what the last run did
+  let bisFor = "auto";
+  let bisNote = null;
 
   function autoRole() {
     if (app.prioTank && app.prioTank()) return "tank";
@@ -518,24 +480,18 @@
   const bisRole = () => (bisFor !== "auto" && (bisFor === "dps" || (bisFor === "heal" ? CAN_HEAL : CAN_TANK).includes(state.cls.token))
     ? bisFor : autoRole());
 
-  // extra character settings for a run (the MCP check: a set form, its weapon rule, the MCP's haste); see withCtx
   let bisCtx = null;
   const withCtx = (extra, fn) => { const prev = bisCtx; bisCtx = extra; try { return fn(); } finally { bisCtx = prev; } };
 
-  // the character wearing a set of gear (slot -> item)
   function gearCtx(g, role) {
     const c = app.ctx();
     c.worn = Object.entries(g).filter(([, it]) => it).map(([slot, item]) => ({ slot, item }));
-    if (role === "tank") c.tank = true; // a Druid tanks in Bear Form
+    if (role === "tank") c.tank = true;
     if (bisCtx) Object.assign(c, bisCtx);
     return c;
   }
-  // Against a mob of your level the fight lasts until it dies, so its length depends on your damage: worked out once
-  // with this gear, then kept for fn's comparisons (better gear shortens it a little; working it out again for every
-  // item would take several times as long)
   const withFightOf = (g, role, fn) => withCtx({ ...(bisCtx || {}), fightSec: KP.calc.compute(gearCtx(g, role)).fightSec }, fn);
 
-  // the score of a set of gear (slot -> item): v = what the role wants, e = survival (breaks ties)
   function bisEval(g, role) {
     const R = KP.calc.compute(gearCtx(g, role));
     const dps = (R.rotation && R.rotation.dps) || 0;
@@ -546,8 +502,6 @@
   const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
     (Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(b.v)) && a.e > b.e + 1e-6);
 
-  // what +1 of each stat is worth right now (v, survival e, and damage per second d: a tank's v mixes the two), measured
-  // with a stand-in item
   function bisWeights(g, role, keys) {
     const base = bisEval(g, role);
     const w = { v: {}, e: {}, d: {} };
@@ -563,8 +517,6 @@
   const linear = (it, w) => (it.armor || 0) * (w.armor || 0) + Object.entries(it.stats || {}).reduce((s, [k, v]) => s + v * (w[k] || 0), 0);
   const weaponDps = (it) => (it.weapon ? (it.weapon.min + it.weapon.max) / 2 / it.weapon.speed : 0);
 
-  // the items worth trying for real: the best by the stat weights (and, for weapons, by damage per second), plus items
-  // whose worth isn't all in their stats (equip effects, "Use:" buffs, sets)
   function shortlist(list, W, n, weapons) {
     const scored = list.map((it) => ({ it, a: linear(it, W.v), b: linear(it, W.e) }));
     scored.sort((x, y) => y.a - x.a || y.b - x.b || y.it.ilvl - x.it.ilvl || y.it.quality - x.it.quality);
@@ -575,15 +527,11 @@
     return [...pick];
   }
 
-  // one of each ring / trinket, also by name: some come under two item ids (Insignia of the Horde has two for Warriors)
   const twinOf = (g, slotKey, it) => {
     const twin = TWIN[slotKey] && g[TWIN[slotKey]];
     return !!twin && (twin.id === it.id || twin.name === it.name);
   };
 
-  // the best of these items in one slot, the rest of the gear as it is (ties: more survival, then the list's order). It
-  // has to beat the empty slot: an item that adds nothing the math counts (a trinket whose "Use:" the files can't describe,
-  // like a stun) leaves the slot empty.
   function bestFor(g, slotKey, cands, role) {
     let best = bisEval({ ...g, [slotKey]: null }, role), pick = null;
     for (const it of cands) {
@@ -594,14 +542,10 @@
     return pick;
   }
 
-  // items without a level requirement (dungeon loot, quest rewards) count from item level - 5 (KP.calc.wearableFrom)
   const bisLevel = KP.calc.wearableFrom;
-  // another class's tier set (the data lets anyone wear it, but the game hands it out through class-locked tokens)
   const setClass = (it) => it.set && KP.items.sets[it.set] && KP.items.sets[it.set].cls;
   const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;
 
-  // opts: role, ctx = extra character settings and skip = item ids to leave out (the MCP check), alternatives = how many
-  // items to rank per slot (the addon's gear lists, tools/export_gear.js)
   function computeBis(opts = {}) {
     return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2, opts.alternatives || 0));
   }
@@ -619,11 +563,9 @@
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};
-    // each pass in a fight as long as with the gear it starts from (withFightOf)
     for (let pass = 0; pass < passes; pass++) withFightOf(g, role, () => {
       const W = bisWeights(g, role, [...keys]);
       const n = pass ? 8 : 12;
-      // weapons: a two-hander, or a one-hander with the best off hand for it
       const rest = { ...g, mainHand: null, offHand: null };
       const two = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv === 17), W, n, true), role);
       let one = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role);
@@ -639,9 +581,6 @@
     return { g, role, alts };
   }
 
-  // Up to n items per slot, the chosen one first, each with what it adds there as a share of what the chosen one adds
-  // (by the role's number; by survival where that doesn't move, like armor on a caster), the rest of the gear as it is.
-  // Main-hand options keep the chosen kind (two-hander or not); off-hand options fit the chosen main hand.
   function rankAlternatives(g, role, lists, offFor, W, n) {
     const out = {};
     for (const s of [...BIS_SLOTS, "mainHand", "offHand"]) {
@@ -679,8 +618,6 @@
     app.changed();
   }
 
-  // The choice of what the character is for (Equip BiS and the Stats tab share it): Auto follows the Priority tab's Role
-  // and Tank settings. then: what to do after a change.
   function roleSelect(label, then) {
     const tok = state.cls.token;
     const sel = el("select");
@@ -706,7 +643,7 @@
     btn.addEventListener("click", () => {
       btn.disabled = true;
       btn.textContent = "Working…";
-      setTimeout(() => { // let the button repaint first
+      setTimeout(() => {
         try { equipBis(); } catch (e) { console.error(e); app.toast("Couldn't work out the BiS gear (see the browser console)."); render(); }
       }, 30);
     });
@@ -722,7 +659,7 @@
       app.changed();
     });
     box.append(btn, lab, clear);
-    if (tok === "DRUID" && $("mcpBox")) { // the Manual Crowd Pummeler check sits under the sheet
+    if (tok === "DRUID" && $("mcpBox")) {
       const go = el("button", "btn", "Manual Crowd Pummeler check ↓");
       go.type = "button";
       go.title = "When does another weapon beat the MCP? With your gear now and level by level.";
@@ -744,17 +681,13 @@
     }
   }
 
-  // what the MCP check (mcp.js) and the Stats tab (statstab.js) borrow from Equip BiS
   app.gearKit = { items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
     withFightOf, equipped, bisRole, roleSelect,
-    // put these weapons on (the MCP check's "Wear" buttons)
     wear(mh, oh) {
       gear.mainHand = mh.id;
       if (oh) gear.offHand = oh.id; else delete gear.offHand;
       app.changed();
     } };
-
-  // ------------------------------------------------------------ character sheet
 
   app.worn = equipped;
 
@@ -783,7 +716,6 @@
       for (const [label, value, hint] of rows) {
         if (value == null) continue;
         const dt = el("dt", null, label);
-        // whole numbers, like the game (averaged racials such as Blood Fury leave fractions)
         const dd = el("dd", null, String(typeof value === "number" ? Math.round(value) : value));
         if (hint) dd.title = hint;
         dl.append(dt, dd);
@@ -858,7 +790,6 @@
       box.append(s);
     }
 
-    // set bonuses and item effects (shown as text; their numbers aren't added to the sheet yet)
     const sets = {};
     for (const w of worn) if (w.item.set) sets[w.item.set] = (sets[w.item.set] || 0) + 1;
     const effects = worn.flatMap((w) => (w.item.effects || []).filter((e) => e.text).map((e) => ({ ...e, from: w.item.name })));
@@ -886,8 +817,6 @@
     }
   }
 
-  // ------------------------------------------------------------ tabs and wiring
-
   function setView(v, push) {
     view = v;
     $("talentsView").hidden = v !== "talents";
@@ -903,7 +832,7 @@
     $("tabAbilities").setAttribute("aria-selected", v === "abilities");
     $("tabBuilds").setAttribute("aria-selected", v === "builds");
     $("tooltip").hidden = true;
-    if (v !== "talents" && v !== "builds") loadItems(render); // the stats, priority and abilities tabs need your gear too
+    if (v !== "talents" && v !== "builds") loadItems(render);
     if (app.renderStats) app.renderStats();
     if (app.renderPriority) app.renderPriority();
     if (app.renderAbilities) app.renderAbilities();
@@ -935,7 +864,7 @@
     $("picker").close();
     app.changed();
   });
-  $("picker").addEventListener("click", (e) => { if (e.target === $("picker")) $("picker").close(); }); // click outside
+  $("picker").addEventListener("click", (e) => { if (e.target === $("picker")) $("picker").close(); });
   $("picker").addEventListener("close", () => { $("tooltip").hidden = true; });
 
   app.hooks.push(render);

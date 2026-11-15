@@ -1,11 +1,3 @@
-// The guild calendar. Every time here is US Central (the guild's home time); the site converts it for each visitor.
-//
-// One-off event:   { title, date: "2026-11-06", time: "20:00", hours: 3, pillar, where, notes }
-// All-day event:   { title, date: "2026-11-04", pillar, notes }            (no time)
-// Weekly event:    { title, weekly: "Tue", time: "20:00", hours: 3, from: "2026-11-10", until: "", pillar, where, notes }
-//
-// pillar: "vanguard" (raid), "outriders" (PvP), "hearth" (social), or "server" (game-wide news)
-// link:   optional web page for the event (shows "Read more" and makes it clickable on the calendar)
 window.KG_EVENTS = [
   {
     title: "WoW: Forever name reservation opens",
@@ -17,7 +9,7 @@ window.KG_EVENTS = [
   {
     title: "WoW: Forever servers go live",
     date: "2026-11-04",
-    time: "17:00",   // 3pm Pacific
+    time: "17:00",
     pillar: "server",
     notes: "The Guard musters in Durotar.",
     link: "https://worldofwarcraft.blizzard.com/en-us/forever",

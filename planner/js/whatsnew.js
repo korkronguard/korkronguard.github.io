@@ -1,7 +1,3 @@
-// Kor'kron Planner: the What's New page (whats-new.html). Lists what each WoW: Forever update added, changed or removed
-// (data/changes.js, written by tools/game_changes.py from the game's own files), with a search, filters, a before/now
-// view of each change, and a link that keeps the filters. This file runs the page and has the Items view;
-// whatsnew-views.js has the Abilities & Talents and Blizzard's Posts views.
 (function () {
   "use strict";
 
@@ -13,21 +9,17 @@
   const DATA = KP.changes || { updates: [], categories: {} };
   const CLASSES = KP.classes.classes;
 
-  // categories in the order players look for them: gear, then what you use and craft, then the rest
   const CATEGORY_ORDER = [4, 2, 0, 9, 7, 1, 11, 6, 5, 15, 12, 13];
   const PRIMARY = ["strength", "agility", "stamina", "intellect", "spirit"];
-  const FISHING_POLE = 20; // any class can use one
-  const ROWS_SHOWN = 40;   // per category, until "Show all"
+  const FISHING_POLE = 20;
+  const ROWS_SHOWN = 40;
 
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const dps = (w) => ((w.min + w.max) / 2 / w.speed).toFixed(1);
 
-  // ------------------------------------------------------------ reading a card
-
   const category = (c) => DATA.categories[c.class] || { name: "Other", subs: {} };
   const typeName = (c) => category(c).subs[c.subclass] || "";
 
-  // "Plate Chest", "Two-Hand Axe", "Potions": what kind of item it is, the way the game's tooltip and auction house say it
   function typeLine(c) {
     const slot = INV_NAMES[c.inv] || "";
     if (c.class === 2) return `${slot} ${WEAPON_NAMES[c.subclass] || typeName(c)}`.trim();
@@ -41,16 +33,13 @@
 
   const binding = (c) => (c.bop ? "Binds when picked up" : c.boe ? "Binds when equipped" : "");
   const classList = (c) => CLASSES.filter((cl) => c.classMask & (1 << (cl.id - 1))).map((cl) => cl.name).join(", ");
-  // a stat type the game hasn't named for us yet (/kp datamine names them) comes as "stat129"
   const statName = (k) => STAT_TEXT[k] || k.replace(/^stat(\d+)$/, "unnamed stat $1");
   const statText = (k, v) => `${v > 0 ? "+" : ""}${v} ${statName(k)}`;
   const byPrimary = ([a], [b]) => (PRIMARY.includes(b) - PRIMARY.includes(a));
-  // an effect's cooldown the way the game's tooltip writes it: "1 Min, 30 Sec"
   const cooldown = (sec) => [[Math.floor(sec / 3600), "Hour"], [Math.floor((sec % 3600) / 60), "Min"], [sec % 60, "Sec"]]
     .filter(([n]) => n).map(([n, unit]) => `${n} ${unit}`).join(", ");
   const effectLine = (e) => `${TRIGGER[e.trigger] || "Use"}: ${e.text}${e.cd ? ` (${cooldown(e.cd)} Cooldown)` : ""}`;
 
-  // an item's effects that differ only in cooldown, one line each; null when anything else about them changed
   function cooldownChanges(old, now) {
     const a = old.effects || [], b = now.effects || [];
     if (a.length !== b.length || a.some((e, i) => e.text !== b[i].text || e.trigger !== b[i].trigger)) return null;
@@ -62,7 +51,6 @@
       c.src ? SOURCE_NAMES[c.src] : "", c.faction ? `${c.faction} only` : ""].filter(Boolean).join(" · ");
   }
 
-  // the numbers that matter at a glance: weapon damage, armor, the main stats; else what it does
   function summary(c) {
     const parts = [];
     if (c.weapon) parts.push(`${c.weapon.min}-${c.weapon.max} damage (${dps(c.weapon)} DPS)`);
@@ -75,7 +63,6 @@
     return parts.join(" · ");
   }
 
-  // what changed, one short line each; dir "up" = better for the player, "down" = worse, "" = neither
   function diffs(c) {
     const old = before(c);
     const out = [];
@@ -119,19 +106,16 @@
         case "unique": add(c.unique ? "Now unique" : "No longer unique"); break;
         case "flavor": add("Description changed"); break;
         case "bop": case "boe":
-          if (field === "boe" && fields.includes("bop")) break; // one line for both
+          if (field === "boe" && fields.includes("bop")) break;
           add(`${binding(old) || "No binding"} → ${binding(c) || "no binding"}`);
           break;
-        default: // slot, inv, class, subclass: one line for the kind of item
+        default:
           if (["slot", "inv", "class", "subclass"].find((k) => fields.includes(k)) === field) add(`${typeLine(old)} → ${typeLine(c)}`);
       }
     }
     return out;
   }
 
-  // ------------------------------------------------------------ filters
-
-  // can this class use it at level 60 (class-only items, weapon skills, armor types)?
   function usableBy(c, cls) {
     if (c.classMask && !(c.classMask & (1 << (cls.id - 1)))) return false;
     if (c.class === 2) return c.subclass === FISHING_POLE || (WEAPONS[cls.token] || []).includes(c.subclass);
@@ -151,8 +135,6 @@
     return h;
   }
 
-  // f: { u (update id or "all"), k (kind or "all"), q (search), c (category), t (type), s (slot name), ql (qualities),
-  // lo, hi (required level), cls (class token), f (faction) }; "" or [] = not filtered
   function passes(e, f) {
     const c = e.card;
     if (f.u !== "all" && e.u.id !== f.u) return false;
@@ -181,21 +163,17 @@
   };
 
   KP.whatsNew = { passes, diffs, before, summary, typeLine, usableBy };
-  if (!window.document) return; // loaded by the tests, without a page
-
-  // ------------------------------------------------------------ the page
+  if (!window.document) return;
 
   const ENTRIES = DATA.updates.flatMap((u) => KINDS.flatMap(([kind]) => (u[kind] || []).map((card) => ({ u, kind, card }))));
   const inUpdate = (entries, u) => entries.filter((e) => e.u.id === u);
   const newestId = DATA.updates.length ? DATA.updates[0].id : "all";
-  // the page opens on what the newest update changed: its items, or the classes when that's all it touched
   const FIRST_VIEW = !inUpdate(ENTRIES, newestId).length && inUpdate(SPELLS, newestId).length ? "spells" : "items";
   const BLANK = { k: "all", q: "", c: "", t: "", s: "", ql: [], lo: "", hi: "", cls: "", f: "", st: "", pk: "all", sort: "ilvl" };
   let f = { v: FIRST_VIEW, u: newestId, ...BLANK };
-  const open = new Set();         // rows showing their details
-  const allShown = new Set();     // groups showing every row
+  const open = new Set();
+  const allShown = new Set();
 
-  // ---- the address keeps the filters, so a link shows the same list
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     const num = (k) => { const n = parseInt(p.get(k), 10); return n >= 1 && n <= 60 ? n : ""; };
@@ -230,7 +208,6 @@
     render();
   }
 
-  // ---- updates (left)
   function counts(list) {
     const n = { added: 0, changed: 0, removed: 0 };
     for (const e of list) n[e.kind]++;
@@ -269,7 +246,6 @@
     if (DATA.updates.length > 1) button("all", "All updates", `${DATA.updates.length} updates`, counts(entries));
   }
 
-  // ---- the three views (top), with how much each has for the chosen update
   function renderViews() {
     const box = $("views");
     box.textContent = "";
@@ -285,8 +261,6 @@
     }
   }
 
-  // ---- filters (top)
-  // [value, "name (how many)"] for each value of key() among the list's items
   function tally(list, key, label) {
     const n = new Map();
     for (const e of list) {
@@ -299,7 +273,6 @@
     return [...n].map(([k, t]) => [String(k), `${t.label} (${t.count})`]);
   }
 
-  // the New / Changed / Removed buttons, counting these entries
   function renderKinds(entries) {
     const kinds = $("kinds");
     kinds.textContent = "";
@@ -327,7 +300,6 @@
     fillSelect($("type"), "All types", tally(forTypes, (c) => (typeName(c) ? c.subclass : ""), typeName)
       .sort((a, b) => a[1].localeCompare(b[1])), f.t, chosen.subs[f.t]);
 
-    // slots only for gear
     const forSlots = ENTRIES.filter((e) => passes(e, { ...f, s: "" }));
     const slots = tally(forSlots, (c) => INV_NAMES[c.inv] || "", (c) => INV_NAMES[c.inv]);
     $("slotField").hidden = !f.s && (slots.length < 2 || !["", "2", "4"].includes(f.c));
@@ -355,7 +327,6 @@
     return i < 0 ? CATEGORY_ORDER.length + cls : i;
   };
 
-  // ---- the list
   const icon = (e) => spriteIcon(e.u, e.card.icon, "wn-icon q-border-" + QUALITY[e.card.quality]);
 
   function tooltip(c) {
@@ -459,8 +430,6 @@
     return li;
   }
 
-  // an update's class changes above its items, so they aren't only on the other tab: which classes, a way there, and
-  // Blizzard's notes on them
   function classChanges() {
     const n = inUpdate(SPELLS, f.u).length;
     const notes = notesPanel(f);
@@ -539,7 +508,6 @@
     }
   }
 
-  // ---- controls
   let toastTimer;
   function toast(msg) {
     const t = $("toast");
