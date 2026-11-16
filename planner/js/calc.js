@@ -10,9 +10,9 @@
     DRUID: [0, -20], PRIEST: [0, -10], MAGE: [0, -10], WARLOCK: [0, -10] };
   const BASE_RAP = { HUNTER: [2, -10], WARRIOR: [1, -20], ROGUE: [1, -10] };
   const FORMS = {
-    cat: { name: "Cat Form", ap: 12, apPerAgi: 1, speed: 1.0, armorPct: 0, health: 0 },
-    bear: { name: "Bear Form", ap: 30, apPerAgi: 0, speed: 2.5, armorPct: 180, health: 20 },
-    dire: { name: "Dire Bear Form", ap: 120, apPerAgi: 0, speed: 2.5, armorPct: 360, health: 600 },
+    cat: { name: "Cat Form", apPerLevel: 2, apPerAgi: 1, speed: 1.0, armorPct: 0, health: 0 },
+    bear: { name: "Bear Form", apPerLevel: 3, apPerAgi: 0, speed: 2.5, armorPct: 180, health: 20 },
+    dire: { name: "Dire Bear Form", apPerLevel: 3, apPerAgi: 0, speed: 2.5, armorPct: 360, health: 600 },
   };
   const NORMAL_SPEED = { dagger: 1.7, oneHand: 2.4, twoHand: 3.3, ranged: 2.8 };
   const MELEE_MISS = [5, 5.5, 6, 8];
@@ -20,7 +20,7 @@
   const DUAL_WIELD_MISS = 19;
   const SPELL_MISS = [4, 5, 6, 17];
   const GLANCE_CHANCE = [10, 20, 30, 40];
-  const GLANCE_DAMAGE = [0.95, 0.85, 0.75, 0.7];
+  const GLANCE_DAMAGE = [0.95, 0.95, 0.85, 0.65];
   const RACE_BASE = {
     Human: [20, 20, 20, 20, 20], Orc: [23, 17, 22, 17, 23], Dwarf: [22, 16, 23, 19, 19],
     "Night Elf": [17, 25, 19, 20, 20], Undead: [19, 18, 21, 18, 25], Tauren: [25, 15, 22, 15, 22],
@@ -78,7 +78,7 @@
   const COMBO_POINTS = 5;
   const SINGLE_TARGET = [6, 25, 77];
   const LONGER_PER_POINT = { Rupture: 2000 };
-  const EVISCERATE_AP_PER_POINT = 0.03;
+  const FINISHER_AP_PER_POINT = { Eviscerate: 0.03, "Ferocious Bite": 0.0375 };
   const POISON_CHANCE = 20;
   const RANGED_SUBCLASSES = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
 
@@ -323,6 +323,7 @@
         case 47: out.parry += v; break;
         case 49: out.dodge += v; break;
         case 51: out.block += v; break;
+        case 30: if (a.misc === 95) out.defense += v; break;
         case 142: if (a.misc & 1) out.armorPct += v; break;
         case 137:
           for (const [stat, bit] of STAT_BITS) if (a.misc === -1 || a.misc2 & bit) out.statPct[stat] += v;
@@ -430,6 +431,8 @@
       else if (a.aura === 124) add("rangedAttackPower", a.value);
       else if (a.aura === 135) add("healing", a.value);
       else if (a.aura === 85 && a.misc === 0) add("manaRegen", a.value);
+      else if ((a.aura === 674 || a.aura === 22) && a.misc & 1) add("bonusArmor", a.value);
+      else if (a.aura === 274) add("blockValue", a.value);
       else if (a.aura === 13) {
         if ((a.misc & 126) === 126) add("spellDamage", a.value);
         else for (const [bit, key] of Object.entries(SCHOOL_KEYS)) if (a.misc & bit) add(key, a.value);
@@ -486,8 +489,9 @@
     const fromStats = statTalents(ctx, attr);
     const blast = ctx.blastCycle ? stackingSpell(ctx) : null;
     const blastSp = blast ? (blast.pct / 100) * attr.intellect * Math.min(ctx.blastCycle, blast.max) : 0;
-    const formAp = form ? form.ap + attr.agility * form.apPerAgi +
+    const formAp = form ? form.apPerLevel * lvl + attr.agility * form.apPerAgi +
       (talentNumber(ctx, "Predatory Strikes", /by (\d+)% of your level/) * lvl) / 100 : 0;
+    const packCrit = form && learnedTalent(ctx, "Leader of the Pack") ? rankValue("Leader of the Pack", lvl) : 0;
     const shieldItem = (ctx.worn.find((w) => w.slot === "offHand" && w.item.class === 4 && w.item.subclass === 6) || {}).item;
     const shield = !!shieldItem;
     const baseAvoid = BASE_AVOID[cls.token] || {};
@@ -502,7 +506,7 @@
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
       meleeHaste: tal.meleeHaste, rangedHaste: tal.rangedHaste, castHaste: tal.castHaste, damageTaken: tal.damageTaken,
       hit: g("hit") / per("meleeHit") + tal.hit,
-      crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + buffValue(ctx, "Leader of the Pack"),
+      crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + Math.max(packCrit, buffValue(ctx, "Leader of the Pack")),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
       spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit + buffValue(ctx, "Leader of the Pack"),
       estimated, estimate: { ...est, crit: (BASE_CRIT[cls.token] || 0) + attrBase.agility / agiRatio,
@@ -516,7 +520,7 @@
       dodge: g("dodge") / per("dodge") + tal.dodge + (KP.measured.agiPerCrit[cls.token] ? attr.agility / agiRatio : 0),
       parry: g("parry") / per("parry") + tal.parry + (lvl >= (baseAvoid.parryFrom || 1) ? baseAvoid.parry || 0 : 0),
       block: g("block") / per("block") + tal.block + (shield ? baseAvoid.block || 0 : 0),
-      blockValue: g("blockValue") + ((shieldItem && shieldItem.block) || 0),
+      blockValue: shieldItem ? Math.max(0, Math.floor(g("blockValue") + (shieldItem.block || 0) + attr.strength / 20 - 1)) : g("blockValue"),
       health: whole((rules.baseHealth[cls.token][lvl - 1] + healthFromStamina + g("health") +
         (form ? form.health : 0)) * (1 + tal.healthPct / 100)),
       mana: cls.power === 0 ? whole((rules.baseMana[cls.token][lvl - 1] + manaFromIntellect + g("mana")) * (1 + tal.powerPct / 100)) : 0,
@@ -552,7 +556,7 @@
   }
 
   function damagePct(S, schoolMask) {
-    return sum(S.tal.dmgPct.filter((d) => d.school & schoolMask).map((d) => d.value));
+    return (S.tal.dmgPct.filter((d) => d.school & schoolMask).reduce((m, d) => m * (1 + d.value / 100), 1) - 1) * 100;
   }
   function rangedPct(S, item) {
     return item ? sum(S.tal.rangedPct.filter((d) => d.mask & (1 << item.subclass)).map((d) => d.value)) : 0;
@@ -862,8 +866,8 @@
       spentOn.push("below 20% health, every rage point on Execute");
     }
     const note = `Rage from ${from.join(", ")}. Spent on ${spentOn.join(", ") || "nothing yet"}.` +
-      (use("Shield Slam") ? " Shield Slam counts twice your Block Value: what gear adds and the shield's own where it has " +
-        "been read in game, not Strength's part (the addon reads the game's)." : "") + buffNote(ctx);
+      (use("Shield Slam") ? " Shield Slam counts twice your Block Value: the shield's own where it has been read in game, what " +
+        "gear adds and 1 for each 20 Strength, less 1." : "") + buffNote(ctx);
     const baseHealth = rules.baseHealth.WARRIOR[L - 1];
     return { dps, parts: parts.filter((p) => p.dps > 0.05), note, pullRage, flatThreat, rageIncome,
       healthSpent: (reckless ? baseHealth * RECKLESS_SWINGS_HEALTH * cooldownUses(ctx, RECKLESS_SWINGS_CD * 1000) : 0) +
@@ -2074,8 +2078,8 @@
     return { hits, mult: hits };
   }
 
-  const UNSHOWN_AP = { "Thunder Clap": 0.07 };
-  const UNSHOWN_AP_PER_TICK = { Rend: 0.02 };
+  const UNSHOWN_AP = { "Thunder Clap": 0.07, Rake: 0.065 };
+  const UNSHOWN_AP_PER_TICK = { Rend: 0.02, Rake: 0.065 };
   const BLOCK_VALUE_SHARE = { "Shield Slam": 2 };
 
   function effectDamage(effects, src, S, ctx, weaponSlot, mods) {
@@ -2125,7 +2129,7 @@
         case 2: {
           const bonus = (physical ? 0 : e.coef * spellPower * coefMult) + (e.apCoef || 0) * ap + (UNSHOWN_AP[src.familyName] || 0) * ap +
             (BLOCK_VALUE_SHARE[src.familyName] || 0) * S.blockValue +
-            (src.familyName === "Eviscerate" ? ap * EVISCERATE_AP_PER_POINT * COMBO_POINTS : 0) + (e.apCoef ? 0 : textBonus);
+            (FINISHER_AP_PER_POINT[src.familyName] || 0) * ap * COMBO_POINTS + (e.apCoef ? 0 : textBonus);
           textBonus = 0;
           dmin += (v * (1 - spread) + perCombo + bonus) * m;
           dmax += (v * (1 + spread) + perCombo + bonus) * m;
@@ -2176,7 +2180,8 @@
   function revengeStanceBack(ab, rank, S, mods) {
     if (ab.name !== "Revenge" || !rank.textShares) return 0;
     const stance = sum(S.tal.dmgPct.filter((d) => d.name === "Defensive Stance").map((d) => d.value));
-    return (-stance / 100) * rank.textShares.AP * S.ap * (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100);
+    const others = (1 + damagePct(S, rank.school || 1) / 100) / (1 + stance / 100);
+    return (-stance / 100) * rank.textShares.AP * S.ap * (1 + mods.pct(0) / 100) * (1 + mods.pct(8) / 100) * others;
   }
 
   const talentOpensAt = (t) => 10 + 5 * t.row;
@@ -2409,7 +2414,8 @@
   const MOB_SWING = 2;
   const HEALTH_FORMULA = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
   const MOB_HEALTH = [[24, 863], [25, 954], [26, 1024], [27, 1092], [28, 1164], [29, 1236], [30, 1366], [31, 1439], [32, 1511],
-    [33, 1587], [34, 1663], [36, 1909], [37, 1998], [38, 2086], [39, 2182], [40, 2278], [41, 2473], [42, 2575], [43, 2677]];
+    [33, 1587], [34, 1663], [36, 1909], [37, 1998], [38, 2086], [39, 2182], [40, 2278], [41, 2473], [42, 2575], [43, 2677],
+    [44, 2780], [45, 2882], [46, 2994]];
   const ELITE_HEALTH = [[16, 1281], [17, 1419], [23, 2361], [24, 2538], [25, 2727], [26, 2925], [27, 3120], [28, 3326], [29, 3531],
     [30, 3726], [31, 3924], [32, 4122], [33, 4328], [34, 4536], [35, 4758], [36, 4980], [37, 5211], [38, 5441], [39, 5691],
     [40, 5943], [41, 6183], [42, 6438]];
@@ -2424,7 +2430,7 @@
   const mobHealth = (L) => healthFrom(MOB_HEALTH, L);
   const eliteHealth = (L) => healthFrom(ELITE_HEALTH, L);
   const MOB_ARMOR = [[3, 46], [7, 245], [8, 322], [9, 412], [10, 518], [11, 545], [24, 1002], [35, 1387], [36, 1494], [37, 1607], [38, 1724],
-    [39, 1849], [40, 1980], [41, 2117], [42, 2262], [60, 3566], [63, 3731]];
+    [39, 1849], [40, 1980], [41, 2117], [42, 2262], [43, 2414], [44, 2574], [45, 2742], [46, 2798], [60, 3566], [63, 3731]];
   function mobArmor(L) {
     if (L <= MOB_ARMOR[0][0]) return (MOB_ARMOR[0][1] * L) / MOB_ARMOR[0][0];
     const i = MOB_ARMOR.findIndex(([level]) => level >= L);
@@ -2466,7 +2472,7 @@
   const simRules = () => ({ meleeMiss: MELEE_MISS, meleeParry: MELEE_PARRY, dualWieldMiss: DUAL_WIELD_MISS, spellMiss: SPELL_MISS, glanceChance: GLANCE_CHANCE, glanceDamage: GLANCE_DAMAGE,
     baseMiss: BASE_MISS, mobSwing: MOB_SWING, revengeWindow: REVENGE_WINDOW, ragePerSwingSec: RAGE_PER_SWING_SEC,
     ragePerSwingSec2H: RAGE_PER_SWING_SEC_2H, offhandRage: OFFHAND_RAGE, blockValueShare: BLOCK_VALUE_SHARE,
-    comboPoints: COMBO_POINTS, eviscerateApPerPoint: EVISCERATE_AP_PER_POINT, longerPerPoint: LONGER_PER_POINT, poisonChance: POISON_CHANCE,
+    comboPoints: COMBO_POINTS, eviscerateApPerPoint: FINISHER_AP_PER_POINT.Eviscerate, longerPerPoint: LONGER_PER_POINT, poisonChance: POISON_CHANCE,
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
     mobHealth: MOB_HEALTH, eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
@@ -2865,7 +2871,9 @@
           FROM.checked("combat logs: 21.5% of 586 white swings by four dual wielders missed, 4.0% of 6,701 by players with one " +
             "weapon; that hit takes it off wasn't seen, nobody had the hit")],
         [`${caps.spell}%`, `spells miss ${SPELL_MISS[3]}% of the time against it, and 1% always misses`, FROM.rule],
-        [glance, "glancing blows: white hits that land for less; abilities never glance", FROM.rule],
+        [glance, "glancing blows: white hits that land for less (5% less at your level and one up, 15% two up); abilities never glance",
+          FROM.checked("the owner's combat logs: glancing hits landed for 95% of a plain hit at his level and one up (63 hits), " +
+            "89% two up (42) and 68% three up (21)")],
         [lowerCrit, "about 1% less crit per level the boss is above you", FROM.rule],
       ] });
     return out;
