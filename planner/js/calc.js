@@ -375,11 +375,19 @@
     }
   }
 
+  const DRAIN = /drain Health from the target, up to (\d+)% of your maximum Health/;
   function racialEffects(ctx, out) {
     const race = ((KP.classes && KP.classes.races) || []).find((r) => r.name === ctx.race);
     const r1 = (v) => Math.round(v * 100) / 100;
     for (const rc of (race && race.racials) || []) {
       if (rc.classMask && !(rc.classMask & (1 << (ctx.cls.id - 1)))) continue;
+      const drain = rc.proc && DRAIN.exec(rc.desc || "");
+      if (drain) {
+        out.drain = { name: rc.name, chance: rc.proc.chance / 100, cdMs: rc.proc.cdMs, pct: +drain[1] / 100 };
+        out.racials.push({ name: rc.name, desc: rc.desc, text: `${rc.proc.chance}% of your hits drain ${drain[1]}% of your maximum health ` +
+          `from the target, at most once every ${rc.proc.cdMs / 1000} sec: counted in your damage` });
+        continue;
+      }
       const share = rc.passive ? 1 : rc.cdMs > 0 && rc.durMs > 0 ? cooldownShare(ctx, rc.durMs, rc.cdMs) : 0;
       const parts = [];
       for (const a of rc.auras || []) {
@@ -1110,13 +1118,43 @@
 
   function tappedRotation(ctx, S, abilities, wandDps) {
     const tap = lifeTapMana(ctx, S);
-    let best = casterRotationWith(ctx, S, abilities, 0, 0, wandDps);
+    let best = withSpiritBetweenCasts(ctx, S, abilities, 0, 0, wandDps);
     if (!best || !tap) return best;
     for (let share = 0.02; share <= 0.4; share += 0.02) {
-      const r = casterRotationWith(ctx, S, abilities, share, tap.mana, wandDps);
+      const r = withSpiritBetweenCasts(ctx, S, abilities, share, tap.mana, wandDps);
       if (r && r.dps > best.dps + 0.01) best = { ...r, tapHealth: (share * tap.health) / 1.5 };
     }
     return best;
+  }
+
+  const FIVE_SEC_RULE = 5;
+  function withSpiritBetweenCasts(ctx, S, abilities, tapShare, tapMana, wandDps) {
+    const full = spiritRegenOf(S.attr.spirit) * (1 - keepWhileCasting(ctx) / 100);
+    const at = (x) => casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps, x);
+    const first = at(0);
+    if (!first || !(full > 0) || first.inRule >= 1) return first;
+    const gap = (r, x) => full * (1 - r.inRule) - x;
+    let lo = { x: 0, r: first, g: gap(first, 0) };
+    const top = at(full);
+    let hi = { x: full, r: top, g: gap(top, full) };
+    if (hi.g >= 0) return top;
+    let side = 0;
+    for (let i = 0; i < 40 && hi.x - lo.x > 1e-4; i++) {
+      const x = (lo.x * hi.g - hi.x * lo.g) / (hi.g - lo.g);
+      const r = at(x);
+      const g = gap(r, x);
+      if (Math.abs(g) < 1e-4) return r;
+      if (g > 0) {
+        lo = { x, r, g };
+        if (side === 1) hi.g /= 2;
+        side = 1;
+      } else {
+        hi = { x, r, g };
+        if (side === -1) lo.g /= 2;
+        side = -1;
+      }
+    }
+    return lo.r;
   }
 
   const TICKS_FASTER = /your ([^.]+?) effects on the target deal their periodic damage (\d+)% faster/;
@@ -1157,7 +1195,7 @@
   const fillerShares = (pick, free) =>
     [[pick.A, free * pick.f], ...(pick.A !== pick.B && !pick.starved ? [[pick.B, free * (1 - pick.f)]] : [])];
 
-  function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0) {
+  function casterRotationWith(ctx, S, abilities, tapShare, tapMana, wandDps = 0, spiritMana = 0) {
     const stack = ctx.blastCycle != null && stackingSpell(ctx);
     const usable = oneOfAKind(ctx, abilities.filter((a) => !a.locked && !a.aoe && !a.cc && !a.heal && a.expected > 0 && a.kind === "magic" &&
       !(stack && a.name === stack.name)));
@@ -1184,7 +1222,7 @@
     const fastest = (name) => Math.max(0, ...plainFillers.filter((f) => f.faster && f.faster.spells.includes(name)).map((f) => f.faster.share));
     const drainGain = (name) => (drain && drain.dots.includes(name) ? Math.max(0, ...plainFillers.filter(drained).map((f) => f.dps * drain.per)) : 0);
     const budget = manaBudget(ctx, S, keepWhileCasting);
-    let mana = budget.perSec + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0;
+    let mana = budget.perSec + spiritMana + (tapShare * tapMana) / 1.5, busy = budget.busy + tapShare, dps = 0, inRule = 0;
     const parts = [], kept = [];
     let fillers = fillersWith(kept), best = fillers[0];
     const blast = S.blast && S.blast.k > 0 && abilities.find((a) => a.name === S.blast.name && !a.locked);
@@ -1200,6 +1238,7 @@
       }
       const d = dmg / sec, mps = cost / sec;
       busy += (k * castTime(blast)) / sec;
+      inRule += (k * castTime(blast) + FIVE_SEC_RULE) / sec;
       mana -= mps;
       dps += d;
       parts.push({ name: `${blast.name} (${k} per ${sec} sec)`, dps: d, spell: blast.name, kind: "keep", blasts: k, mps });
@@ -1223,6 +1262,7 @@
       fillers = next;
       best = next[0];
       busy += d.time;
+      if (d.mps > 0) inRule += (castTime(d.a) + FIVE_SEC_RULE) / d.every;
       mana -= d.mps;
       dps += d.dps;
       parts.push({ name: `${d.a.name} (kept up)`, dps: d.dps, spell: d.a.name, kind: "keep" });
@@ -1250,7 +1290,7 @@
       if (rate > 0) cds.push({ a: instant, rate, per: instant.expected, time: 1.5, mps: manaOf(instant) * rate, proc });
     }
     const placeCooldowns = (worth) => {
-      let b = busy, m = mana, d = 0;
+      let b = busy, m = mana, d = 0, rule = 0;
       const placed = [], used = new Set();
       for (const x of [...cds].sort((x, y) => forced(y.a) - forced(x.a) || worth(y) - worth(x))) {
         if (used.has(x.a) || b + x.rate * x.time > 0.95) continue;
@@ -1260,6 +1300,7 @@
         const withIt = x.per * x.rate * f + fillerPick(fillers, best, m - x.mps * f, 1 - b - x.rate * x.time * f).d * (1 - b - x.rate * x.time * f);
         if (!forced(x.a) && withIt <= without) continue;
         b += x.rate * x.time * f;
+        if (x.mps > 0) rule += x.rate * f * (x.time + FIVE_SEC_RULE);
         m -= x.mps * f;
         d += x.per * x.rate * f;
         used.add(x.a);
@@ -1268,20 +1309,27 @@
           spell: x.a.name, kind: x.proc ? "proc" : x.kept ? "keep" : "cooldown", execute: x.execute, ...(x.proc ? { perSec: x.rate * f } : {}) });
       }
       const rest = fillerPick(fillers, best, m, 1 - b);
-      return { b, m, d, placed, total: d + rest.d * (1 - b) + (rest.starved ? wandDps * (1 - b) * (1 - rest.f) : 0) };
+      return { b, m, d, rule, placed, total: d + rest.d * (1 - b) + (rest.starved ? wandDps * (1 - b) * (1 - rest.f) : 0) };
     };
     const plan = [(x) => x.per / x.time, (x) => (x.per * x.rate) / (x.mps || 1e-9)].map(placeCooldowns)
       .reduce((p, q) => (q.total > p.total + 0.01 ? q : p));
     busy = plan.b;
     mana = plan.m;
     dps += plan.d;
+    inRule += plan.rule;
     parts.push(...plan.placed);
     const free = 1 - busy;
     let note = "Keeps damage-over-time spells up, uses cooldown spells when they're worth it, and casts the best single-target spell in between";
     const pick = fillerPick(fillers, best, mana, free);
     const fillerMana = free * (pick.starved ? pick.A.mps * pick.f : pick.f * pick.A.mps + (1 - pick.f) * pick.B.mps);
     const manaSpent = Math.max(0, budget.perSec - mana + fillerMana);
+    for (const [f, share] of pick.starved ? [[pick.A, pick.f]] : [[pick.A, pick.f], [pick.B, 1 - pick.f]]) {
+      if (f.mps > 0) inRule += (free * share * (f.time + FIVE_SEC_RULE)) / f.time;
+    }
     if (pick.starved) note += `; your mana only covers ${Math.round(pick.f * 100)}% of the casting time, so the spell with the most damage per mana wins`;
+    if (spiritMana > 0.05) {
+      note += `; ${wandDps ? "while you wand" : "between spells"}, 5 sec after a spell, your Spirit brings back ${Math.round(spiritMana * 10) / 10} mana a second`;
+    }
     note += fillerNotes(pick, kept, drain);
     const instants = parts.find((p) => p.kind === "proc");
     if (instants) {
@@ -1315,7 +1363,7 @@
         moe && "Master of Elements refunds averaged in"].filter(Boolean).map((x) => x + ". ").join("") +
       "Spells with a cooldown are cast when they beat the filler; damage cooldowns (Arcane Power, Death Wish...) are averaged over their cooldown, " +
       `${instants ? "other procs" : "procs"} aren't counted.` + buffNote(ctx);
-    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent };
+    return { dps, parts: parts.filter((p) => p.dps > 0.05), note, manaSpent, inRule: Math.min(1, inRule), spiritMana };
   }
 
   function fillerNotes(pick, kept, drain) {
@@ -2360,8 +2408,23 @@
     const list = (KP.abilities[ctx.cls.token] || []).map((ab) => abilityResult(ab, S, ctx)).filter(Boolean);
     const healing = ["PRIEST", "PALADIN", "DRUID", "SHAMAN"].includes(ctx.cls.token) && !S.form ? healRotation(ctx, S, list) : null;
     const rot = rotation(ctx, S, white, list);
-    if (rot) rot.threat = threatOf(ctx, S, rot);
+    if (rot) {
+      drainOnHits(S, rot);
+      rot.threat = threatOf(ctx, S, rot);
+    }
     return { S, white, abilities: list, rotation: rot, healing };
+  }
+
+  const DRAIN_HIT_SEC = 1.5;
+  function drainOnHits(S, rot) {
+    const d = S.tal.drain;
+    if (!d || !(rot.dps > 0)) return;
+    const every = d.cdMs / 1000 + DRAIN_HIT_SEC * (1 / d.chance - 0.5);
+    const dps = (d.pct * S.health) / every;
+    rot.parts.push({ name: `${d.name} (racial, about every ${Math.round(every)} sec)`, dps, spell: d.name, kind: "racial" });
+    rot.dps += dps;
+    rot.note += ` ${d.name}: ${Math.round(d.pct * S.health)} damage (${d.pct * 100}% of your maximum health) once its ` +
+      `${d.cdMs / 1000} sec are up and a hit (about one every ${DRAIN_HIT_SEC} sec) lands its ${d.chance * 100}% chance.`;
   }
 
   function threatMods(ctx, S) {
@@ -2476,7 +2539,7 @@
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
     mobHealth: MOB_HEALTH, eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
-    tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS });
+    tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS, drainHitSec: DRAIN_HIT_SEC });
   function meleeTaken(S, level, hitMult = 1) {
     const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * level));
     return mobDps(level) * hitMult * (1 - avoidance(S)) * (1 - armorDR) * (1 + (S.damageTaken || 0) / 100);
@@ -2778,7 +2841,8 @@
             ? FROM.checked("the game's own mana regen on the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage, levels 1 to 34, up to 136 Spirit, is exactly this")
             : `${FROM.estimate}: the guild's Priest, Druid, Paladin, Shaman, Hunter and Mage all showed exactly this, but no ${cls.name} yet`],
           ["5 seconds", "after you spend mana, Spirit stops refilling it for 5 seconds (\"the five-second rule\"); mana per 5 " +
-            "seconds from gear keeps going", FROM.rule],
+            "seconds from gear keeps going, and wand shots don't count as spending",
+          FROM.checked("a guild Priest's combat log: 24.4 mana a second while wanding once 5 sec had passed after a spell, 3.4 within")],
         ] });
     }
     if (t === "WARRIOR") {

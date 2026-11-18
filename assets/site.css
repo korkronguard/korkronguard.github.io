@@ -96,7 +96,16 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
   box-shadow: 0 0 0 4px rgba(13, 9, 7, .7), 0 14px 34px rgba(0, 0, 0, .7), 0 0 40px rgba(220, 70, 30, .25);
 }
 .founders figcaption { color: #e9d6b6; font-size: 15px; font-style: italic; margin-top: 14px; text-shadow: 0 2px 6px rgba(0, 0, 0, .8); }
-.founders figcaption span { display: block; font-family: "Cinzel", Georgia, serif; font-style: normal; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.founders figcaption > span { display: block; font-family: "Cinzel", Georgia, serif; font-style: normal; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.assembled { display: flex; gap: 14px; }
+.assembled a { flex: var(--ratio) 1 0; min-width: 0; }
+.assembled img { width: 100%; max-height: none; }
+.muster { font-style: normal; margin: 14px auto 0; max-width: 700px; }
+.muster div { margin-top: 8px; }
+.muster dt { font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--gold); }
+.muster dd { margin: 2px 0 0; }
+.muster dd span { white-space: nowrap; }
+.muster dd span:not(:last-child)::after { content: " ·"; }
 @keyframes nudge { 50% { transform: translateY(5px) rotate(45deg); } }
 
 .charter { max-width: 760px; margin: 0 auto; text-align: center; font-size: 20px; }
@@ -211,6 +220,8 @@ h1, h2, h3, h4 { font-family: "Cinzel", Georgia, serif; font-weight: 700; margin
   .cal-dow { font-size: 9px; letter-spacing: .08em; padding: 6px 2px; }
   .join { padding: 26px 18px; }
   .hide-sm { display: none; }
+  .assembled { flex-direction: column; }
+  .assembled a { flex: none; }
 }
 
 .portrait img, .portrait video { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; display: block; }
