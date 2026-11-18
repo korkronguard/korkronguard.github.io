@@ -2597,7 +2597,7 @@
     return { amount, chance: null };
   }
 
-  const STAT_SECTIONS = { dps: [["v", "damage"], ["e", "survival"]], heal: [["v", "healing"], ["e", "survival"]], tank: [["e", "survival"], ["d", "damage"]] };
+  const STAT_SECTIONS = { dps: [["v", "damage"], ["e", "survival"]], heal: [["v", "healing"], ["d", "damage"], ["e", "survival"]], tank: [["e", "survival"], ["d", "damage"]] };
   const WORTH_SHOWN = 0.0005, WORTH_SHARE = 0.05;
   const ARMOR_CHUNK = { armor: 12, bonusArmor: 12 };
   const STAT_TWIN = { bonusArmor: "armor", spellDamage: "spellPower" };

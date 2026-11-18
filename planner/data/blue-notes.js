@@ -1,5 +1,16 @@
 window.KP = window.KP || {};
 KP.blueNotes = [
+  { post: 30941234, update: "2005fd3870", cls: "DRUID", text: "Every rank of Wild Growth now goes on cooldown when you cast one." },
+  { post: 30941234, update: "2005fd3870", cls: "DRUID", text: "Balance: Genesis now also raises Pounce's bleed. That's the \"Numbers changed\" on Genesis in Abilities & Talents." },
+  { post: 30941234, update: "2005fd3870", cls: "PRIEST", text: "Dark Inspiration no longer stacks when a party has several Shadow Priests." },
+  { post: 30941234, update: "2005fd3870", cls: "ROGUE", text: "Poison ranks can no longer go above their maximum rank." },
+  { post: 30941234, update: "2005fd3870", cls: "ROGUE", text: "Shank no longer removes your combo points from other targets, unless you have Boot Knife." },
+  { post: 30941234, update: "2005fd3870", cls: "SHAMAN", text: "Windfury Totem's extra attacks no longer ignore armor, now have an internal cooldown, and now generate Rage." },
+  { post: 30941234, update: "2005fd3870", cls: "SHAMAN", text: "Mutilate and Execute no longer get a second try at Windfury Totem, and Shield Slam, Shield Bash and Holy Strikes empowered by Shieldworn can't set it off." },
+  { post: 30941234, update: "2005fd3870", cls: "SHAMAN", text: "Enhancement: one Maelstrom Weapon can no longer speed up two casts." },
+  { post: 30941234, update: "2005fd3870", cls: "WARRIOR", text: "Fury: Heroic Strike and Cleave now set off Unbridled Wrath, count toward Reckless Swings and use up Flurry's charges, as auto attacks do." },
+  { post: 30941234, update: "2005fd3870", cls: "WARRIOR", text: "The Revered Champion now offers Legacy of Valor to Warriors who qualify." },
+
   { post: 30899768, update: "d3991c8a35", text: "Stuns now have diminishing returns between players and creatures, both ways: creatures' stuns on you and yours on them." },
   { post: 30899768, update: "d3991c8a35", cls: "DRUID", text: "Restoration: Wild Growth can no longer be cast while moving, and its three ranks share one 6 sec cooldown." },
   { post: 30899768, update: "d3991c8a35", cls: "MAGE", text: "Frost Nova now breaks on damage from procs and from Blizzard." },
