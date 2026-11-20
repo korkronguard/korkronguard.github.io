@@ -1,6 +1,13 @@
 window.KG_CONQUESTS = [
   {
     kind: "dungeon",
+    place: "Excavation Site: Wetlands",
+    date: "2026-11-07",
+    image: "excavation-site-wetlands.jpg",
+    party: ["Sliver Skylance", "Smoking Peacebloom", "Maltstorm Kegbreaker", "Nerrfed Forever", "Nory Evergale"]
+  },
+  {
+    kind: "dungeon",
     place: "Wailing Caverns",
     date: "2026-11-07",
     image: "wailing-caverns.jpg",
