@@ -4,70 +4,70 @@ window.KG_RANKS = [
     "group": "command",
     "pillar": "command",
     "role": "Guild Master",
-    "lore": "Saurfang's exact title. It carries the ultimate authority over the Guard and sets the honorable, low-drama tone for the entire command."
+    "lore": "Saurfang's banner, carried in his name. When the High Overlord speaks, the Guard moves as one."
   },
   {
     "name": "Warmaster",
     "group": "command",
     "pillar": "vanguard",
     "role": "Raid Officers",
-    "lore": "The seasoned combat veterans who dictate battlefield strategy and call the shots."
+    "lore": "The old hands who've seen every wipe there is. They plan the fight and call it, and once the pull starts their word is final. Argue at the fire afterward, not mid-pull."
   },
   {
     "name": "Blood Guard",
     "group": "command",
     "pillar": "outriders",
     "role": "PvP Officers",
-    "lore": "The commanders who organize the Outriders and lead the charge against the Alliance."
+    "lore": "They decide where the Outriders ride, when we hit and when we pull back. If you're out in Alterac or Ashenvale with the Guard, a Blood Guard is calling it."
   },
   {
     "name": "Quartermaster",
     "group": "command",
     "pillar": "hearth",
     "role": "Banking & Crafting Officers",
-    "lore": "Every campaign lives and dies by its supply lines. The Quartermaster ensures the Kor'kron is armed, fed, and supplied before taking the field."
+    "lore": "Nobody wins a war on an empty pack. The Quartermaster keeps the Guard fed, armed and stocked before we ever take the field. Need something from the guild bank? Ask them."
   },
   {
     "name": "Hearth-Caller",
     "group": "command",
     "pillar": "hearth",
     "role": "Social Officers",
-    "lore": "The Hearth-Caller gathers the clan around the fire: the social glue that keeps the guild a brotherhood on off-nights when the armor comes off."
+    "lore": "When the armor comes off, the Hearth-Caller gets everyone around the fire. They're the reason this feels like a clan and not just a roster."
   },
   {
     "name": "Kor'kron Vanguard",
     "group": "line",
     "pillar": "vanguard",
     "role": "Trusted Elite · Veteran Raiders & PvPers",
-    "lore": "The absolute tip of the spear: raiders who have been with us a long while or proven themselves, and our seasoned PvP veterans. Earned, never asked for."
+    "lore": "The ones we'd trust to march first. They've held the line week after week, in Blackrock or out in Alterac. You don't ask for this rank; the Guard gives it to you. PvP vets who earn it still ride with the Outriders."
   },
   {
     "name": "Legionnaire",
     "group": "line",
     "pillar": "vanguard",
     "role": "Core Members · Raiders & PvPers",
-    "lore": "The reliable, heavy-hitting backbone of the Guard, in a raid or on the battlefield. A highly respected combat rank for a proven soldier."
+    "lore": "The backbone of the Guard. Most of the fighting gets done by Legionnaires, and it doesn't matter whether you earned yours in a raid or a battleground."
   },
   {
     "name": "Oathbound",
     "group": "line",
     "pillar": "vanguard",
     "role": "Raid & PvP Recruits",
-    "lore": "Interested in raiding or PvP and not sure yet. Sworn by blood oath, proving their discipline in a raid or on the battlefield before being forged into a Legionnaire."
+    "lore": "You've sworn the oath; now you get to see what it means. Ride with us and learn how we fight, while we take each other's measure."
   },
   {
     "name": "Hearthguard",
     "group": "line",
     "pillar": "hearth",
     "role": "Casuals & Friends",
-    "lore": "The respected defenders of the guild's culture and home. An army is nothing without the people it fights for."
+    "lore": "The Hearthguard keep the home fires burning. An army's nothing without the people it's fighting for, and a guild's nothing without the folks who make it worth logging in."
   },
   {
     "name": "Scout",
     "group": "line",
     "pillar": "hearth",
     "role": "New Arrivals",
-    "lore": "Riding ahead, testing the perimeter, getting the lay of the land before officially joining the clan."
+    "lore": "Scouts ride ahead and get the lay of the land. Take your time, ask questions, see how we do things. Nobody asks for your oath on day one."
   }
 ];
 
