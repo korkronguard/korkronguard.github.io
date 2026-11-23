@@ -4,7 +4,7 @@ window.KG_RANKS = [
     "group": "command",
     "pillar": "command",
     "role": "Guild Master",
-    "lore": "Saurfang's exact title. It carries the ultimate authority over the Vanguard and sets the honorable, low-drama tone for the entire command."
+    "lore": "Saurfang's exact title. It carries the ultimate authority over the Guard and sets the honorable, low-drama tone for the entire command."
   },
   {
     "name": "Warmaster",
@@ -38,22 +38,22 @@ window.KG_RANKS = [
     "name": "Kor'kron Vanguard",
     "group": "line",
     "pillar": "vanguard",
-    "role": "Core Raiders",
-    "lore": "The absolute tip of the spear. Proven to hold the line, execute mechanics, and show up prepared week after week."
+    "role": "Trusted Elite · Veteran Raiders & PvPers",
+    "lore": "The absolute tip of the spear: raiders who have been with us a long while or proven themselves, and our seasoned PvP veterans. Earned, never asked for."
   },
   {
     "name": "Legionnaire",
     "group": "line",
     "pillar": "vanguard",
-    "role": "Raid Team",
-    "lore": "The reliable, heavy-hitting backbone of the Horde's military. A highly respected combat rank for a proven soldier."
+    "role": "Core Members · Raiders & PvPers",
+    "lore": "The reliable, heavy-hitting backbone of the Guard, in a raid or on the battlefield. A highly respected combat rank for a proven soldier."
   },
   {
     "name": "Oathbound",
     "group": "line",
     "pillar": "vanguard",
     "role": "Raid & PvP Recruits",
-    "lore": "Sworn by blood oath, proving their discipline in the heat of battle before being forged into a Legionnaire or an Outrider."
+    "lore": "Interested in raiding or PvP and not sure yet. Sworn by blood oath, proving their discipline in a raid or on the battlefield before being forged into a Legionnaire."
   },
   {
     "name": "Hearthguard",

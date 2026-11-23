@@ -234,6 +234,7 @@
   .path-row span { font-family: "Cinzel", Georgia, serif; font-size: 14px; padding: 3px 10px; border: 1px solid rgba(125, 26, 16, .5); background: rgba(255, 244, 214, .25); }
   .path-row i { font-style: normal; color: var(--blood); }
   .path-row em { font-size: 15px; }
+  .path-note { font-size: 16px; font-style: italic; color: var(--ink-soft); margin: 14px auto 0; max-width: 560px; }
 
   .tenets { list-style: none; padding: 0; margin: 0; counter-reset: tenet; display: grid; gap: 20px; }
   .tenets li { counter-increment: tenet; position: relative; padding-left: 64px; }
