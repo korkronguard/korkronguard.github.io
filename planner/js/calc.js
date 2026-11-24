@@ -424,6 +424,8 @@
   }
 
   const SCHOOL_KEYS = { 2: "holyDamage", 4: "fireDamage", 8: "natureDamage", 16: "frostDamage", 32: "shadowDamage", 64: "arcaneDamage" };
+  const RATING_BITS = { defense: [1], dodge: [2], parry: [3], block: [4], hit: [5, 6, 7], crit: [8, 9, 10], expertise: [23] };
+  const ratingKeys = (misc) => Object.keys(RATING_BITS).filter((k) => RATING_BITS[k].some((bit) => (misc >> bit) & 1));
   function stats(ctx) {
     const cls = ctx.cls, lvl = ctx.level;
     const gear = {};
@@ -441,6 +443,7 @@
       else if (a.aura === 85 && a.misc === 0) add("manaRegen", a.value);
       else if ((a.aura === 674 || a.aura === 22) && a.misc & 1) add("bonusArmor", a.value);
       else if (a.aura === 274) add("blockValue", a.value);
+      else if (a.aura === 189) ratingKeys(a.misc).forEach((k) => { add(k, a.value); });
       else if (a.aura === 13) {
         if ((a.misc & 126) === 126) add("spellDamage", a.value);
         else for (const [bit, key] of Object.entries(SCHOOL_KEYS)) if (a.misc & bit) add(key, a.value);
@@ -514,6 +517,7 @@
         sum(hunterSelfBuffs(ctx).map((b) => b.value)) + buffValue(ctx, "Trueshot Aura") + fromStats.ap) * (1 + tal.rapPct / 100),
       meleeHaste: tal.meleeHaste, rangedHaste: tal.rangedHaste, castHaste: tal.castHaste, damageTaken: tal.damageTaken,
       hit: g("hit") / per("meleeHit") + tal.hit,
+      expertise: g("expertise") / per("expertise"),
       crit: critFromStats + g("crit") / per("meleeCrit") + tal.crit + Math.max(packCrit, buffValue(ctx, "Leader of the Pack")),
       spellHit: g("hit") / per("spellHit") + tal.spellHit,
       spellCrit: spellFromStats + g("crit") / per("spellCrit") + tal.spellCrit + buffValue(ctx, "Leader of the Pack"),
@@ -630,8 +634,8 @@
     }
     const hit = d >= 3 ? Math.max(0, S.hit - 1) : S.hit;
     const melee = kind === "melee";
-    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: melee ? 5 + d * 0.5 : 0,
-      parry: melee && beingHit(ctx) ? MELEE_PARRY[d] : 0 };
+    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: melee ? Math.max(0, 5 + d * 0.5 - S.expertise) : 0,
+      parry: melee && beingHit(ctx) ? Math.max(0, MELEE_PARRY[d] - S.expertise) : 0 };
   }
 
   function hitCaps(ctx) {
@@ -1906,7 +1910,7 @@
   function petDamage(ctx, S) {
     if (learnedTalent(ctx, "Lone Wolf") || !bookRank("HUNTER", "Revive Pet", ctx.level)) return null;
     const d = Math.max(0, Math.min(3, ctx.target.diff));
-    const t = table(ctx, { hit: 0 }, "melee");
+    const t = table(ctx, { hit: 0, expertise: 0 }, "melee");
     const glance = GLANCE_CHANCE[d];
     const crit = Math.max(0, talentNumber(ctx, "Ferocity", /by (\d+)%/) - critSuppression(ctx));
     const hit = 100 - t.miss - t.dodge - t.parry - glance - crit;
@@ -2571,6 +2575,7 @@
       else if (a.aura === 85 && a.misc === 0) add("manaRegen", v);
       else if ((a.aura === 674 || a.aura === 22) && a.misc & 1) add("bonusArmor", v);
       else if (a.aura === 274) add("blockValue", v);
+      else if (a.aura === 189 && ratingKeys(a.misc).length) ratingKeys(a.misc).forEach((k) => { add(k, v); });
       else if (a.aura === 13 && (a.misc & 126) === 126) add("spellDamage", v);
       else if (a.aura === 13 && a.misc & 126) for (const [bit, key] of Object.entries(SCHOOL_KEYS)) { if (a.misc & bit) add(key, v); }
       else if (a.aura === 290) { add("critPct", v); add("spellCritPct", v); }
@@ -2921,11 +2926,14 @@
         numbers: hitsFrom("attack power", FROM.checked("a Warrior's white hits in a combat log: 100 a swing read, 100.4 by this rule")) });
       out.push({ name: "An enemy you fight from the front",
         text: `an enemy that's hitting you (you're alone against it, or you're its tank) parries ${MELEE_PARRY[0]}% of your melee attacks, ` +
-          `a raid boss ${MELEE_PARRY[3]}%. From behind, as a damage dealer in a group, nothing is parried.`,
+          `a raid boss ${MELEE_PARRY[3]}%. From behind, as a damage dealer in a group, nothing is parried. ` +
+          `Each ${rules.ratings.expertise[59]} expertise rating takes 1% off both the enemy's dodge and its parry.`,
         numbers: [
           [`${MELEE_PARRY[0]}%`, "parried by an enemy of your level", FROM.checked("a combat log: 4.7% of a Warrior's 1,376 white swings " +
             "at enemies near his level were parried")],
           [`${MELEE_PARRY[3]}%`, "parried by a raid boss, 3 levels above you", FROM.rule],
+          [`${rules.ratings.expertise[59]} expertise rating = 1%`, "less dodged and less parried, at level 60",
+            FROM.files("the combat rating table; a guild Shaman's character sheet read 15 rating as 1.5%")],
         ] });
     }
     if (t === "HUNTER") {

@@ -529,15 +529,16 @@
     return [...pick];
   }
 
-  const twinOf = (g, slotKey, it) => {
+  const clashes = (g, slotKey, it) => {
     const twin = TWIN[slotKey] && g[TWIN[slotKey]];
-    return !!twin && (twin.id === it.id || twin.name === it.name);
+    if (twin && (twin.id === it.id || twin.name === it.name)) return true;
+    return !!it.limit && Object.entries(g).some(([s, other]) => s !== slotKey && other && other.limit === it.limit);
   };
 
   function bestFor(g, slotKey, cands, role) {
     let best = bisEval({ ...g, [slotKey]: null }, role), pick = null;
     for (const it of cands) {
-      if (twinOf(g, slotKey, it)) continue;
+      if (clashes(g, slotKey, it)) continue;
       const r = bisEval({ ...g, [slotKey]: it }, role);
       if (better(r, best)) { best = r; pick = it; }
     }
@@ -555,7 +556,7 @@
   const bisOk = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
     !whyNot(it, slotKey, mh);
   function bisSearch(role, skip, passes, alternatives, maxIlvl) {
-    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && !(maxIlvl && it.ilvl > maxIlvl) && bisOk(it, slotKey, mh);
+    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && !(maxIlvl && (it.ilvl > maxIlvl || it.raid)) && bisOk(it, slotKey, mh);
     const lists = {};
     for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
     for (const it of items.values()) {
@@ -602,7 +603,7 @@
     if (s === "mainHand" && next.offHand && !KP.calc.wearableTogether(it, next.offHand)) next.offHand = null;
     if (s === "offHand" && !(next.mainHand && next.mainHand.inv !== 17 && bisOk(it, "offHand", next.mainHand) &&
       KP.calc.wearableTogether(next.mainHand, it))) return null;
-    if (TWIN[s] && next[TWIN[s]] && next[TWIN[s]].id === it.id) return null;
+    if (clashes(next, s, it)) return null;
     return next;
   }
 
@@ -651,7 +652,7 @@
       const pool = s === "offHand" ? offFor(g.mainHand)
         : s === "mainHand" ? lists.mainHand.filter((it) => (it.inv === 17) === (pick.inv === 17)) : lists[s];
       const others = shortlist(pool, W, 12, s === "ranged" || s === "mainHand" || s === "offHand")
-        .filter((it) => it.id !== pick.id && !twinOf(g, s, it))
+        .filter((it) => it.id !== pick.id && !clashes(g, s, it))
         .map((it) => ({ id: it.id, pct: Math.round(Math.min(1, share(bisEval({ ...rest, [s]: it }, role))) * 100) }))
         .filter((a) => a.pct > 0)
         .sort((a, b) => b.pct - a.pct);
@@ -708,7 +709,8 @@
     lab.append(el("span", null, "for"), roleSelect("What BiS is best at"));
     const pre = el("label", "pfield");
     pre.title = `Only items of item level ${PRE_RAID_ILVL} and under: dungeons, quests, crafting and reputation, before raid loot. ` +
-      "The game's files don't say where an item drops, so item level stands in for it.";
+      "The game's files don't say where an item drops, so item level stands in for it; Zul'Gurub's and Ahn'Qiraj's reputation " +
+      "rewards and Zul'Gurub's necklaces are left out too.";
     const tick = el("input");
     tick.type = "checkbox";
     tick.checked = bisPreRaid;
