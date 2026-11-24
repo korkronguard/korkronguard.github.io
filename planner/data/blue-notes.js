@@ -1,5 +1,13 @@
 window.KP = window.KP || {};
 KP.blueNotes = [
+  { post: 31002979, update: "cc334fbdf9", cls: "ROGUE", text: "Combat: Blade Flurry now makes Shank hit a second enemy too." },
+  { post: 31002979, update: "cc334fbdf9", cls: "WARLOCK", text: "Demonology: Demonic Aegis's bonus can no longer be kept in Demon Armor or Demon Skin after unlearning the talent; unlearning your talents now removes it." },
+  { post: 30992551, update: "cc334fbdf9", cls: "PALADIN", text: "Retribution: Two-Handed Weapon Specialization now raises all your Holy damage too while you hold a two-handed weapon." },
+  { post: 30992551, update: "cc334fbdf9", text: "Tauren: Cultivation now works more reliably on herbs you can gather, and works on Purple Lotus." },
+  { post: 30961910, update: "cc334fbdf9", cls: "SHAMAN", text: "Flurry no longer loses charges when Windfury Totem's extra attacks land." },
+  { post: 30961910, update: "cc334fbdf9", cls: "PALADIN", text: "Soulforge Armor, the upgraded tank dungeon set, gets Spell Power in place of Strength: Blizzard says Paladin tanks are meant to lean on Spell Power for their damage." },
+  { post: 30961910, update: "cc334fbdf9", text: "Might of Stormwind and Warchief's Blessing now always end when you die, and no longer land on non-players." },
+
   { post: 30941234, update: "2005fd3870", cls: "DRUID", text: "Every rank of Wild Growth now goes on cooldown when you cast one." },
   { post: 30941234, update: "2005fd3870", cls: "DRUID", text: "Balance: Genesis now also raises Pounce's bleed. That's the \"Numbers changed\" on Genesis in Abilities & Talents." },
   { post: 30941234, update: "2005fd3870", cls: "PRIEST", text: "Dark Inspiration no longer stacks when a party has several Shadow Priests." },

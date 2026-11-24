@@ -471,6 +471,8 @@
   const CAN_HEAL = ["PALADIN", "PRIEST", "DRUID", "SHAMAN"], CAN_TANK = ["WARRIOR", "PALADIN", "DRUID"];
   let bisFor = "auto";
   let bisNote = null;
+  const PRE_RAID_ILVL = 63;
+  let bisPreRaid = false;
 
   function autoRole() {
     if (app.prioTank && app.prioTank()) return "tank";
@@ -547,12 +549,13 @@
   const otherClassSet = (it) => setClass(it) && setClass(it) !== state.cls.token;
 
   function computeBis(opts = {}) {
-    return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2, opts.alternatives || 0));
+    const maxIlvl = opts.maxIlvl === undefined ? (bisPreRaid ? PRE_RAID_ILVL : 0) : opts.maxIlvl;
+    return withCtx(opts.ctx || null, () => bisSearch(opts.role || bisRole(), opts.skip, opts.passes || 2, opts.alternatives || 0, maxIlvl));
   }
   const bisOk = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
     !whyNot(it, slotKey, mh);
-  function bisSearch(role, skip, passes, alternatives) {
-    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && bisOk(it, slotKey, mh);
+  function bisSearch(role, skip, passes, alternatives, maxIlvl) {
+    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && !(maxIlvl && it.ilvl > maxIlvl) && bisOk(it, slotKey, mh);
     const lists = {};
     for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
     for (const it of items.values()) {
@@ -563,9 +566,8 @@
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};
-    for (let pass = 0; pass < passes; pass++) withFightOf(g, role, () => {
+    const pass = (n) => withFightOf(g, role, () => {
       const W = bisWeights(g, role, [...keys]);
-      const n = pass ? 8 : 12;
       const rest = { ...g, mainHand: null, offHand: null };
       const two = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv === 17), W, n, true), role);
       let one = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role);
@@ -576,9 +578,64 @@
       if (a && (!b || better(a, b))) { g.mainHand = two; g.offHand = null; } else { g.mainHand = one; g.offHand = off; }
       for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, shortlist(lists[s], W, n, s === "ranged"), role);
     });
+    for (let p = 0; p < passes; p++) pass(p ? 8 : 12);
+    if (withFightOf(g, role, () => completeSets(g, role, setPieces(lists, ok), bisWeights(g, role, [...keys])))) pass(8);
     const alts = alternatives
       ? withFightOf(g, role, () => rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives)) : null;
     return { g, role, alts };
+  }
+
+  const countedSet = (id) => KP.items.sets[id] && KP.items.sets[id].bonuses.some((b) => b.auras && b.auras.length);
+  function setPieces(lists, ok) {
+    const bySet = {};
+    const add = (it, s) => { (bySet[it.set] = bySet[it.set] || []).push({ it, s }); };
+    for (const [s, list] of Object.entries(lists)) for (const it of list) if (it.set && countedSet(it.set)) add(it, s);
+    for (const it of items.values()) {
+      if (it.set && countedSet(it.set) && slotByKey.offHand.inv.includes(it.inv) && ok(it, "offHand", null)) add(it, "offHand");
+    }
+    return bySet;
+  }
+
+  function placed(g, s, it) {
+    const next = { ...g, [s]: it };
+    if (s === "mainHand" && it.inv === 17) next.offHand = null;
+    if (s === "mainHand" && next.offHand && !KP.calc.wearableTogether(it, next.offHand)) next.offHand = null;
+    if (s === "offHand" && !(next.mainHand && next.mainHand.inv !== 17 && bisOk(it, "offHand", next.mainHand) &&
+      KP.calc.wearableTogether(next.mainHand, it))) return null;
+    if (TWIN[s] && next[TWIN[s]] && next[TWIN[s]].id === it.id) return null;
+    return next;
+  }
+
+  const HELD = ["mainHand", "offHand", "ranged"];
+  function completeSets(g, role, bySet, W) {
+    let cur = bisEval(g, role), changed = false;
+    for (const [id, pieces] of Object.entries(bySet)) {
+      const inSet = (gear) => Object.keys(gear).filter((s) => gear[s] && String(gear[s].set) === id);
+      const change = (p) => (HELD.includes(p.s) ? bisEval(p.gear, role).v - cur.v : linear(p.it, W.v) - (g[p.s] ? linear(g[p.s], W.v) : 0));
+      const trials = pieces.filter(({ s }) => !(g[s] && String(g[s].set) === id))
+        .map((p) => ({ ...p, gear: placed(g, p.s, p.it) })).filter((p) => p.gear)
+        .map((p) => ({ ...p, d: change(p) }))
+        .sort((a, b) => b.d - a.d);
+      const bonuses = KP.items.sets[id].bonuses;
+      for (const b of bonuses) {
+        const have = inSet(g).length;
+        if (!(b.auras && b.auras.length) || have >= b.pieces) continue;
+        const auras = bonuses.filter((o) => o.pieces > have && o.pieces <= b.pieces).flatMap((o) => o.auras || []);
+        const gain = bisEval({ ...g, probe: { name: "", effects: [{ auras }] } }, role).v - cur.v;
+        let next = { ...g }, cost = 0;
+        const taken = new Set(inSet(g).map((s) => g[s].id));
+        for (const { it, s, d } of trials) {
+          if (inSet(next).length >= b.pieces) break;
+          if (taken.has(it.id) || (next[s] && String(next[s].set) === id)) continue;
+          const tried = placed(next, s, it);
+          if (tried) { next = tried; taken.add(it.id); cost -= d; }
+        }
+        if (inSet(next).length < b.pieces || gain * 1.25 <= cost) continue;
+        const r = bisEval(next, role);
+        if (better(r, cur)) { Object.assign(g, next); cur = r; changed = true; }
+      }
+    }
+    return changed;
   }
 
   function rankAlternatives(g, role, lists, offFor, W, n) {
@@ -614,7 +671,7 @@
     const unit = role === "heal" ? "healing per second" : "damage per second";
     const shown = (r) => (role === "tank" ? null : r.v);
     const buffsOn = Object.values(state.buffs || {}).some(Boolean);
-    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit, buffsOn };
+    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit, buffsOn, preRaid: bisPreRaid };
     app.changed();
   }
 
@@ -649,6 +706,14 @@
     });
     const lab = el("label", "pfield");
     lab.append(el("span", null, "for"), roleSelect("What BiS is best at"));
+    const pre = el("label", "pfield");
+    pre.title = `Only items of item level ${PRE_RAID_ILVL} and under: dungeons, quests, crafting and reputation, before raid loot. ` +
+      "The game's files don't say where an item drops, so item level stands in for it.";
+    const tick = el("input");
+    tick.type = "checkbox";
+    tick.checked = bisPreRaid;
+    tick.addEventListener("change", () => { bisPreRaid = tick.checked; });
+    pre.append(tick, el("span", null, "Pre-raid only"));
     const clear = el("button", "btn", "Empty all slots");
     clear.type = "button";
     clear.disabled = !SLOTS.some((s) => gear[s.key]);
@@ -658,7 +723,7 @@
       bisNote = null;
       app.changed();
     });
-    box.append(btn, lab, clear);
+    box.append(btn, lab, pre, clear);
     if (tok === "DRUID" && $("mcpBox")) {
       const go = el("button", "btn", "Manual Crowd Pummeler check ↓");
       go.type = "button";
@@ -672,7 +737,7 @@
       box.append(el("p", "muted small gear-bis-note",
         `Equipped the best ${b.n} items for ${ROLE_NAMES[b.role].toLowerCase()} (${fmt1(b.ms / 1000)} sec)` +
         (b.after != null ? `: ${fmt1(b.after)} ${b.unit}` + (b.before != null && Math.abs(b.after - b.before) > 0.05 ? ` (was ${fmt1(b.before)})` : "") : "") +
-        (b.buffsOn ? ". Your target, buffs and talents count." : ". Your target and talents count, with no group buffs (just you): " +
+        (b.preRaid ? `, pre-raid (item level ${PRE_RAID_ILVL} and under)` : "") + (b.buffsOn ? ". Your target, buffs and talents count." : ". Your target and talents count, with no group buffs (just you): " +
           "mana weighs more alone, so for raid gear switch the buffs on in the panel first.") + " Dungeon and raid loot with no level requirement counts from 5 levels below its " +
         "item level. Left out: profession items (Engineering…), weapons whose damage isn't confirmed, other classes' tier sets " +
         "and the other faction's gear; " +
@@ -681,7 +746,7 @@
     }
   }
 
-  app.gearKit = { items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
+  app.gearKit = { PRE_RAID_ILVL, items: () => items, slotByKey, whyNot, bisOk, bisEval, bisWeights, shortlist, bestFor, better, computeBis, withCtx,
     withFightOf, equipped, bisRole, roleSelect,
     wear(mh, oh) {
       gear.mainHand = mh.id;

@@ -423,6 +423,7 @@
     }
   }
 
+  const SCHOOL_KEYS = { 2: "holyDamage", 4: "fireDamage", 8: "natureDamage", 16: "frostDamage", 32: "shadowDamage", 64: "arcaneDamage" };
   function stats(ctx) {
     const cls = ctx.cls, lvl = ctx.level;
     const gear = {};
@@ -431,7 +432,6 @@
       for (const [k, v] of Object.entries(w.item.stats || {})) gear[k] = (gear[k] || 0) + v;
       itemArmor += w.item.armor || 0;
     }
-    const SCHOOL_KEYS = { 2: "holyDamage", 4: "fireDamage", 8: "natureDamage", 16: "frostDamage", 32: "shadowDamage", 64: "arcaneDamage" };
     for (const a of gearAuras(ctx)) {
       const add = (k, v) => { gear[k] = (gear[k] || 0) + v; };
       if (a.aura === 29) { if (a.misc === -1) STATS.forEach((k) => { add(k, a.value); }); else if (STATS[a.misc]) add(STATS[a.misc], a.value); }
@@ -2552,9 +2552,43 @@
   }
   const TANK_MIX = { survival: 0.7, damage: 0.3 };
   const tankScore = (survival, dealt) => TANK_MIX.survival * Math.log(survival) + TANK_MIX.damage * Math.log(1 + dealt);
-  const standIn = (key, amount) => (key === "armor" ? { name: "", armor: amount } : { name: "", stats: { [key]: amount } });
+  const AURA_KEYS = {
+    critPct: [52], spellCritPct: [57], hitPct: [54], spellHitPct: [55], dodgePct: [49], parryPct: [47], blockPct: [51],
+    hastePct: [342], meleeHastePct: [319], rangedHastePct: [140], castHastePct: [65], defenseSkill: [30, 95],
+  };
+  const auraOf = (key, value) => ({ aura: AURA_KEYS[key][0], misc: AURA_KEYS[key][1] || 0, misc2: 0, value });
+  function auraParts(auras) {
+    const parts = {}, left = [];
+    const add = (k, v) => { if (v) parts[k] = (parts[k] || 0) + v; };
+    let melee = 0, ranged = 0;
+    for (const a of auras) {
+      const v = a.value;
+      const pseudo = Object.keys(AURA_KEYS).find((k) => AURA_KEYS[k][0] === a.aura && (AURA_KEYS[k][1] == null || AURA_KEYS[k][1] === a.misc));
+      if (a.aura === 29 && (a.misc === -1 || STATS[a.misc])) (a.misc === -1 ? STATS : [STATS[a.misc]]).forEach((k) => { add(k, v); });
+      else if (a.aura === 99) melee += v;
+      else if (a.aura === 124) ranged += v;
+      else if (a.aura === 135) add("healing", v);
+      else if (a.aura === 85 && a.misc === 0) add("manaRegen", v);
+      else if ((a.aura === 674 || a.aura === 22) && a.misc & 1) add("bonusArmor", v);
+      else if (a.aura === 274) add("blockValue", v);
+      else if (a.aura === 13 && (a.misc & 126) === 126) add("spellDamage", v);
+      else if (a.aura === 13 && a.misc & 126) for (const [bit, key] of Object.entries(SCHOOL_KEYS)) { if (a.misc & bit) add(key, v); }
+      else if (a.aura === 290) { add("critPct", v); add("spellCritPct", v); }
+      else if (a.aura === 138) add("meleeHastePct", v);
+      else if (pseudo) add(pseudo, v);
+      else left.push(a);
+    }
+    const both = Math.min(melee, ranged);
+    add("attackPower", both);
+    add("meleeAttackPower", melee - both);
+    add("rangedAttackPower", ranged - both);
+    return { parts, left };
+  }
+  const standIn = (key, amount) => (key === "armor" ? { name: "", armor: amount }
+    : AURA_KEYS[key] ? { name: "", effects: [{ auras: [auraOf(key, amount)] }] } : { name: "", stats: { [key]: amount } });
   function statProbe(key) {
-    const amount = key === "armor" || key === "bonusArmor" ? 300 : key === "health" || key === "mana" ? 200 : 25;
+    const amount = key === "armor" || key === "bonusArmor" ? 300 : key === "health" || key === "mana" ? 200
+      : AURA_KEYS[key] && key !== "defenseSkill" ? 1 : 25;
     return { amount, item: standIn(key, amount) };
   }
   const WEAPON_PROBE_DPS = 5;
@@ -2945,5 +2979,5 @@
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
     STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, rockbiterAp, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
-    statWeights, statScan, statTurns, statList };
+    AURA_KEYS, auraParts, statWeights, statScan, statTurns, statList };
 })();
