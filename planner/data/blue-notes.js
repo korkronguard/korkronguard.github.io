@@ -1,5 +1,16 @@
 window.KP = window.KP || {};
 KP.blueNotes = [
+  { post: 31039019, update: "b20ce50eff", cls: "WARRIOR", text: "Mortal Strike can no longer be used without its talent. It stays in the spellbook of anyone who had it without the point, but won't work." },
+  { post: 31039019, update: "b20ce50eff", cls: "PRIEST", text: "Mind Vision no longer sets off effects." },
+  { post: 31039019, update: "b20ce50eff", cls: "PRIEST", text: "Shadow: Dark Inspiration now gives the right Spirit increase when Mind Flay sets it off." },
+  { post: 31039019, update: "b20ce50eff", cls: "PRIEST", text: "Shadow: Chastise can now be used in Shadowform." },
+  { post: 31039019, update: "b20ce50eff", cls: "WARLOCK", text: "Destruction: Intensity now works on Incinerate." },
+  { post: 31039019, update: "b20ce50eff", cls: "DRUID", text: "The Feralheart 4-piece bonus now gives 4 Energy a second for 5 seconds, as intended." },
+  { post: 31039019, update: "b20ce50eff", text: "A few spells and abilities no longer set off more weapon procs than they should." },
+  { post: 31039019, update: "b20ce50eff", text: "World buffs no longer fall off when you change areas. They still end when you enter a raid." },
+  { post: 31039019, update: "b20ce50eff", text: "Fengus' Ferocity and the Darkmoon Faire buffs were giving twice what they should: both are halved." },
+  { post: 31039019, update: "b20ce50eff", text: "Night Elf: Wisp Form can no longer land on players who are alive." },
+
   { post: 31002979, update: "cc334fbdf9", cls: "ROGUE", text: "Combat: Blade Flurry now makes Shank hit a second enemy too." },
   { post: 31002979, update: "cc334fbdf9", cls: "WARLOCK", text: "Demonology: Demonic Aegis's bonus can no longer be kept in Demon Armor or Demon Skin after unlearning the talent; unlearning your talents now removes it." },
   { post: 30992551, update: "cc334fbdf9", cls: "PALADIN", text: "Retribution: Two-Handed Weapon Specialization now raises all your Holy damage too while you hold a two-handed weapon." },

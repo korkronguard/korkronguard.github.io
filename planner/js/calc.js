@@ -2804,8 +2804,8 @@
     const lastMeasured = agiLevels && agiLevels[agiLevels.length - 1];
     const perCritNumber = agiMeasured
       ? ["the Agility per 1% crit at your level", `measured: ${round(agiMeasured[agiLevels[0]], 1)} at level ${agiLevels[0]}, ` +
-        `${round(agiMeasured[lastMeasured], 1)} at level ${lastMeasured}; above that a straight line to the original game's ` +
-        `${at60} at level 60 (an estimate there)`, FROM.checked(`the owner's Warrior at levels ${agiLevels[0]} to ${lastMeasured}, ` +
+        `${round(agiMeasured[lastMeasured], 1)} at level ${lastMeasured}` + (lastMeasured < 60
+          ? `; above that a straight line to the original game's ${at60} at level 60 (an estimate there)` : ""), FROM.checked(`the owner's Warrior at levels ${agiLevels[0]} to ${lastMeasured}, ` +
           "from its dodge, which weapon skill doesn't change (its crit gives the same; the game's own Agility tooltip at level " +
           "11 credits all of the crit to Agility)")]
       : ["the Agility per 1% crit at your level", `1% per ${at60} Agility at level 60; below 60, ${at60} × your level ÷ 60 ` +
