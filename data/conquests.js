@@ -1,6 +1,14 @@
 window.KG_CONQUESTS = [
   {
     kind: "dungeon",
+    place: "Blackrock Depths",
+    date: "2026-11-24",
+    image: "blackrock-depths.jpg",
+    note: "Nory Evergale took the main throne.",
+    party: ["Arrestable Offense", "Grimscar Greystone", "Nory Evergale", "Sata Skystrider", "Sullen Blightfall"]
+  },
+  {
+    kind: "dungeon",
     place: "Excavation Site: Wetlands",
     date: "2026-11-07",
     image: "excavation-site-wetlands.jpg",
