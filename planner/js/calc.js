@@ -81,6 +81,7 @@
   const FINISHER_AP_PER_POINT = { Eviscerate: 0.03, "Ferocious Bite": 0.0375 };
   const POISON_CHANCE = 20;
   const RANGED_SUBCLASSES = (1 << 2) | (1 << 3) | (1 << 16) | (1 << 18) | (1 << 19);
+  const rangedOnly = (needs) => !!needs && needs.class === 2 && !(needs.subclassMask & ~RANGED_SUBCLASSES);
 
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const overlap = (a, b) => a.some((v, k) => (v & b[k]) !== 0);
@@ -92,7 +93,7 @@
     const list = [];
     const sets = {};
     for (const w of ctx.worn) {
-      for (const e of w.item.effects || []) for (const a of e.auras || []) list.push({ ...a, name: w.item.name });
+      for (const e of w.item.effects || []) for (const a of e.auras || []) list.push({ ...a, name: w.item.name, needs: e.needs });
       for (const e of w.item.effects || []) {
         if (!e.useAuras || !(e.durMs > 0) || !(e.cdMs > 0) || e.charges) continue;
         const share = cooldownShare(ctx, e.durMs, e.cdMs);
@@ -190,6 +191,7 @@
       threatPct: [],
       rangedPct: [],
       offhandHit: 0,
+      rangedHit: 0,
       upkeep: [],
       healCrit: [],
       costSchool: [],
@@ -251,12 +253,12 @@
         return;
       }
       const parts = [];
-      const rangedOnly = t.needs && t.needs.class === 2 && !(t.needs.subclassMask & ~RANGED_SUBCLASSES);
+      const ranged = rangedOnly(t.needs);
       const offHandOnly = t.needs && t.needs.invTypes & (1 << 22);
       for (const e of t.effects[r - 1] || []) {
         if (e.effect !== 6) continue;
         const v = e.value;
-        if (rangedOnly && e.aura === 79) {
+        if (ranged && e.aura === 79) {
           out.rangedPct.push({ mask: t.needs.subclassMask, value: v, name: t.name });
           parts.push(`+${v}% damage with ${t.needs.subclassMask === 1 << 19 ? "your wand" : "your ranged weapon"}`);
           continue;
@@ -318,7 +320,7 @@
         case 52: out.crit += v; break;
         case 290: out.crit += v; out.spellCrit += v; break;
         case 57: out.spellCrit += v; break;
-        case 54: out.hit += v; break;
+        case 54: if (rangedOnly(a.needs)) out.rangedHit += v; else out.hit += v; break;
         case 55: out.spellHit += v; break;
         case 47: out.parry += v; break;
         case 49: out.dodge += v; break;
@@ -542,6 +544,7 @@
       oh: form ? null : worn("offHand") && worn("offHand").item.weapon ? worn("offHand").item : null,
       rg: worn("ranged") && worn("ranged").item.weapon ? worn("ranged").item : null,
       shield,
+      shieldBlock: shield ? shieldBlockOf(ctx) : null,
     };
     for (const b of ctx.useBuffs || []) {
       for (const a of b.auras || []) {
@@ -632,15 +635,14 @@
     if (kind === "magic") {
       return { miss: Math.max(1, SPELL_MISS[d] - S.spellHit), dodge: 0, parry: 0 };
     }
-    const hit = d >= 3 ? Math.max(0, S.hit - 1) : S.hit;
     const melee = kind === "melee";
-    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - hit), dodge: melee ? Math.max(0, 5 + d * 0.5 - S.expertise) : 0,
+    return { miss: Math.max(0, MELEE_MISS[d] + moreMiss - S.hit), dodge: melee ? Math.max(0, 5 + d * 0.5 - S.expertise) : 0,
       parry: melee && beingHit(ctx) ? Math.max(0, MELEE_PARRY[d] - S.expertise) : 0 };
   }
 
   function hitCaps(ctx) {
     const d = Math.max(0, Math.min(3, ctx.target.diff));
-    const melee = MELEE_MISS[d] + (d >= 3 ? 1 : 0);
+    const melee = MELEE_MISS[d];
     return { melee, dualWhite: melee + DUAL_WIELD_MISS, spell: SPELL_MISS[d] - 1 };
   }
 
@@ -769,7 +771,8 @@
     const landed = swings * Math.max(0, 1 - o.miss - o.dodge - o.parry);
     const mobLevel = ctx.level + Math.max(0, ctx.target.diff || 0);
     const hits = ctx.target && ctx.target.mode === "same"
-      ? (RAGE_TAKEN_PER_C * meleeTaken(S, mobLevel, ctx.target.hitMult)) / rageConversion(ctx.level) + RAGE_PER_HIT_TAKEN * landed : 0;
+      ? (RAGE_TAKEN_PER_C * meleeTaken(S, mobLevel, ctx.target.hitMult, mobLevel - ctx.level)) / rageConversion(ctx.level) +
+        RAGE_PER_HIT_TAKEN * landed : 0;
     return { o, swings, perBlock, rage: hits + swings * (o.block * perBlock + (o.dodge + o.parry) * perDodge),
       from: [hits && "the hits you take", perBlock && "Shield Specialization's blocks", perDodge && "Master of Defense's dodges and parries"].filter(Boolean) };
   }
@@ -830,7 +833,7 @@
       spentOn.push(a.name);
     };
     if (t) {
-      const moreBlocks = shieldBlock(ctx, S, t, rage);
+      const moreBlocks = shieldBlock(S, t, rage);
       rage -= moreBlocks.rage;
       if (moreBlocks.perSec) spentOn.push("Shield Block");
       const rv = use("Revenge");
@@ -929,15 +932,20 @@
     for (const c of list) take(c.a, c.perSec, c.dmg, c.flatThreat);
   }
 
-  function shieldBlock(ctx, S, t, rage) {
-    const sb = S.shield && inStance(ctx, "Shield Block") && bookRank("WARRIOR", "Shield Block", ctx.level);
-    const max = +((/only block (\d+) attacks/.exec(bookDesc("WARRIOR", "Shield Block")) || [])[1] || 0);
-    if (!sb || !max || !sb.cdMs) return { perSec: 0, rage: 0 };
-    const cd = sb.cdMs / 1000;
-    const swingsIn = Math.min(sb.durMs / 1000, cd) * t.swings;
-    const blocked = Math.min(max, swingsIn * Math.max(0, 1 - t.o.miss - t.o.dodge - t.o.parry));
+  const shieldBlockCharges = () => +((/only block (\d+) attacks/.exec(bookDesc("WARRIOR", "Shield Block")) || [])[1] || 0);
+  function shieldBlockOf(ctx) {
+    const sb = ctx.cls.token === "WARRIOR" && inStance(ctx, "Shield Block") && bookRank("WARRIOR", "Shield Block", ctx.level);
+    const charges = shieldBlockCharges();
+    return sb && sb.cdMs && charges ? { rank: sb, charges } : null;
+  }
+
+  function shieldBlock(S, t, rage) {
+    if (!S.shieldBlock) return { perSec: 0, rage: 0 };
+    const { rank, charges } = S.shieldBlock, cd = rank.cdMs / 1000;
+    const swingsIn = Math.min(rank.durMs / 1000, cd) * t.swings;
+    const blocked = Math.min(charges, swingsIn * Math.max(0, 1 - t.o.miss - t.o.dodge - t.o.parry));
     const extra = Math.max(0, blocked - swingsIn * t.o.block);
-    const net = (sb.cost / 10 - extra * t.perBlock) / cd;
+    const net = (rank.cost / 10 - extra * t.perBlock) / cd;
     const f = net <= 0 ? 1 : Math.min(1, Math.max(0, rage) / net);
     return { perSec: (f * extra) / cd, rage: f * net };
   }
@@ -2068,7 +2076,8 @@
         (ranged ? 1 + rangedPct(S, item) / 100 : 1);
       const min = (w.min + apBonus) * scale, max = (w.max + apBonus) * scale;
       const avg = (min + max) / 2;
-      const moreMiss = (dual && !ranged ? DUAL_WIELD_MISS : 0) - (label === "Off hand" ? S.tal.offhandHit : 0);
+      const moreMiss = (dual && !ranged ? DUAL_WIELD_MISS : 0) - (label === "Off hand" ? S.tal.offhandHit : 0) -
+        (ranged ? S.tal.rangedHit : 0);
       const t = isWand ? table(ctx, S, "magic") : table(ctx, S, ranged ? "ranged" : "melee", moreMiss);
       const miss = t.miss;
       const glance = !ranged ? GLANCE_CHANCE[d] : 0;
@@ -2311,7 +2320,7 @@
     const isSpell = r.kind === "magic";
     const critChance = Math.max(0, (isSpell ? S.spellCrit : S.crit - critSuppression(ctx)) + mods.flat(7));
     const critMult = 1 + (isSpell ? 0.5 : 1) * (1 + mods.pct(15) / 100);
-    const t = table(ctx, S, r.kind);
+    const t = table(ctx, S, r.kind, r.kind === "ranged" ? -S.tal.rangedHit : 0);
     const miss = Math.max(0, t.miss - mods.flat(16));
     const land = Math.max(0, 100 - miss - t.dodge - t.parry) / 100;
     const avg = (dmin + dmax) / 2;
@@ -2475,10 +2484,27 @@
     const d = Math.max(0, S.defense) * 0.0004;
     return { miss: BASE_MISS + d, dodge: S.dodge / 100 + d, parry: S.parry / 100 + d, block: S.shield ? S.block / 100 + d : 0 };
   }
-  const avoidance = (S) => { const o = swingOutcomes(S); return Math.min(0.6, o.miss + o.dodge + o.parry + o.block); };
+  const avoidance = (S) => { const o = swingOutcomes(S); return Math.min(0.6, o.miss + o.dodge + o.parry); };
+  const CRUSH_CHANCE = 0.15;
+  const CRUSH_DAMAGE = 1.5;
+  const SHIELD_BLOCK_USE = 0.73;
+  function swingShare(S, diff, hit, sbUse) {
+    const o = swingOutcomes(S), landed = 1 - avoidance(S);
+    const keep = Math.max(0, 1 - S.blockValue / hit);
+    const block = Math.min(landed, o.block), crush = diff >= 3 ? Math.min(landed - block, CRUSH_CHANCE) : 0;
+    const passive = landed - block * (1 - keep) + crush * (CRUSH_DAMAGE - 1);
+    const sb = S.shieldBlock;
+    const covered = sb ? Math.min(1, (sb.charges * sbUse) / ((sb.rank.cdMs / 1000 / MOB_SWING) * landed)) : 0;
+    return covered * landed * keep + (1 - covered) * passive;
+  }
 
   const mobDps = (L) => Math.max(Math.min(L - 4, 21), 0.014 * L * L + 0.35 * L);
   const MOB_SWING = 2;
+  const BOSS_SWING = [[32, 2.9], [60, 6.9]];
+  function bossSwing(L) {
+    const [[l0, r0], [l1, r1]] = BOSS_SWING;
+    return (r0 + ((r1 - r0) * Math.min(l1 - l0, Math.max(0, L - l0))) / (l1 - l0)) * mobDps(L) * MOB_SWING;
+  }
   const HEALTH_FORMULA = (L) => (L < 20 ? 0.9 : 1) * L * L + 12 * L;
   const MOB_HEALTH = [[24, 863], [25, 954], [26, 1024], [27, 1092], [28, 1164], [29, 1236], [30, 1366], [31, 1439], [32, 1511],
     [33, 1587], [34, 1663], [36, 1909], [37, 1998], [38, 2086], [39, 2182], [40, 2278], [41, 2473], [42, 2575], [43, 2677],
@@ -2543,19 +2569,28 @@
     rageTakenPerC: RAGE_TAKEN_PER_C, ragePerHitTaken: RAGE_PER_HIT_TAKEN, rageC: RAGE_C, executePhase: EXECUTE_PHASE, recklessCd: RECKLESS_SWINGS_CD,
     normalSpeed: NORMAL_SPEED, unshownAp: UNSHOWN_AP, unshownApPerTick: UNSHOWN_AP_PER_TICK, apDummy: AP_DUMMY, mobArmor: MOB_ARMOR,
     mobHealth: MOB_HEALTH, eliteHealth: ELITE_HEALTH, eliteHit: ELITE_HIT, longFight: FIGHT_SEC, sunderStacks: SUNDER_STACKS, weaponTalents: Object.keys(WEAPON_TALENTS),
-    tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS, drainHitSec: DRAIN_HIT_SEC });
-  function meleeTaken(S, level, hitMult = 1) {
+    tankMix: TANK_MIX, weaponProbe: WEAPON_PROBE_DPS, drainHitSec: DRAIN_HIT_SEC, crushChance: CRUSH_CHANCE, crushDamage: CRUSH_DAMAGE,
+    shieldBlockUse: SHIELD_BLOCK_USE, bossSwing: BOSS_SWING });
+  function meleeTaken(S, level, hitMult = 1, diff = 0) {
     const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * level));
-    return mobDps(level) * hitMult * (1 - avoidance(S)) * (1 - armorDR) * (1 + (S.damageTaken || 0) / 100);
+    const through = mobDps(level) * hitMult * (1 - armorDR);
+    return through * swingShare(S, diff, through * MOB_SWING, 0) * (1 + (S.damageTaken || 0) / 100);
   }
 
   function ehp(R, level) {
-    const S = R.S;
-    const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * (level + 3)));
-    return S.health / ((1 - armorDR) * (1 - avoidance(S))) / (1 + (S.damageTaken || 0) / 100);
+    const S = R.S, boss = level + 3;
+    const armorDR = Math.min(0.75, S.armor / (S.armor + 400 + 85 * boss));
+    const share = swingShare(S, 3, bossSwing(boss) * (1 - armorDR), SHIELD_BLOCK_USE);
+    return S.health / ((1 - armorDR) * share) / (1 + (S.damageTaken || 0) / 100);
   }
   const TANK_MIX = { survival: 0.7, damage: 0.3 };
   const tankScore = (survival, dealt) => TANK_MIX.survival * Math.log(survival) + TANK_MIX.damage * Math.log(1 + dealt);
+  const TANK_FLOORS = { WARRIOR: { hit: 8, expertise: 3 } };
+  const tankFloors = (ctx) => (ctx.level === 60 && ctx.target && ctx.target.mode === "boss" && TANK_FLOORS[ctx.cls.token]) || null;
+  function tankFloorShort(ctx, S) {
+    const f = tankFloors(ctx);
+    return f ? Math.max(0, f.hit - S.hit) + Math.max(0, f.expertise - S.expertise) : 0;
+  }
   const AURA_KEYS = {
     critPct: [52], spellCritPct: [57], hitPct: [54], spellHitPct: [55], dodgePct: [49], parryPct: [47], blockPct: [51],
     hastePct: [342], meleeHastePct: [319], rangedHastePct: [140], castHastePct: [65], defenseSkill: [30, 95],
@@ -2580,6 +2615,7 @@
       else if (a.aura === 13 && a.misc & 126) for (const [bit, key] of Object.entries(SCHOOL_KEYS)) { if (a.misc & bit) add(key, v); }
       else if (a.aura === 290) { add("critPct", v); add("spellCritPct", v); }
       else if (a.aura === 138) add("meleeHastePct", v);
+      else if (a.aura === 54 && rangedOnly(a.needs)) left.push(a);
       else if (pseudo) add(pseudo, v);
       else left.push(a);
     }
@@ -2857,17 +2893,50 @@
         ["at most 75%", "armor never stops more than this", FROM.rule],
         ["an attacker of your level", "who hits you on this line; Effective health below uses a raid boss", FROM.planner],
       ] });
+    const [[lowLevel, lowSwing], [highLevel, highSwing]] = BOSS_SWING;
+    const pct = (share) => Math.round(share * 100);
+    const sb = bookRank("WARRIOR", "Shield Block", 60), charges = shieldBlockCharges();
+    const bossAt = "(level + 3)";
+    const armorCut = `min(0.75, armor / (armor + 400 + 85 * ${bossAt}))`;
+    const swingTimes = `min(${highSwing}, max(${lowSwing}, ${lowSwing} + (${bossAt} - ${lowLevel}) * ${(highSwing - lowSwing) / (highLevel - lowLevel)}))`;
+    const through = `${swingTimes} * max(min(${bossAt} - 4, 21), 0.014 * ${bossAt} * ${bossAt} + 0.35 * ${bossAt}) * ${MOB_SWING} * (1 - ${armorCut})`;
+    const keep = `max(0, 1 - blockValue / (${through}))`;
+    const landed = `(1 - min(0.6, ${BASE_MISS} + (dodge + parry) / 100))`;
+    const blocked = `min(${landed}, block / 100)`;
+    const passive = `(${landed} - ${blocked} * (1 - ${keep}) + min(${landed} - ${blocked}, ${CRUSH_CHANCE}) * ${CRUSH_DAMAGE - 1})`;
+    const covered = `min(1, shieldBlock * ${SHIELD_BLOCK_USE} / (${sb.cdMs / 1000 / MOB_SWING} * ${landed}))`;
     out.push({ name: "Effective health", digits: 0,
-      expr: `health / ((1 - min(0.75, armor / (armor + 400 + 85 * (level + 3)))) * (1 - min(0.6, ${BASE_MISS} + (dodge + parry + block) / 100)))`,
+      expr: `health / ((1 - ${armorCut}) * (${covered} * ${landed} * ${keep} + (1 - ${covered}) * ${passive}) * (1 + damageTaken / 100))`,
       text: "how much damage you can take before you die, what the planner calls survival: health ÷ (the share of a raid " +
-        "boss's hits that gets through your armor × the share that doesn't miss and you don't dodge, parry or block). " +
-        `The boss is 3 levels above you; its ${BASE_MISS * 100}% misses, your dodge, parry and block (with a shield) ` +
-        "count up to 60% together.",
+        "boss's swings that gets through your armor × what an average swing does once it's through × what Defensive Stance, " +
+        "talents or your race change in the damage you take). The boss is 3 levels " +
+        `above you and swings for ${lowSwing} to ${highSwing} times what a normal enemy of its level does. Its ` +
+        `${pct(BASE_MISS)}% misses and your dodge and parry count up to 60% together; with a shield, a block takes your ` +
+        `Block Value off a swing; ${pct(CRUSH_CHANCE)}% of its swings are crushing blows for ${CRUSH_DAMAGE} times the damage ` +
+        "(once misses, dodges, parries and blocks are taken out)." +
+        (t === "WARRIOR" ? ` Shield Block, pressed on ${pct(SHIELD_BLOCK_USE)}% of its cooldowns, blocks the next ${charges} swings that get through.` : ""),
+      note: "Enemies' crits aren't counted: almost none land on Forever (the owner's combat logs: 1 in 1,376 swings at level 30, " +
+        "under 0.3% at 60).",
       numbers: [
         ["3 levels above you", "a raid boss: the planner measures every tank against one", FROM.planner],
-        [`${BASE_MISS * 100}%`, "an attack's base chance to miss you",
+        [`${lowSwing} to ${highSwing} times`, `a boss's swing before armor, over a normal enemy's (${MOB_SWING} seconds of its damage a ` +
+          `second): ${lowSwing} times at level ${lowLevel}, ${highSwing} from level ${highLevel}, a straight line between`,
+          `the owner's combat logs: Gnomeregan's bosses at ${lowLevel} swung for 144 to 155, five dungeon bosses at ${highLevel} ` +
+          "(Gizrul, Wyrmthalak, Nerub'enkan, Urok, Mor Grayhoof) for 991 on average over 255 swings; a raid boss not seen yet"],
+        [`${pct(BASE_MISS)}%`, "an attack's base chance to miss you",
           FROM.checked("a dungeon's combat log: 4.8% of 1,052 enemy swings at a level 30 tank missed")],
-        ["up to 60%", "misses + dodge + parry + block are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
+        ["up to 60%", "misses + dodge + parry are counted up to 60%, so stacking them can't make the number run away", FROM.planner],
+        ["your Block Value", "what a block takes off a swing that got through your armor",
+          FROM.checked("the owner's combat logs: every blocked swing of an hour took off the same amount, his Block Value")],
+        [`${pct(CRUSH_CHANCE)}%`, "how many of an enemy's swings crush when it's 3 or more levels above you",
+          FROM.checked("a dungeon's combat log: 10 of 64 swings at a level 30 tank from enemies 3 levels up crushed, none of 154 " +
+            "from 2 up; at level 60 none of 136 from 2 up")],
+        [`${CRUSH_DAMAGE} times`, "a crushing blow's damage", FROM.rule],
+        ...(t === "WARRIOR" ? [
+          [`${pct(SHIELD_BLOCK_USE)}%`, "how often Shield Block is pressed when it's ready",
+            "the owner's combat logs at 60: 500 Shield Blocks in 3,420 seconds of dungeon bosses"],
+          [`${charges} swings`, "how many swings one Shield Block blocks, while it lasts", FROM.files("Shield Block's tooltip")],
+        ] : []),
       ] });
     if (cls.power === 0) {
       const seen = REGEN_SEEN.includes(t);
@@ -2971,12 +3040,15 @@
       text: `${caps.melee}% hit stops your misses (${caps.dualWhite}% for dual-wield white hits, ${caps.spell}% for spells); ` +
         `${glance}; your crit chance is ${lowerCrit}.`,
       numbers: [
-        [`${caps.melee}%`, `a boss 3 levels up makes ${MELEE_MISS[3]}% of your attacks miss, and the first 1% of hit from gear ` +
-          "doesn't count against it", FROM.rule],
+        [`${caps.melee}%`, `a boss 3 levels up makes ${caps.melee}% of your attacks miss, and each 1% of hit takes 1% off ` +
+          "(the original game ignored the first 1% of hit from gear against it: Forever's tooltip and the guides don't)",
+          `Forever's own Hit Chance tooltip ("To never miss Raid Bosses: ${caps.melee}.00% Melee/Ranged, ${caps.dualWhite}.00% ` +
+          "Dual Wielding\"), not yet seen in a raid boss's combat log"],
         [`${caps.dualWhite}%`, `dual wielding makes white hits miss ${DUAL_WIELD_MISS}% more often, and hit takes that off too`,
           FROM.checked("combat logs: 21.5% of 586 white swings by four dual wielders missed, 4.0% of 6,701 by players with one " +
             "weapon; that hit takes it off wasn't seen, nobody had the hit")],
-        [`${caps.spell}%`, `spells miss ${SPELL_MISS[3]}% of the time against it, and 1% always misses`, FROM.rule],
+        [`${caps.spell}%`, `spells miss ${SPELL_MISS[3]}% of the time against it, and 1% always misses (the game's tooltip ` +
+          `says ${SPELL_MISS[3]}%: how often you miss, not the hit you can use)`, FROM.rule],
         [glance, "glancing blows: white hits that land for less (5% less at your level and one up, 15% two up); abilities never glance",
           FROM.checked("the owner's combat logs: glancing hits landed for 95% of a plain hit at his level and one up (63 hits), " +
             "89% two up (42) and 68% three up (21)")],
@@ -2986,6 +3058,6 @@
   }
 
   KP.calc = { compute, stats, talentEffects, estimateBase, hunterStyle, hitCaps, manaInfo, abilityResults, mitigation, FORMS, ehp,
-    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, rockbiterAp, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, statProbe, weaponProbe,
+    STANCE_FORM, inMask, warriorStance, formulas, spiritRegenOf, petRawDps, rageConversion, rageFromDamage, bareStat, agiPerCrit, wearableFrom, wearableTogether, rockbiterAp, talentOpensAt, dungeonMana, swingOutcomes, avoidance, mobDps, mobHealth, eliteHealth, mobArmor, mobTargets, ownSunder, meleeTaken, simRules, TANK_MIX, tankScore, tankFloors, tankFloorShort, statProbe, weaponProbe,
     AURA_KEYS, auraParts, statWeights, statScan, statTurns, statList };
 })();

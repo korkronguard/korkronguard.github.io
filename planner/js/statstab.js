@@ -20,8 +20,8 @@
   const NO_PARRY = ["MAGE", "PRIEST", "WARLOCK", "DRUID"];
   const SECTION = {
     survival: { title: "Staying alive", total: "your effective health is", unit: "effective health",
-      about: "Effective health is how much damage you can take before you die: your health, and what your armor, dodge, parry and block " +
-        "keep off you, measured against a raid boss." },
+      about: "Effective health is how much damage you can take before you die: your health, and what your armor, dodge, parry and blocks " +
+        "(your Block Value, Shield Block) keep off you, measured against a raid boss and its crushing blows." },
     damage: { title: "Damage", total: "you do", after: "a second", unit: "damage a second",
       about: "Your damage a second against the target chosen on the right: the planner's own estimate, the same number as on the other tabs." },
     healing: { title: "Healing", total: "you heal", after: "a second", unit: "healing a second",

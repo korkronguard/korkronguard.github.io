@@ -494,12 +494,16 @@
   }
   const withFightOf = (g, role, fn) => withCtx({ ...(bisCtx || {}), fightSec: KP.calc.compute(gearCtx(g, role)).fightSec }, fn);
 
+  const FLOOR_COST = 0.05, FLOOR_FIRM = 1;
+  let floorCost = FLOOR_COST;
   function bisEval(g, role) {
-    const R = KP.calc.compute(gearCtx(g, role));
+    const c = gearCtx(g, role);
+    const R = KP.calc.compute(c);
     const dps = (R.rotation && R.rotation.dps) || 0;
     const e = KP.calc.ehp(R, state.level);
-    const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? KP.calc.tankScore(e, dps) : dps;
-    return { v, e, dps };
+    const short = role === "tank" ? KP.calc.tankFloorShort(c, R.S) : 0;
+    const v = role === "heal" ? (R.healing ? R.healing.hps : 0) : role === "tank" ? KP.calc.tankScore(e, dps) - floorCost * short : dps;
+    return { v, e, dps, short };
   }
   const better = (a, b) => !b || a.v > b.v + 1e-9 * Math.max(1, Math.abs(b.v)) ||
     (Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(b.v)) && a.e > b.e + 1e-6);
@@ -556,7 +560,8 @@
   const bisOk = (it, slotKey, mh) => !it.prof && !it.damageUnverified && !otherClassSet(it) && bisLevel(it) <= state.level &&
     !whyNot(it, slotKey, mh);
   function bisSearch(role, skip, passes, alternatives, maxIlvl) {
-    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && !(maxIlvl && (it.ilvl > maxIlvl || it.raid)) && bisOk(it, slotKey, mh);
+    const ok = (it, slotKey, mh) => !(skip && skip.has(it.id)) && !(maxIlvl && ((it.ilvl > maxIlvl && !it.preRaid) || it.raid)) &&
+      bisOk(it, slotKey, mh);
     const lists = {};
     for (const s of [...BIS_SLOTS, "mainHand"]) lists[s] = [];
     for (const it of items.values()) {
@@ -567,23 +572,85 @@
     const keys = new Set(["armor"]);
     for (const l of Object.values(lists)) for (const it of l) for (const k of Object.keys(it.stats || {})) keys.add(k);
     const g = {};
+    const andNow = (cands, pool, now) => (now && pool.includes(now) && !cands.includes(now) ? [...cands, now] : cands);
+    const twoPool = lists.mainHand.filter((it) => it.inv === 17), onePool = lists.mainHand.filter((it) => it.inv !== 17);
     const pass = (n) => withFightOf(g, role, () => {
       const W = bisWeights(g, role, [...keys]);
       const rest = { ...g, mainHand: null, offHand: null };
-      const two = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv === 17), W, n, true), role);
-      let one = bestFor(rest, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role);
-      let off = one ? bestFor({ ...rest, mainHand: one }, "offHand", shortlist(offFor(one), W, n, true), role) : null;
-      if (one && off) one = bestFor({ ...rest, offHand: off }, "mainHand", shortlist(lists.mainHand.filter((it) => it.inv !== 17), W, n, true), role) || one;
+      const two = bestFor(rest, "mainHand", andNow(shortlist(twoPool, W, n, true), twoPool, g.mainHand), role);
+      let one = bestFor(rest, "mainHand", andNow(shortlist(onePool, W, n, true), onePool, g.mainHand), role);
+      const offPool = one ? offFor(one) : [];
+      const off = one ? bestFor({ ...rest, mainHand: one }, "offHand", andNow(shortlist(offPool, W, n, true), offPool, g.offHand), role) : null;
+      if (one && off) one = bestFor({ ...rest, offHand: off }, "mainHand", andNow(shortlist(onePool, W, n, true), onePool, g.mainHand), role) || one;
       const a = two ? bisEval({ ...rest, mainHand: two }, role) : null;
       const b = one ? bisEval({ ...rest, mainHand: one, offHand: off }, role) : null;
       if (a && (!b || better(a, b))) { g.mainHand = two; g.offHand = null; } else { g.mainHand = one; g.offHand = off; }
-      for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, shortlist(lists[s], W, n, s === "ranged"), role);
+      for (const s of BIS_SLOTS) g[s] = bestFor({ ...g, [s]: null }, s, andNow(shortlist(lists[s], W, n, s === "ranged"), lists[s], g[s]), role);
     });
     for (let p = 0; p < passes; p++) pass(p ? 8 : 12);
     if (withFightOf(g, role, () => completeSets(g, role, setPieces(lists, ok), bisWeights(g, role, [...keys])))) pass(8);
-    const alts = alternatives
-      ? withFightOf(g, role, () => rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives)) : null;
-    return { g, role, alts };
+    const floored = role === "tank" && KP.calc.tankFloors(gearCtx(g, role));
+    if (floored) floorCost = FLOOR_FIRM;
+    try {
+      if (floored) {
+        withFightOf(g, role, () => reachFloors(g, role, lists));
+        pass(8);
+        withFightOf(g, role, () => tradeAboveFloors(g, role, lists, bisWeights(g, role, [...keys])));
+      }
+      const alts = alternatives
+        ? withFightOf(g, role, () => rankAlternatives(g, role, lists, offFor, bisWeights(g, role, [...keys]), alternatives)) : null;
+      return { g, role, alts };
+    } finally {
+      floorCost = FLOOR_COST;
+    }
+  }
+
+  const FLOOR_PARTS = ["hit", "hitPct", "expertise"];
+  const carriesFloorStat = (it) => FLOOR_PARTS.some((k) => (it.stats || {})[k]) ||
+    FLOOR_PARTS.some((k) => KP.calc.auraParts((it.effects || []).flatMap((e) => (e.auras || []).map((a) => ({ ...a, needs: e.needs })))).parts[k]);
+  function reachFloors(g, role, lists) {
+    for (let step = 0; step < 17; step++) {
+      const cur = bisEval(g, role);
+      if (!cur.short) return;
+      let best = null;
+      for (const s of [...BIS_SLOTS, "mainHand"]) {
+        for (const it of lists[s]) {
+          if (g[s] === it || !carriesFloorStat(it)) continue;
+          const next = placed(g, s, it);
+          if (!next) continue;
+          const r = bisEval(next, role);
+          if (r.short < cur.short && (!best || better(r, best.r))) best = { next, r };
+        }
+      }
+      if (!best) return;
+      Object.assign(g, best.next);
+    }
+  }
+  function tradeAboveFloors(g, role, lists, W) {
+    const slots = [...BIS_SLOTS, "mainHand"];
+    const carriers = slots.flatMap((s) => lists[s].filter(carriesFloorStat).map((it) => [s, it]));
+    let cur = bisEval(g, role);
+    for (let round = 0; round < 4; round++) {
+      let changed = false;
+      for (const s of slots) {
+        for (const it of shortlist(lists[s], W, 8, s === "ranged" || s === "mainHand")) {
+          const broke = g[s] === it ? null : placed(g, s, it);
+          if (!broke) continue;
+          const rb = bisEval(broke, role);
+          if (rb.v + floorCost * rb.short <= cur.v) continue;
+          let best = null;
+          for (const [s2, it2] of carriers) {
+            if (s2 === s || broke[s2] === it2) continue;
+            const next = placed(broke, s2, it2);
+            if (!next) continue;
+            const r = bisEval(next, role);
+            if (!r.short && better(r, cur) && (!best || better(r, best.r))) best = { next, r };
+          }
+          if (best) { Object.assign(g, best.next); cur = best.r; changed = true; }
+        }
+      }
+      if (!changed) return;
+    }
   }
 
   const countedSet = (id) => KP.items.sets[id] && KP.items.sets[id].bonuses.some((b) => b.auras && b.auras.length);
@@ -672,7 +739,8 @@
     const unit = role === "heal" ? "healing per second" : "damage per second";
     const shown = (r) => (role === "tank" ? null : r.v);
     const buffsOn = Object.values(state.buffs || {}).some(Boolean);
-    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit, buffsOn, preRaid: bisPreRaid };
+    const floors = role === "tank" ? KP.calc.tankFloors(app.ctx()) : null;
+    bisNote = { role, n, ms: performance.now() - t0, before: shown(before), after: shown(after), unit, buffsOn, preRaid: bisPreRaid, floors };
     app.changed();
   }
 
@@ -710,7 +778,8 @@
     const pre = el("label", "pfield");
     pre.title = `Only items of item level ${PRE_RAID_ILVL} and under: dungeons, quests, crafting and reputation, before raid loot. ` +
       "The game's files don't say where an item drops, so item level stands in for it; Zul'Gurub's and Ahn'Qiraj's reputation " +
-      "rewards and Zul'Gurub's necklaces are left out too.";
+      "rewards and Zul'Gurub's necklaces are left out too. Dungeon Set 2's upgraded pieces (item level 65 and 66) and three level " +
+      "65 items Forever added (Howler's Furs, Cutthroat's Signet, Adaptive Combat Assistant) count as pre-raid.";
     const tick = el("input");
     tick.type = "checkbox";
     tick.checked = bisPreRaid;
@@ -739,7 +808,8 @@
       box.append(el("p", "muted small gear-bis-note",
         `Equipped the best ${b.n} items for ${ROLE_NAMES[b.role].toLowerCase()} (${fmt1(b.ms / 1000)} sec)` +
         (b.after != null ? `: ${fmt1(b.after)} ${b.unit}` + (b.before != null && Math.abs(b.after - b.before) > 0.05 ? ` (was ${fmt1(b.before)})` : "") : "") +
-        (b.preRaid ? `, pre-raid (item level ${PRE_RAID_ILVL} and under)` : "") + (b.buffsOn ? ". Your target, buffs and talents count." : ". Your target and talents count, with no group buffs (just you): " +
+        (b.preRaid ? `, pre-raid (item level ${PRE_RAID_ILVL} and under, and Dungeon Set 2)` : "") +
+        (b.floors ? `, reaching ${b.floors.hit}% hit and ${b.floors.expertise}% expertise first` : "") + (b.buffsOn ? ". Your target, buffs and talents count." : ". Your target and talents count, with no group buffs (just you): " +
           "mana weighs more alone, so for raid gear switch the buffs on in the panel first.") + " Dungeon and raid loot with no level requirement counts from 5 levels below its " +
         "item level. Left out: profession items (Engineering…), weapons whose damage isn't confirmed, other classes' tier sets " +
         "and the other faction's gear; " +

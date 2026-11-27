@@ -155,7 +155,7 @@
         if (w && w.levelPct > 0.05) bits.push(`${fmt(w.levelPct)}% faster leveling (quicker kills or less eating and drinking)`);
         if (w && w.dps > 0.05) bits.push(`${fmt(w.dps)} damage per second` + (w.baseDps || build ? ` (${fmt((w.dps / ((w.baseDps || build.dps60 || 1) - w.dps)) * 100)}%)` : ""));
         if (w && w.hps > 0.05) bits.push(`${fmt(w.hps)} healing per second`);
-        if (w && w.ehpPct > 0.05) bits.push(`${fmt(w.ehpPct)}% survival (health through armor and avoidance)`);
+        if (w && w.ehpPct > 0.05) bits.push(`${fmt(w.ehpPct)}% survival (health through armor, avoidance and blocks)`);
         const rank = ranked.indexOf(i);
         if (bits.length) reasons.push(`Worth ${bits.join(", ")}` + (rank >= 0 ? `: number ${rank + 1} of your ${ranked.length} measurable talents.` : "."));
         const note = notes[`${state.cls.token}:${t.name}`];
